@@ -159,6 +159,10 @@ class Main(QMainWindow):
         #cardCaption { color:#6b7b88; font-size:12px; font-weight:700; }
         #cardValue { color:#17324d; font-size:27px; font-weight:800; }
         #infoBox { background:white; border:1px solid #dce3e9; border-radius:10px; padding:14px; color:#607080; }
+        #clientHeader { background:white; border:1px solid #dce3e9; border-radius:14px; padding:12px; }
+        #clientName { color:#17324d; font-size:24px; font-weight:800; }
+        #clientBadge { background:#e8f0f6; color:#17324d; border-radius:10px; padding:8px 14px; font-weight:700; }
+        #sectionTitle { color:#17324d; font-size:18px; font-weight:700; padding-top:8px; }
         QTabWidget::pane { border:0; background:white; border-radius:12px; }
         QTabBar::tab { background:#e9eef3; padding:12px 20px; margin:2px; border-radius:8px; font-size:14px; }
         QTabBar::tab:selected { background:#17324d; color:white; font-weight:700; }
@@ -420,16 +424,27 @@ class Main(QMainWindow):
         save_data(); update_excel(); self.i_no.setText(next_no())
         QMessageBox.information(self,"Fertig",f"PDF gespeichert:\n{pdf}")
     def clients_ui(self):
-        w=QWidget(); v=QVBoxLayout(w); t=QTableWidget(0,3); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
+        title=QLabel("Klienten"); title.setObjectName("pageTitle"); v.addWidget(title)
+        tools=QHBoxLayout(); search=QLineEdit(); search.setPlaceholderText("Klient suchen …"); search.setClearButtonEnabled(True); tools.addWidget(search,1); v.addLayout(tools)
+        t=QTableWidget(0,3); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setAlternatingRowColors(True); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers)
         for c in DB["clients"]: r=t.rowCount();t.insertRow(r);[t.setItem(r,j,QTableWidgetItem(str(c.get(k,"")))) for j,k in enumerate(["last","first","dob"])]
         v.addWidget(t)
-        opensessions=QPushButton("Sitzungen des ausgewählten Klienten öffnen"); opensessions.setMinimumHeight(45)
+        def filter_clients(txt):
+            q=txt.strip().lower()
+            for row in range(t.rowCount()):
+                hay=" ".join(t.item(row,col).text().lower() if t.item(row,col) else "" for col in range(t.columnCount()))
+                t.setRowHidden(row,q not in hay)
+        search.textChanged.connect(filter_clients)
+        opensessions=QPushButton("Klientenakte öffnen"); opensessions.setMinimumHeight(48)
         def show_sessions():
             r=t.currentRow()
             if r<0:return
             last=t.item(r,0).text(); first=t.item(r,1).text()
             rows=[s for s in DB["sessions"] if s.get("last")==last and s.get("first")==first]
-            dlg=QDialog(self); dlg.setWindowTitle(f"Sitzungen – {first} {last}"); dlg.resize(900,600); lay=QVBoxLayout(dlg)
+            dlg=QDialog(self); dlg.setWindowTitle(f"Klientenakte – {first} {last}"); dlg.resize(980,700); lay=QVBoxLayout(dlg)
+            head=QFrame(); head.setObjectName("clientHeader"); hv=QHBoxLayout(head); person=QVBoxLayout(); nm=QLabel(f"{first} {last}"); nm.setObjectName("clientName"); dob=t.item(r,2).text() if t.item(r,2) else ""; meta=QLabel(("Geburtsdatum: "+dob) if dob else "Geburtsdatum nicht hinterlegt"); meta.setObjectName("pageSub"); person.addWidget(nm);person.addWidget(meta);hv.addLayout(person);hv.addStretch(); count=QLabel(f"{len(rows)} Sitzungen"); count.setObjectName("clientBadge");hv.addWidget(count);lay.addWidget(head)
+            section=QLabel("Sitzungsverlauf"); section.setObjectName("sectionTitle"); lay.addWidget(section)
             st=QTableWidget(0,6); st.setHorizontalHeaderLabels(["Datum","Beginn","Ende","Min.","Art","Abgerechnet"]); st.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
             for s in sorted(rows,key=lambda x:x.get("date",""),reverse=True):
                 rr=st.rowCount(); st.insertRow(rr)
@@ -451,7 +466,7 @@ class Main(QMainWindow):
                     s["minutes"]=mins.value(); s["type"]=typ.currentText(); s["notes"]=note.toPlainText(); s["corrected_at"]=datetime.now().isoformat(timespec="seconds"); save_data()
                     d=client_dir({"last":last,"first":first})/"Sitzungen"; jf=d/f'{s.get("date","")}_Sitzung.json'; jf.write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding="utf-8"); st.item(rr,3).setText(str(s["minutes"])); st.item(rr,4).setText(s["type"]); ed.accept()
                 buttons.accepted.connect(save_edit); buttons.rejected.connect(ed.reject); ed.exec()
-            edit.clicked.connect(edit_selected); lay.addWidget(edit)
+            edit.clicked.connect(edit_selected)
             view=QPushButton("Ausgewählte Sitzung / Notiz öffnen")
             def open_selected():
                 rr=st.currentRow()
@@ -465,7 +480,9 @@ class Main(QMainWindow):
                 if ink and Path(ink).exists():
                     lab=QLabel(); pix=QPixmap(ink); lab.setPixmap(pix.scaled(820,380,Qt.KeepAspectRatio,Qt.SmoothTransformation)); lab.setAlignment(Qt.AlignCenter); nv.addWidget(lab)
                 buttons=QDialogButtonBox(QDialogButtonBox.Close); buttons.rejected.connect(nd.reject); nv.addWidget(buttons); nd.exec()
-            view.clicked.connect(open_selected); lay.addWidget(view); close=QDialogButtonBox(QDialogButtonBox.Close); close.rejected.connect(dlg.reject); lay.addWidget(close); dlg.exec()
+            view.clicked.connect(open_selected)
+            actionrow=QHBoxLayout(); actionrow.addWidget(view); actionrow.addWidget(edit); lay.addLayout(actionrow)
+            close=QDialogButtonBox(QDialogButtonBox.Close); close.rejected.connect(dlg.reject); lay.addWidget(close); dlg.exec()
         opensessions.clicked.connect(show_sessions); v.addWidget(opensessions)
         openink=QPushButton("Letzte Handschrift des ausgewählten Klienten anzeigen"); openink.setMinimumHeight(45)
         def show_ink():
