@@ -1,4 +1,4 @@
-import sys, json, os, re, math, shutil, sqlite3
+import sys, json, os, re, math, shutil, sqlite3, base64, hashlib
 from pathlib import Path
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint, QUrl
@@ -8,6 +8,38 @@ from PySide6.QtGui import QImage, QPainter, QPen, QPixmap, QDesktopServices
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
+from cryptography.fernet import Fernet, InvalidToken
+
+KEYFILE=DBDIR/"praxis.key"
+
+def encryption_key():
+    DBDIR.mkdir(parents=True,exist_ok=True)
+    if KEYFILE.exists(): return KEYFILE.read_bytes()
+    key=Fernet.generate_key(); KEYFILE.write_bytes(key)
+    try: os.chmod(KEYFILE,0o600)
+    except Exception: pass
+    return key
+
+def encrypt_text(value):
+    if value is None or value=="": return value or ""
+    s=str(value)
+    if s.startswith("enc:"): return s
+    return "enc:"+Fernet(encryption_key()).encrypt(s.encode("utf-8")).decode("ascii")
+
+def decrypt_text(value):
+    if not value: return ""
+    s=str(value)
+    if not s.startswith("enc:"): return s
+    try:return Fernet(encryption_key()).decrypt(s[4:].encode("ascii")).decode("utf-8")
+    except (InvalidToken,ValueError):return "[Verschlüsselte Daten nicht lesbar]"
+
+def encrypt_file(path):
+    p=Path(path)
+    if not p.exists(): return ""
+    out=p.with_suffix(p.suffix+".enc"); out.write_bytes(Fernet(encryption_key()).encrypt(p.read_bytes()))
+    try:p.unlink()
+    except Exception:pass
+    return str(out)
 
 class InkCanvas(QWidget):
     def __init__(self):
@@ -91,15 +123,15 @@ def sync_sqlite():
         cur.execute("""INSERT INTO clients(first,last,dob,address,diagnosis,created_at,updated_at)
         VALUES(?,?,?,?,?,?,?) ON CONFLICT(first,last,dob) DO UPDATE SET
         address=excluded.address,diagnosis=excluded.diagnosis,updated_at=excluded.updated_at""",
-        (x.get("first",""),x.get("last",""),x.get("dob",""),x.get("address",""),x.get("diagnosis",""),x.get("created_at",""),datetime.now().isoformat(timespec="seconds")))
+        (encrypt_text(x.get("first","")),encrypt_text(x.get("last","")),encrypt_text(x.get("dob","")),encrypt_text(x.get("address","")),encrypt_text(x.get("diagnosis","")),x.get("created_at",""),datetime.now().isoformat(timespec="seconds")))
     con.commit()
     for s in DB.get("sessions",[]):
-        cur.execute("SELECT id FROM clients WHERE first=? AND last=? ORDER BY id DESC LIMIT 1",(s.get("first",""),s.get("last",""))); row=cur.fetchone(); cid=row[0] if row else None
+        cur.execute("SELECT id FROM clients WHERE first=? AND last=? ORDER BY id DESC LIMIT 1",(encrypt_text(s.get("first","")),encrypt_text(s.get("last","")))); row=cur.fetchone(); cid=row[0] if row else None
         cur.execute("""INSERT INTO sessions(id,client_id,date,start,end,minutes,type,reduced,notes,ink_file,billed,invoice_number,corrected_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET client_id=excluded.client_id,date=excluded.date,start=excluded.start,end=excluded.end,minutes=excluded.minutes,type=excluded.type,reduced=excluded.reduced,notes=excluded.notes,ink_file=excluded.ink_file,billed=excluded.billed,invoice_number=excluded.invoice_number,corrected_at=excluded.corrected_at""",(s.get("id"),cid,s.get("date",""),s.get("start",""),s.get("end",""),s.get("minutes",0),s.get("type",""),1 if s.get("reduced") else 0,s.get("notes",""),s.get("ink_file",""),1 if s.get("billed") else 0,s.get("invoice_number",""),s.get("corrected_at","")))
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET client_id=excluded.client_id,date=excluded.date,start=excluded.start,end=excluded.end,minutes=excluded.minutes,type=excluded.type,reduced=excluded.reduced,notes=excluded.notes,ink_file=excluded.ink_file,billed=excluded.billed,invoice_number=excluded.invoice_number,corrected_at=excluded.corrected_at""",(s.get("id"),cid,s.get("date",""),s.get("start",""),s.get("end",""),s.get("minutes",0),s.get("type",""),1 if s.get("reduced") else 0,encrypt_text(s.get("notes","")),encrypt_text(s.get("ink_file","")),1 if s.get("billed") else 0,s.get("invoice_number",""),s.get("corrected_at","")))
     for i in DB.get("invoices",[]):
         cur.execute("""INSERT INTO invoices(number,date,client,address,diagnosis,amount,status,paid_date,pdf)
-        VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(number) DO UPDATE SET date=excluded.date,client=excluded.client,address=excluded.address,diagnosis=excluded.diagnosis,amount=excluded.amount,status=excluded.status,paid_date=excluded.paid_date,pdf=excluded.pdf""",(i.get("number",""),i.get("date",""),i.get("client",""),i.get("address",""),i.get("diagnosis",""),i.get("amount",0),i.get("status","offen"),i.get("paid_date",""),i.get("pdf","")))
+        VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(number) DO UPDATE SET date=excluded.date,client=excluded.client,address=excluded.address,diagnosis=excluded.diagnosis,amount=excluded.amount,status=excluded.status,paid_date=excluded.paid_date,pdf=excluded.pdf""",(i.get("number",""),i.get("date",""),encrypt_text(i.get("client","")),encrypt_text(i.get("address","")),encrypt_text(i.get("diagnosis","")),i.get("amount",0),i.get("status","offen"),i.get("paid_date",""),i.get("pdf","")))
         cur.execute("SELECT id FROM invoices WHERE number=?",(i.get("number",""),)); ir=cur.fetchone()
         if ir and i.get("items") is not None:
             iid=ir[0]; cur.execute("DELETE FROM invoice_items WHERE invoice_id=?",(iid,))
@@ -674,7 +706,8 @@ class Main(QMainWindow):
             if DBFILE.exists():
                 con=sqlite3.connect(DBFILE); out=sqlite3.connect(dest/DBFILE.name); con.backup(out); out.close(); con.close()
             for x in (ROOT/"Einnahmen").glob("*.xlsx"): shutil.copy2(x,dest/x.name)
-            shutil.copytree(ROOT/"Klienten",dest/"Klienten",dirs_exist_ok=True); (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nDatenbank: "+str(DBFILE)+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[]))),encoding="utf-8"); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
+            shutil.copytree(ROOT/"Klienten",dest/"Klienten",dirs_exist_ok=True); if KEYFILE.exists(): shutil.copy2(KEYFILE,dest/KEYFILE.name)
+            (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nDatenbank: "+str(DBFILE)+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[]))),encoding="utf-8"); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
         backup.clicked.connect(do_backup); v.addWidget(backup); return w
     def manual_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
