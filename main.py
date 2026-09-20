@@ -107,6 +107,9 @@ def init_sqlite():
       minutes INTEGER NOT NULL DEFAULT 45, amount REAL NOT NULL DEFAULT 70,
       reduced_amount REAL, billing_mode TEXT DEFAULT 'proportional', active INTEGER DEFAULT 1);
     """)
+    ucols=[r[1] for r in con.execute("PRAGMA table_info(users)").fetchall()]
+    if "recovery_question" not in ucols: con.execute("ALTER TABLE users ADD COLUMN recovery_question TEXT")
+    if "recovery_answer_hash" not in ucols: con.execute("ALTER TABLE users ADD COLUMN recovery_answer_hash TEXT")
     cols=[r[1] for r in con.execute("PRAGMA table_info(clients)").fetchall()]
     if "client_key" not in cols: con.execute("ALTER TABLE clients ADD COLUMN client_key TEXT")
     con.execute("CREATE INDEX IF NOT EXISTS idx_clients_client_key ON clients(client_key)")
@@ -157,6 +160,9 @@ def set_setting(key,value):
 def password_hash(password,salt=None):
     salt=salt or os.urandom(16); digest=hashlib.pbkdf2_hmac("sha256",password.encode("utf-8"),salt,310000)
     return base64.b64encode(salt).decode()+":"+base64.b64encode(digest).decode()
+
+def normalize_recovery_answer(value):
+    return " ".join(str(value).strip().lower().split())
 
 def verify_password(password,stored):
     try:
@@ -225,6 +231,29 @@ def update_excel():
     ov.append(["Rechnungsbetrag",total]); ov.append(["Bezahlt",paid]); ov.append(["Offen",total-paid]); ws.column_dimensions["A"].width=20; ws.column_dimensions["B"].width=16; ws.column_dimensions["C"].width=16; ws.column_dimensions["D"].width=28; ws.column_dimensions["E"].width=14; ws.column_dimensions["F"].width=14
     wb.save(f)
 
+class PasswordResetDialog(QDialog):
+    def __init__(self):
+        super().__init__(); self.setWindowTitle("Passwort zurücksetzen"); self.setMinimumWidth(440)
+        v=QVBoxLayout(self); v.addWidget(QLabel("Passwort vergessen"))
+        self.username=QLineEdit(); self.username.setPlaceholderText("Benutzername"); v.addWidget(self.username)
+        self.question=QLabel("Benutzername eingeben und Sicherheitsfrage laden."); self.question.setWordWrap(True); v.addWidget(self.question)
+        load=QPushButton("Sicherheitsfrage laden"); load.clicked.connect(self.load_question); v.addWidget(load)
+        self.answer=QLineEdit(); self.answer.setPlaceholderText("Antwort"); v.addWidget(self.answer)
+        self.p1=QLineEdit(); self.p1.setEchoMode(QLineEdit.Password); self.p1.setPlaceholderText("Neues Passwort – mindestens 8 Zeichen"); v.addWidget(self.p1)
+        self.p2=QLineEdit(); self.p2.setEchoMode(QLineEdit.Password); self.p2.setPlaceholderText("Neues Passwort wiederholen"); v.addWidget(self.p2)
+        b=QPushButton("Passwort zurücksetzen"); b.clicked.connect(self.reset_password); v.addWidget(b)
+    def load_question(self):
+        con=sqlite3.connect(DBFILE); row=con.execute("SELECT recovery_question FROM users WHERE username=? AND active=1",(self.username.text().strip(),)).fetchone(); con.close()
+        self.question.setText(row[0] if row and row[0] else "Für diesen Benutzer ist keine Sicherheitsfrage hinterlegt.")
+    def reset_password(self):
+        username=self.username.text().strip(); con=sqlite3.connect(DBFILE); row=con.execute("SELECT recovery_answer_hash FROM users WHERE username=? AND active=1",(username,)).fetchone()
+        if not row or not row[0] or not verify_password(normalize_recovery_answer(self.answer.text()),row[0]):
+            con.close(); audit("PASSWORD_RESET_FAILED","Sicherheitsantwort falsch",username); QMessageBox.warning(self,"Passwort zurücksetzen","Benutzername oder Sicherheitsantwort ist nicht korrekt."); return
+        if len(self.p1.text())<8 or self.p1.text()!=self.p2.text():
+            con.close(); QMessageBox.warning(self,"Passwort","Zwei gleiche Passwörter mit mindestens 8 Zeichen erforderlich."); return
+        con.execute("UPDATE users SET password_hash=? WHERE username=?",(password_hash(self.p1.text()),username)); con.commit(); con.close()
+        audit("PASSWORD_RESET","Passwort über Sicherheitsfrage zurückgesetzt",username); QMessageBox.information(self,"Passwort","Das Passwort wurde geändert."); self.accept()
+
 class LoginDialog(QDialog):
     def __init__(self):
         super().__init__(); self.user=None; self.setWindowTitle("PraxisPro – Anmeldung"); self.setMinimumWidth(420)
@@ -235,6 +264,7 @@ class LoginDialog(QDialog):
         v.addWidget(self.username); v.addWidget(self.password)
         self.info=QLabel(""); self.info.setWordWrap(True); v.addWidget(self.info)
         b=QPushButton("Anmelden"); b.setMinimumHeight(48); b.clicked.connect(self.try_login); v.addWidget(b)
+        forgot=QPushButton("Passwort vergessen?"); forgot.setFlat(True); forgot.clicked.connect(lambda:PasswordResetDialog().exec()); v.addWidget(forgot)
         self.password.returnPressed.connect(self.try_login)
     def try_login(self):
         con=sqlite3.connect(DBFILE); row=con.execute("SELECT username,display_name,role,password_hash FROM users WHERE username=? AND active=1",(self.username.text().strip(),)).fetchone(); con.close()
@@ -252,11 +282,13 @@ def ensure_first_user():
     display=QLineEdit(get_setting("owner_name","Erdoğan Kulanoğlu")); display.setPlaceholderText("Anzeigename")
     p1=QLineEdit(); p1.setEchoMode(QLineEdit.Password); p1.setPlaceholderText("Passwort – mindestens 8 Zeichen")
     p2=QLineEdit(); p2.setEchoMode(QLineEdit.Password); p2.setPlaceholderText("Passwort wiederholen")
-    for w in (name,display,p1,p2): v.addWidget(w)
+    question=QLineEdit(); question.setPlaceholderText("Sicherheitsfrage, z. B. Name meiner ersten Schule?")
+    answer=QLineEdit(); answer.setPlaceholderText("Antwort auf die Sicherheitsfrage")
+    for w in (name,display,p1,p2,question,answer): v.addWidget(w)
     buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); v.addWidget(buttons)
     def create():
-        if not name.text().strip() or len(p1.text())<8 or p1.text()!=p2.text(): QMessageBox.warning(d,"Ersteinrichtung","Benutzername, zwei gleiche Passwörter und mindestens 8 Zeichen erforderlich."); return
-        con=sqlite3.connect(DBFILE); con.execute("INSERT INTO users(username,display_name,role,active,password_hash,created_at) VALUES(?,?,?,?,?,?)",(name.text().strip(),display.text().strip() or name.text().strip(),"Administrator",1,password_hash(p1.text()),datetime.now().isoformat(timespec="seconds"))); con.commit(); con.close(); audit("FIRST_ADMIN_CREATED",display.text().strip(),name.text().strip()); d.accept()
+        if not name.text().strip() or len(p1.text())<8 or p1.text()!=p2.text() or not question.text().strip() or not answer.text().strip(): QMessageBox.warning(d,"Ersteinrichtung","Benutzername, zwei gleiche Passwörter, Sicherheitsfrage und Antwort sind erforderlich."); return
+        con=sqlite3.connect(DBFILE); con.execute("INSERT INTO users(username,display_name,role,active,password_hash,created_at,recovery_question,recovery_answer_hash) VALUES(?,?,?,?,?,?,?,?)",(name.text().strip(),display.text().strip() or name.text().strip(),"Administrator",1,password_hash(p1.text()),datetime.now().isoformat(timespec="seconds"),question.text().strip(),password_hash(normalize_recovery_answer(answer.text())))); con.commit(); con.close(); audit("FIRST_ADMIN_CREATED",display.text().strip(),name.text().strip()); d.accept()
     buttons.accepted.connect(create); buttons.rejected.connect(d.reject)
     return d.exec()==QDialog.Accepted
 
@@ -884,8 +916,12 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             if not ok or not display.strip():return
             pwd,ok=QInputDialog.getText(self,"Benutzer","Passwort:",QLineEdit.Password)
             if not ok or len(pwd)<8:return QMessageBox.warning(self,"Passwort","Bitte mindestens 8 Zeichen verwenden.")
+            rq,ok=QInputDialog.getText(self,"Benutzer","Sicherheitsfrage:")
+            if not ok or not rq.strip():return
+            ra,ok=QInputDialog.getText(self,"Benutzer","Antwort auf die Sicherheitsfrage:")
+            if not ok or not ra.strip():return
             try:
-                con=sqlite3.connect(DBFILE); con.execute("INSERT INTO users(username,display_name,role,active,password_hash,created_at) VALUES(?,?,?,?,?,?)",(name.strip(),display.strip(),"Therapeut",1,password_hash(pwd),datetime.now().isoformat(timespec="seconds"))); con.commit(); con.close(); audit("USER_CREATED",display.strip()); QMessageBox.information(self,"Benutzer","Benutzer wurde angelegt.")
+                con=sqlite3.connect(DBFILE); con.execute("INSERT INTO users(username,display_name,role,active,password_hash,created_at,recovery_question,recovery_answer_hash) VALUES(?,?,?,?,?,?,?,?)",(name.strip(),display.strip(),"Therapeut",1,password_hash(pwd),datetime.now().isoformat(timespec="seconds"),rq.strip(),password_hash(normalize_recovery_answer(ra)))); con.commit(); con.close(); audit("USER_CREATED",display.strip()); QMessageBox.information(self,"Benutzer","Benutzer wurde angelegt.")
             except sqlite3.IntegrityError: QMessageBox.warning(self,"Benutzer","Dieser Benutzername existiert bereits.")
         ub.clicked.connect(add_user); v.addWidget(ub)
         return w
