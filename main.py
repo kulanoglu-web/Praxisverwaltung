@@ -147,7 +147,7 @@ class Main(QMainWindow):
         if x:
             self.s_first.setText(x.get("first","")); self.s_last.setText(x.get("last","")); self.s_dob.setText(x.get("dob",""))
     def start_session(self):
-        now=datetime.now(); self.s_date.setDate(QDate.currentDate()); self.s_start.setTime(QTime.currentTime()); self.started=now; self.acc=0; self.running=True; self.update_wallclock()
+        now=datetime.now(); self.s_date.setDate(QDate.currentDate()); self.started=now; self.acc=0; self.running=True; self.update_wallclock()
     def pause(self):
         if self.running and self.started: self.acc+=(datetime.now()-self.started).total_seconds(); self.running=False
         else:self.started=datetime.now(); self.running=True
