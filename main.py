@@ -2,7 +2,7 @@ import sys, json, os, re, math, shutil, sqlite3
 from pathlib import Path
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter)
+from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap
 from reportlab.lib.pagesizes import A4
@@ -129,14 +129,30 @@ class Main(QMainWindow):
     def __init__(self):
         super().__init__(); self.setWindowTitle("Praxisverwaltung"); self.resize(1280,820); self.setMinimumSize(1050,700)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
-        tabs=QTabWidget(); self.setCentralWidget(tabs)
-        tabs.addTab(self.session_ui(),"Sitzungsnotiz"); tabs.addTab(self.helper_ui(),"Sitzungsassistent"); tabs.addTab(self.invoice_ui(),"Rechnung"); tabs.addTab(self.clients_ui(),"Klienten"); tabs.addTab(self.invoices_ui(),"Rechnungen"); tabs.addTab(self.dashboard_ui(),"Übersicht")
+        shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(14,20,14,20)
+        brand=QLabel("PRAXIS\nVERWALTUNG"); brand.setObjectName("brand"); sv.addWidget(brand)
+        self.nav=QListWidget(); self.nav.setObjectName("nav")
+        for x in ["Übersicht","Sitzung","Sitzungsassistent","Klienten","Neue Rechnung","Rechnungen"]: self.nav.addItem(x)
+        sv.addWidget(self.nav,1)
+        foot=QLabel("Lokale Praxisverwaltung"); foot.setObjectName("sidefoot"); sv.addWidget(foot)
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui())
+        self.nav.currentRowChanged.connect(self.pages.setCurrentIndex); self.nav.setCurrentRow(0)
+        root.addWidget(sidebar); root.addWidget(self.pages,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
         self.wallclock=QLabel()
         self.statusBar().addPermanentWidget(self.wallclock)
         self.walltimer=QTimer(self); self.walltimer.timeout.connect(self.update_wallclock); self.walltimer.start(250); self.update_wallclock()
         self.setStyleSheet("""
         QMainWindow { background:#f4f6f8; }
+        #sidebar { background:#132f47; border:0; }
+        #brand { color:white; font-size:21px; font-weight:800; padding:8px 10px 20px 10px; letter-spacing:1px; }
+        #sidefoot { color:#b9c8d5; font-size:12px; padding:10px; }
+        #nav { background:transparent; border:0; outline:0; color:#dce7ef; font-size:15px; }
+        #nav::item { padding:14px 12px; margin:3px 0; border-radius:8px; }
+        #nav::item:selected { background:#ffffff; color:#17324d; font-weight:700; }
+        #nav::item:hover:!selected { background:#244d70; color:white; }
+        QStackedWidget { background:#f4f6f8; }
         QTabWidget::pane { border:0; background:white; border-radius:12px; }
         QTabBar::tab { background:#e9eef3; padding:12px 20px; margin:2px; border-radius:8px; font-size:14px; }
         QTabBar::tab:selected { background:#17324d; color:white; font-weight:700; }
