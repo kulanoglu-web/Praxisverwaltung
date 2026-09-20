@@ -422,34 +422,63 @@ class Main(QMainWindow):
         return False
 
     def session_ui(self):
-        w=QWidget(); v=QVBoxLayout(w); top=QHBoxLayout()
-        title=QLabel("Sitzungsnotiz"); title.setStyleSheet("font-size:26px;font-weight:700")
-        self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setStyleSheet("font-size:32px;font-weight:800;padding:12px;border:2px solid #777;border-radius:10px")
-        top.addWidget(title); top.addStretch(); top.addWidget(self.clock); v.addLayout(top)
-        f=QFormLayout(); f.setLabelAlignment(Qt.AlignRight); f.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(24,18,24,12); v.setSpacing(10)
+        top=QHBoxLayout(); title=QLabel("▣  Sitzungsnotiz"); title.setObjectName("pageTitle")
+        self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setMinimumWidth(190); self.clock.setStyleSheet("font-size:30px;font-weight:800;padding:10px 18px;border:2px solid #8091a1;border-radius:12px;background:white")
+        timerbtn=QPushButton("▶  Timer starten"); timerbtn.setMinimumHeight(54); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:16px"); timerbtn.clicked.connect(self.start_session)
+        top.addWidget(title); top.addStretch(); top.addWidget(self.clock); top.addWidget(timerbtn); v.addLayout(top)
+
+        card=QFrame(); card.setObjectName("formCard"); grid=QGridLayout(card); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(10)
+        sec=QLabel("Sitzungsdaten"); sec.setObjectName("sectionTitle"); grid.addWidget(sec,0,0,1,4)
+        self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …")
+        self.client_pick.addItem("")
+        for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.client_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
+        newclient=QPushButton("＋ Neuer Klient"); newclient.clicked.connect(self.open_new_client_dialog)
         self.s_last=QLineEdit(); self.s_first=QLineEdit(); self.s_dob=QLineEdit(); self.s_dob.setPlaceholderText("TT.MM.JJJJ")
-        for field in (self.s_last,self.s_first,self.s_dob): field.setMinimumWidth(420); field.setMinimumHeight(38)
-        self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy"); self.s_start=QTimeEdit(); self.s_end=QTimeEdit(); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
-        self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"])
-        self.s_red=QCheckBox("Ermäßigter Satz")
-        for a,b in [("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Datum",self.s_date),("Beginn",self.s_start),("Ende",self.s_end),("Art",self.s_type)]:f.addRow(a,b)
-        self.s_last.editingFinished.connect(self.fill_session_client); self.s_first.editingFinished.connect(self.fill_session_client)
-        f.addRow("",self.s_red); v.addLayout(f)
-        self.notes=QTextEdit(); self.notes.setPlaceholderText("Therapienotizen per Tastatur …"); self.notes.setMinimumHeight(100); self.notes.setStyleSheet("font-size:18px;padding:10px")
-        inkhead=QHBoxLayout(); inkhead.addWidget(QLabel("Handschrift / Touch / Stift"))
-        self.ink=InkCanvas()
-        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo)
-        eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
+        self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
+        self.s_start=QTimeEdit(); self.s_end=QTimeEdit(); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
+        self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); self.s_red=QCheckBox("Ermäßigter Satz")
+        for x in (self.client_pick,self.s_last,self.s_first,self.s_dob,self.s_date,self.s_start,self.s_end,self.s_type): x.setMinimumHeight(42)
+        grid.addWidget(QLabel("Klient"),1,0); grid.addWidget(self.client_pick,1,1); grid.addWidget(newclient,1,2)
+        grid.addWidget(QLabel("Nachname"),1,3); grid.addWidget(self.s_last,1,4)
+        grid.addWidget(QLabel("Datum"),2,0); grid.addWidget(self.s_date,2,1,1,2); grid.addWidget(QLabel("Vorname"),2,3); grid.addWidget(self.s_first,2,4)
+        grid.addWidget(QLabel("Beginn"),3,0); grid.addWidget(self.s_start,3,1,1,2); grid.addWidget(QLabel("Geburtsdatum"),3,3); grid.addWidget(self.s_dob,3,4)
+        grid.addWidget(QLabel("Ende"),4,0); grid.addWidget(self.s_end,4,1,1,2); grid.addWidget(QLabel("Art"),4,3); grid.addWidget(self.s_type,4,4)
+        grid.addWidget(self.s_red,5,1,1,2); v.addWidget(card)
+        def picked(_):
+            cc=self.client_pick.currentData()
+            if isinstance(cc,dict): self.s_last.setText(cc.get("last","")); self.s_first.setText(cc.get("first","")); self.s_dob.setText(cc.get("dob",""))
+        self.client_pick.currentIndexChanged.connect(picked); self.s_last.editingFinished.connect(self.fill_session_client); self.s_first.editingFinished.connect(self.fill_session_client)
+
+        self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …"); self.notes.setMinimumHeight(120); self.notes.setStyleSheet("font-size:17px;padding:10px")
+        notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nh=QLabel("Therapienotizen"); nh.setObjectName("sectionTitle"); nv.addWidget(nh); nv.addWidget(self.notes); v.addWidget(notesbox)
+
+        inkhead=QHBoxLayout(); inkhead.addWidget(QLabel("Handschrift / Touch / Stift")); self.ink=InkCanvas()
+        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width)
-        clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear)
-        fullscreen=QPushButton("⛶ Vollbild schreiben"); fullscreen.clicked.connect(self.open_ink_fullscreen)
+        clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); fullscreen=QPushButton("⛶ Vollbild schreiben"); fullscreen.clicked.connect(self.open_ink_fullscreen)
         inkhead.addStretch(); inkhead.addWidget(QLabel("Stärke")); inkhead.addWidget(width); inkhead.addWidget(eraser); inkhead.addWidget(undo); inkhead.addWidget(clearink); inkhead.addWidget(fullscreen)
-        self.inkbox=QWidget(); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(0,0,0,0); self.inkv.addLayout(inkhead); self.inkv.addWidget(self.ink); inkbox=self.inkbox
-        splitter=QSplitter(Qt.Vertical); splitter.addWidget(self.notes); splitter.addWidget(inkbox); splitter.setStretchFactor(0,1); splitter.setStretchFactor(1,3); splitter.setSizes([180,430]); v.addWidget(splitter,1)
+        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.addLayout(inkhead); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
         h=QHBoxLayout()
-        for text,fn in [("▶ Sitzung starten",self.start_session),("⏸ Pause/Fortsetzen",self.pause),("■ Sitzung beenden",self.end_session),("💾 Speichern",self.save_session)]: 
+        for text,fn in [("▶ Sitzung starten",self.start_session),("⏸ Pause/Fortsetzen",self.pause),("■ Sitzung beenden",self.end_session),("💾 Speichern",self.save_session)]:
             b=QPushButton(text); b.setMinimumHeight(55); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h); return w
+
+    def open_new_client_dialog(self):
+        if not self.require_edit(): return
+        dlg=QDialog(self); dlg.setWindowTitle("Neuen Klienten anlegen"); dlg.setMinimumWidth(520); form=QFormLayout(dlg)
+        last=QLineEdit(); first=QLineEdit(); dob=QLineEdit(); dob.setPlaceholderText("TT.MM.JJJJ"); address=QLineEdit(); diagnosis=QLineEdit()
+        form.addRow("Nachname *",last); form.addRow("Vorname *",first); form.addRow("Geburtsdatum",dob); form.addRow("Adresse",address); form.addRow("Diagnose",diagnosis)
+        buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); form.addRow(buttons)
+        def save_client():
+            if not last.text().strip() or not first.text().strip(): return QMessageBox.warning(dlg,"Fehlt","Vorname und Nachname sind erforderlich.")
+            exists=next((x for x in DB["clients"] if x.get("last","").lower()==last.text().strip().lower() and x.get("first","").lower()==first.text().strip().lower() and x.get("dob","")==dob.text().strip()),None)
+            if exists:return QMessageBox.warning(dlg,"Klient","Dieser Klient ist bereits vorhanden.")
+            cc={"last":last.text().strip(),"first":first.text().strip(),"dob":dob.text().strip(),"address":address.text().strip(),"diagnosis":diagnosis.text().strip()}; DB["clients"].append(cc); save_data()
+            if hasattr(self,"client_pick"): self.client_pick.addItem(f"{cc['last']}, {cc['first']}",cc); self.client_pick.setCurrentIndex(self.client_pick.count()-1)
+            audit("CLIENT_CREATED","Klient angelegt",self.current_user.get("username","") if self.current_user else ""); dlg.accept()
+        buttons.accepted.connect(save_client); buttons.rejected.connect(dlg.reject); dlg.exec()
+
     def open_ink_fullscreen(self):
         dlg=QDialog(self); dlg.setWindowTitle("Handschrift – Vollbild"); dlg.setWindowState(Qt.WindowFullScreen)
         v=QVBoxLayout(dlg); bar=QHBoxLayout(); title=QLabel("Handschrift / Stift"); title.setStyleSheet("font-size:22px;font-weight:700"); bar.addWidget(title); bar.addStretch()
