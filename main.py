@@ -127,7 +127,7 @@ def update_excel():
 
 class Main(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle("Praxisverwaltung"); self.resize(1180,780)
+        super().__init__(); self.setWindowTitle("Praxisverwaltung"); self.resize(1280,820); self.setMinimumSize(1050,700)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         tabs=QTabWidget(); self.setCentralWidget(tabs)
         tabs.addTab(self.session_ui(),"Sitzungsnotiz"); tabs.addTab(self.helper_ui(),"Sitzungsassistent"); tabs.addTab(self.invoice_ui(),"Rechnung"); tabs.addTab(self.clients_ui(),"Klienten"); tabs.addTab(self.invoices_ui(),"Rechnungen"); tabs.addTab(self.dashboard_ui(),"Übersicht")
@@ -135,6 +135,29 @@ class Main(QMainWindow):
         self.wallclock=QLabel()
         self.statusBar().addPermanentWidget(self.wallclock)
         self.walltimer=QTimer(self); self.walltimer.timeout.connect(self.update_wallclock); self.walltimer.start(250); self.update_wallclock()
+        self.setStyleSheet("""
+        QMainWindow { background:#f4f6f8; }
+        QTabWidget::pane { border:0; background:white; border-radius:12px; }
+        QTabBar::tab { background:#e9eef3; padding:12px 20px; margin:2px; border-radius:8px; font-size:14px; }
+        QTabBar::tab:selected { background:#17324d; color:white; font-weight:700; }
+        QLabel { color:#1f2933; font-size:14px; }
+        QLineEdit,QTextEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox {
+            background:white; border:1px solid #cbd5df; border-radius:8px; padding:8px; font-size:15px;
+            selection-background-color:#17324d;
+        }
+        QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QDateEdit:focus,QTimeEdit:focus,QSpinBox:focus {
+            border:2px solid #356b92;
+        }
+        QPushButton { background:#17324d; color:white; border:0; border-radius:9px; padding:10px 16px; font-size:14px; font-weight:600; }
+        QPushButton:hover { background:#244d70; }
+        QPushButton:pressed { background:#10283d; }
+        QCheckBox { spacing:8px; font-size:14px; }
+        QTableWidget { background:white; alternate-background-color:#f6f8fa; border:1px solid #d8e0e7; border-radius:8px; gridline-color:#e6ebef; font-size:14px; }
+        QHeaderView::section { background:#edf2f6; color:#243746; padding:9px; border:0; border-bottom:1px solid #ccd6df; font-weight:700; }
+        QSplitter::handle { background:#d5dde5; height:7px; margin:3px 0; border-radius:3px; }
+        QStatusBar { background:#17324d; color:white; }
+        QStatusBar QLabel { color:white; font-weight:700; padding:4px 10px; }
+        """)
         self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(15000)
         QTimer.singleShot(500,self.restore_draft)
     def update_wallclock(self):
