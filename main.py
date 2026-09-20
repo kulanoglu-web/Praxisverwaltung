@@ -1,4 +1,4 @@
-import sys, json, os, re, math
+import sys, json, os, re, math, shutil
 from pathlib import Path
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer
@@ -62,8 +62,9 @@ class Main(QMainWindow):
         super().__init__(); self.setWindowTitle("Praxisverwaltung"); self.resize(1180,780)
         self.started=None; self.acc=0; self.running=False
         tabs=QTabWidget(); self.setCentralWidget(tabs)
-        tabs.addTab(self.session_ui(),"Sitzungsnotiz"); tabs.addTab(self.invoice_ui(),"Rechnung"); tabs.addTab(self.clients_ui(),"Klienten"); tabs.addTab(self.dashboard_ui(),"Übersicht")
+        tabs.addTab(self.session_ui(),"Sitzungsnotiz"); tabs.addTab(self.invoice_ui(),"Rechnung"); tabs.addTab(self.clients_ui(),"Klienten"); tabs.addTab(self.invoices_ui(),"Rechnungen"); tabs.addTab(self.dashboard_ui(),"Übersicht")
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
+        self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(15000)
     def session_ui(self):
         w=QWidget(); v=QVBoxLayout(w); top=QHBoxLayout()
         title=QLabel("Sitzungsnotiz"); title.setStyleSheet("font-size:26px;font-weight:700")
@@ -80,6 +81,10 @@ class Main(QMainWindow):
         for text,fn in [("▶ Sitzung starten",self.start_session),("⏸ Pause/Fortsetzen",self.pause),("■ Sitzung beenden",self.end_session),("💾 Speichern",self.save_session)]: 
             b=QPushButton(text); b.setMinimumHeight(55); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h); return w
+    def autosave_session(self):
+        if not self.running and not self.notes.toPlainText().strip(): return
+        draft={"last":self.s_last.text(),"first":self.s_first.text(),"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"seconds":self.elapsed(),"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"running":self.running}
+        (ROOT/"Sitzung_Autosave.json").write_text(json.dumps(draft,ensure_ascii=False,indent=2),encoding="utf-8")
     def start_session(self):
         now=datetime.now(); self.s_date.setDate(QDate.currentDate()); self.s_start.setTime(QTime.currentTime()); self.started=now; self.acc=0; self.running=True
     def pause(self):
@@ -102,6 +107,8 @@ class Main(QMainWindow):
         mins=max(1,round(self.elapsed()/60))
         rec={"id":datetime.now().strftime("%Y%m%d%H%M%S"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
         DB["sessions"].append(rec); save_data(); d=client_dir(c)/"Sitzungen"; (d/f"{rec['date']}_Sitzung.json").write_text(json.dumps(rec,ensure_ascii=False,indent=2),encoding="utf-8")
+        auto=ROOT/"Sitzung_Autosave.json"
+        if auto.exists(): auto.unlink()
         QMessageBox.information(self,"Gespeichert",f"Sitzung gespeichert: {mins} Minuten.")
     def invoice_ui(self):
         w=QWidget(); v=QVBoxLayout(w); f=QFormLayout()
@@ -137,6 +144,28 @@ class Main(QMainWindow):
         w=QWidget(); v=QVBoxLayout(w); t=QTableWidget(0,3); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         for c in DB["clients"]: r=t.rowCount();t.insertRow(r);[t.setItem(r,j,QTableWidgetItem(str(c.get(k,"")))) for j,k in enumerate(["last","first","dob"])]
         v.addWidget(t); return w
+    def invoices_ui(self):
+        w=QWidget(); v=QVBoxLayout(w); t=QTableWidget(0,5); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        for i in reversed(DB["invoices"]):
+            r=t.rowCount(); t.insertRow(r)
+            vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),f'{float(i.get("amount",0)):.2f} €']
+            for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
+        v.addWidget(t)
+        h=QHBoxLayout()
+        paid=QPushButton("Ausgewählte Rechnung als bezahlt markieren"); paid.setMinimumHeight(50)
+        def mark_paid():
+            r=t.currentRow()
+            if r<0:return
+            no=t.item(r,0).text(); inv=next((x for x in DB["invoices"] if x.get("number")==no),None)
+            if inv: inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("bezahlt")
+        paid.clicked.connect(mark_paid); h.addWidget(paid)
+        backup=QPushButton("Datensicherung erstellen"); backup.setMinimumHeight(50)
+        def do_backup():
+            dest=ROOT/"Backups"/datetime.now().strftime("Backup_%Y-%m-%d_%H-%M-%S"); dest.mkdir(parents=True,exist_ok=True)
+            if DATA.exists(): shutil.copy2(DATA,dest/DATA.name)
+            for x in (ROOT/"Einnahmen").glob("*.xlsx"): shutil.copy2(x,dest/x.name)
+            QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
+        backup.clicked.connect(do_backup); h.addWidget(backup); v.addLayout(h); return w
     def dashboard_ui(self):
         w=QWidget(); v=QVBoxLayout(w); y=str(datetime.now().year); billed=sum(float(i["amount"]) for i in DB["invoices"] if str(i["number"]).startswith(y) and i.get("status")!="storniert"); paid=sum(float(i["amount"]) for i in DB["invoices"] if str(i["number"]).startswith(y) and i.get("status")=="bezahlt")
         l=QLabel(f"Jahr {y}\n\nAbgerechnet: {billed:.2f} €\nBezahlt: {paid:.2f} €\nOffen: {billed-paid:.2f} €\n\nDatenordner:\n{ROOT}"); l.setStyleSheet("font-size:22px;padding:25px"); v.addWidget(l); return w
