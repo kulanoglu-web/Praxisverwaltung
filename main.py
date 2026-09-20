@@ -238,16 +238,18 @@ def amount_for(minutes,typ,reduced):
     return minutes/45*rate
 
 def update_excel():
+    # Buchhaltungsübersicht standardmäßig ohne Klientennamen/Diagnosen.
     year=datetime.now().year; f=ROOT/"Einnahmen"/f"Einnahmen_{year}.xlsx"
     wb=Workbook(); ws=wb.active; ws.title="Einnahmen"
-    ws.append(["Rechnungsnummer","Rechnungsdatum","Zahlungsdatum","Klient","Status","Betrag"]); ws.freeze_panes="A2"; ws.auto_filter.ref="A1:F1"
+    ws.append(["Rechnungsnummer","Rechnungsdatum","Zahlungsdatum","Status","Betrag"]); ws.freeze_panes="A2"; ws.auto_filter.ref="A1:E1"
     for i in DB["invoices"]:
         if str(i.get("number","")).startswith(str(year)):
-            ws.append([i["number"],i["date"],i.get("paid_date",""),i["client"],i.get("status","offen"),i["amount"]])
+            ws.append([i["number"],i["date"],i.get("paid_date",""),i.get("status","offen"),i["amount"]])
     ov=wb.create_sheet("Jahresübersicht"); ov.append(["Kennzahl","Betrag"])
     total=sum(float(i["amount"]) for i in DB["invoices"] if str(i.get("number","")).startswith(str(year)) and i.get("status")!="storniert")
     paid=sum(float(i["amount"]) for i in DB["invoices"] if str(i.get("number","")).startswith(str(year)) and i.get("status")=="bezahlt")
-    ov.append(["Rechnungsbetrag",total]); ov.append(["Bezahlt",paid]); ov.append(["Offen",total-paid]); ws.column_dimensions["A"].width=20; ws.column_dimensions["B"].width=16; ws.column_dimensions["C"].width=16; ws.column_dimensions["D"].width=28; ws.column_dimensions["E"].width=14; ws.column_dimensions["F"].width=14
+    ov.append(["Rechnungsbetrag",total]); ov.append(["Bezahlt",paid]); ov.append(["Offen",total-paid])
+    for col,width in {"A":20,"B":16,"C":16,"D":14,"E":14}.items(): ws.column_dimensions[col].width=width
     wb.save(f)
 
 class PasswordResetDialog(QDialog):
