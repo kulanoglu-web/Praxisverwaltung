@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.9.2"
+APP_VERSION = "0.9.3"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -424,14 +424,14 @@ class Main(QMainWindow):
 
     def session_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(16,10,16,8); v.setSpacing(7)
-        top=QHBoxLayout(); title=QLabel("▣  Sitzungsnotiz"); title.setObjectName("pageTitle")
+        top=QHBoxLayout(); head=QVBoxLayout(); title=QLabel("▣  Sitzungsnotiz"); title.setObjectName("pageTitle"); subtitle=QLabel("Sitzung dokumentieren · Klientendaten · Notizen · Handschrift · Speichern"); subtitle.setObjectName("pageSub"); head.addWidget(title); head.addWidget(subtitle)
         self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setFixedSize(175,54); self.clock.setStyleSheet("font-size:29px;font-weight:800;border:2px solid #8091a1;border-radius:12px;background:white")
         timerbtn=QPushButton("▶  Timer starten"); timerbtn.setFixedHeight(54); timerbtn.setMinimumWidth(175); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:16px"); timerbtn.clicked.connect(self.start_session)
-        top.addWidget(title); top.addStretch(); top.addWidget(self.clock); top.addWidget(timerbtn); v.addLayout(top)
+        top.addLayout(head); top.addStretch(); top.addWidget(self.clock); top.addWidget(timerbtn); v.addLayout(top)
 
         row=QHBoxLayout(); row.setSpacing(10)
         session=QFrame(); session.setObjectName("formCard"); sg=QGridLayout(session); sg.setContentsMargins(14,8,14,10); sg.setHorizontalSpacing(10); sg.setVerticalSpacing(6)
-        st=QLabel("♙  Sitzungsdaten"); st.setObjectName("sectionTitle"); sg.addWidget(st,0,0,1,3)
+        st=QLabel("▤  Sitzungsdaten"); st.setObjectName("sectionTitle"); sg.addWidget(st,0,0,1,3)
         self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("")
         for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.client_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
         newclient=QPushButton("＋ Neuer Klient"); newclient.clicked.connect(self.open_new_client_dialog)
@@ -444,13 +444,13 @@ class Main(QMainWindow):
         sg.addWidget(self.s_red,6,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(480); row.addWidget(session,5)
 
         details=QFrame(); details.setObjectName("formCard"); dg=QGridLayout(details); dg.setContentsMargins(14,8,14,10); dg.setHorizontalSpacing(8); dg.setVerticalSpacing(6)
-        dt=QLabel("Klientendaten"); dt.setObjectName("sectionTitle"); dg.addWidget(dt,0,0,1,2)
+        dt=QLabel("●  Klientendaten"); dt.setObjectName("sectionTitle"); dg.addWidget(dt,0,0,1,2)
         self.s_last=QLineEdit(); self.s_first=QLineEdit(); self.s_dob=QLineEdit()
-        for x in (self.s_last,self.s_first,self.s_dob): x.setFixedHeight(36); x.setReadOnly(True)
+        for x in (self.s_last,self.s_first,self.s_dob): x.setFixedHeight(36); x.setReadOnly(True); x.setPlaceholderText("–")
         self.s_phone=QLineEdit(); self.s_email=QLineEdit()
-        for x in (self.s_phone,self.s_email): x.setFixedHeight(36); x.setReadOnly(True)
+        for x in (self.s_phone,self.s_email): x.setFixedHeight(36); x.setReadOnly(True); x.setPlaceholderText("–")
         for rr,(lab,field) in enumerate([("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Telefon",self.s_phone),("E-Mail",self.s_email)],1): dg.addWidget(QLabel(lab),rr,0); dg.addWidget(field,rr,1)
-        details.setMinimumWidth(300); row.addWidget(details,3)
+        details.setMinimumWidth(300); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(38); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
 
         quick=QFrame(); quick.setObjectName("formCard"); qg=QGridLayout(quick); qg.setContentsMargins(14,8,14,10); qg.setHorizontalSpacing(8); qg.setVerticalSpacing(6)
         qt=QLabel("♙＋  Klient schnell anlegen"); qt.setObjectName("sectionTitle"); qg.addWidget(qt,0,0,1,2)
@@ -472,15 +472,16 @@ class Main(QMainWindow):
             if isinstance(cc,dict):
                 self.s_last.setText(cc.get("last","")); self.s_first.setText(cc.get("first","")); self.s_dob.setText(cc.get("dob","")); self.s_phone.setText(cc.get("phone","")); self.s_email.setText(cc.get("email",""))
         self.client_pick.currentIndexChanged.connect(picked)
+        editclient.clicked.connect(lambda: self.nav.setCurrentRow(3))
 
-        notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(12,8,12,10); nh=QLabel("Therapienotizen"); nh.setObjectName("sectionTitle"); nv.addWidget(nh)
+        notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(12,8,12,10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setFixedWidth(135); nhead.addWidget(template); nv.addLayout(nhead)
         self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …"); self.notes.setMinimumHeight(80); self.notes.setMaximumHeight(115); nv.addWidget(self.notes); v.addWidget(notesbox)
 
-        self.ink=InkCanvas(); inkhead=QHBoxLayout(); inkhead.addWidget(QLabel("Handschrift / Touch / Stift")); inkhead.addStretch()
+        self.ink=InkCanvas(); inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); fullscreen=QPushButton("⛶ Vollbild schreiben"); fullscreen.clicked.connect(self.open_ink_fullscreen)
         for x in (QLabel("Stärke:"),width,eraser,undo,clearink,fullscreen): inkhead.addWidget(x)
-        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(12,8,12,10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(170); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
+        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(12,8,12,10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(185); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
         h=QHBoxLayout()
         buttons=[("▶ Sitzung starten",self.start_session,"background:#16a34a"),("⏸ Pause/Fortsetzen",self.pause,"background:#1683d8"),("■ Sitzung beenden",self.end_session,"background:#e11d48"),("💾 Speichern",self.save_session,"background:#f8fafc;color:#1261a0;border:1px solid #9bb7cf")]
         for text_,fn,style in buttons:
