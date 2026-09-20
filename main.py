@@ -131,9 +131,9 @@ class Main(QMainWindow):
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(14,20,14,20)
-        brand=QLabel("PRAXIS\nVERWALTUNG"); brand.setObjectName("brand"); sv.addWidget(brand)
+        brand=QLabel("PRAXISPRO\nPsychologische Privatpraxis"); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
-        for x in ["Übersicht","Sitzung","Sitzungsassistent","Klienten","Neue Rechnung","Rechnungen"]: self.nav.addItem(x)
+        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","▤  Neue Rechnung","▣  Rechnungen"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
         foot=QLabel("Lokale Praxisverwaltung"); foot.setObjectName("sidefoot"); sv.addWidget(foot)
         self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui())
@@ -146,11 +146,11 @@ class Main(QMainWindow):
         self.setStyleSheet("""
         QMainWindow { background:#f4f6f8; }
         #sidebar { background:#132f47; border:0; }
-        #brand { color:white; font-size:21px; font-weight:800; padding:8px 10px 20px 10px; letter-spacing:1px; }
+        #brand { color:white; font-size:20px; font-weight:800; padding:8px 10px 24px 10px; letter-spacing:.5px; }
         #sidefoot { color:#b9c8d5; font-size:12px; padding:10px; }
         #nav { background:transparent; border:0; outline:0; color:#dce7ef; font-size:15px; }
         #nav::item { padding:14px 12px; margin:3px 0; border-radius:8px; }
-        #nav::item:selected { background:#ffffff; color:#17324d; font-weight:700; }
+        #nav::item:selected { background:#2f7de1; color:white; font-weight:700; }
         #nav::item:hover:!selected { background:#244d70; color:white; }
         QStackedWidget { background:#f4f6f8; }
         #pageTitle { font-size:30px; font-weight:800; color:#17324d; }
@@ -536,7 +536,7 @@ class Main(QMainWindow):
     def dashboard_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(18)
         y=str(datetime.now().year); billed=sum(float(i.get("amount",0)) for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")!="storniert"); paid=sum(float(i.get("amount",0)) for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")=="bezahlt"); open_amt=billed-paid
-        title=QLabel("Übersicht"); title.setObjectName("pageTitle"); sub=QLabel(f"Psychologische Privatpraxis · {y}"); sub.setObjectName("pageSub"); v.addWidget(title); v.addWidget(sub)
+        title=QLabel("Herzlich willkommen!"); title.setObjectName("pageTitle"); sub=QLabel(f"Psychologische Privatpraxis · Überblick {y}"); sub.setObjectName("pageSub"); v.addWidget(title); v.addWidget(sub)
         cards=QGridLayout(); cards.setSpacing(14)
         def card(caption,value):
             box=QFrame(); box.setObjectName("statCard"); q=QVBoxLayout(box); a=QLabel(caption); a.setObjectName("cardCaption"); b=QLabel(value); b.setObjectName("cardValue"); q.addWidget(a);q.addWidget(b);return box
@@ -544,6 +544,7 @@ class Main(QMainWindow):
         cards.addWidget(card("BEZAHLT",f"{paid:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,1)
         cards.addWidget(card("OFFEN",f"{open_amt:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,2)
         cards.addWidget(card("KLIENTEN",str(len(DB["clients"]))),1,0); cards.addWidget(card("SITZUNGEN",str(len(DB["sessions"]))),1,1); cards.addWidget(card("OFFENE RECHNUNGEN",str(sum(1 for i in DB["invoices"] if i.get("status","offen")=="offen"))),1,2); v.addLayout(cards)
-        actions=QHBoxLayout(); new_session=QPushButton("Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(4)); clients=QPushButton("Klienten öffnen"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
+        quick=QLabel("Schnellzugriff"); quick.setObjectName("sectionTitle"); v.addWidget(quick)
+        actions=QHBoxLayout(); new_session=QPushButton("＋  Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("▤  Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(4)); clients=QPushButton("♙  Klienten verwalten"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
         info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch(); return w
 app=QApplication(sys.argv); app.setStyleSheet("QPushButton{font-size:16px;padding:8px} QLineEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox{font-size:16px;padding:7px}"); win=Main();win.show();sys.exit(app.exec())
