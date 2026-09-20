@@ -17,6 +17,7 @@ import javax.crypto.SecretKey
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.util.Base64
+import java.security.MessageDigest
 
 class InkView(ctx: android.content.Context): View(ctx) {
  private val paint=Paint().apply{color=Color.BLACK;strokeWidth=6f;style=Paint.Style.STROKE;strokeCap=Paint.Cap.ROUND;strokeJoin=Paint.Join.ROUND;isAntiAlias=true}
@@ -29,6 +30,19 @@ class InkView(ctx: android.content.Context): View(ctx) {
  fun savePng(file:File){val b=Bitmap.createBitmap(width.coerceAtLeast(1),height.coerceAtLeast(1),Bitmap.Config.ARGB_8888);val c=Canvas(b);draw(c);file.outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)}}
 }
 class MainActivity: Activity() {
+ private fun pinHash(pin:String)=MessageDigest.getInstance("SHA-256").digest(pin.toByteArray()).joinToString(""){"%02x".format(it)}
+ private fun requirePin(){
+  val prefs=getSharedPreferences("security",Context.MODE_PRIVATE); val stored=prefs.getString("pin_hash",null)
+  val input=EditText(this).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD;hint=if(stored==null)"Neue PIN (mind. 4 Ziffern)" else "PIN"}
+  val dlg=AlertDialog.Builder(this).setTitle(if(stored==null)"PraxisPro – Ersteinrichtung" else "PraxisPro gesperrt").setView(input).setCancelable(false)
+  if(stored==null) dlg.setPositiveButton("PIN speichern",null) else dlg.setPositiveButton("Entsperren",null)
+  dlg.setNegativeButton("Beenden"){_,_->finish()}
+  val d=dlg.create();d.setOnShowListener{d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+    val p=input.text.toString()
+    if(stored==null){if(p.length<4){input.error="Mindestens 4 Ziffern"}else{prefs.edit().putString("pin_hash",pinHash(p)).apply();d.dismiss()}}
+    else if(pinHash(p)==stored)d.dismiss() else{input.error="PIN nicht korrekt";input.text.clear()}
+  }};d.show()
+ }
  private var lastInteraction=System.currentTimeMillis()
  override fun dispatchTouchEvent(ev:MotionEvent):Boolean{lastInteraction=System.currentTimeMillis();return super.dispatchTouchEvent(ev)}
  private fun secretKey():SecretKey{
@@ -86,7 +100,7 @@ class MainActivity: Activity() {
   clock.text="LIVE  "+SimpleDateFormat("HH:mm:ss",Locale.GERMANY).format(Date())
   val ms=elapsed + if(running) System.currentTimeMillis()-startMs else 0L; val sec=ms/1000
   timer.text=String.format(Locale.GERMANY,"%02d:%02d:%02d",sec/3600,(sec%3600)/60,sec%60); h.postDelayed(this,250)}}
- override fun onCreate(b:Bundle?){super.onCreate(b);window.setFlags(WindowManager.LayoutParams.FLAG_SECURE,WindowManager.LayoutParams.FLAG_SECURE);migratePlaintext()
+ override fun onCreate(b:Bundle?){super.onCreate(b);window.setFlags(WindowManager.LayoutParams.FLAG_SECURE,WindowManager.LayoutParams.FLAG_SECURE);migratePlaintext();requirePin()
   val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(24,24,24,24)}
   val title=TextView(this).apply{text="Praxisverwaltung";textSize=26f;setTypeface(null,1)}
   clock=TextView(this).apply{textSize=24f;gravity=Gravity.END}
