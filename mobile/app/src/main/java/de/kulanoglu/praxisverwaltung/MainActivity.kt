@@ -10,6 +10,12 @@ import android.content.Context
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.File
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import java.util.Base64
 
 class InkView(ctx: android.content.Context): View(ctx) {
  private val paint=Paint().apply{color=Color.BLACK;strokeWidth=6f;style=Paint.Style.STROKE;strokeCap=Paint.Cap.ROUND;strokeJoin=Paint.Join.ROUND;isAntiAlias=true}
@@ -22,21 +28,39 @@ class InkView(ctx: android.content.Context): View(ctx) {
  fun savePng(file:File){val b=Bitmap.createBitmap(width.coerceAtLeast(1),height.coerceAtLeast(1),Bitmap.Config.ARGB_8888);val c=Canvas(b);draw(c);file.outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)}}
 }
 class MainActivity: Activity() {
+ private fun secretKey():SecretKey{
+  val ks=java.security.KeyStore.getInstance("AndroidKeyStore").apply{load(null)}
+  val alias="PraxisProLocalKey"
+  if(ks.containsAlias(alias)) return (ks.getEntry(alias,null) as java.security.KeyStore.SecretKeyEntry).secretKey
+  val kg=KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore")
+  kg.init(KeyGenParameterSpec.Builder(alias,KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
+  return kg.generateKey()
+ }
+ private fun encryptString(value:String):String{
+  val cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,secretKey())
+  return Base64.getEncoder().encodeToString(cipher.iv)+"."+Base64.getEncoder().encodeToString(cipher.doFinal(value.toByteArray(Charsets.UTF_8)))
+ }
+ private fun decryptString(value:String):String=try{
+  val p=value.split(".");val cipher=Cipher.getInstance("AES/GCM/NoPadding");val spec=javax.crypto.spec.GCMParameterSpec(128,Base64.getDecoder().decode(p[0]));cipher.init(Cipher.DECRYPT_MODE,secretKey(),spec);String(cipher.doFinal(Base64.getDecoder().decode(p[1])),Charsets.UTF_8)
+ }catch(e:Exception){value}
+ private fun secureWrite(file:File,text:String){file.writeText(encryptString(text))}
+ private fun secureRead(file:File):String=if(file.exists()) decryptString(file.readText()) else ""
+
  private fun clientFile()=File(filesDir,"clients.json")
- private fun loadClients():JSONArray=try{JSONArray(clientFile().readText())}catch(e:Exception){JSONArray()}
+ private fun loadClients():JSONArray=try{JSONArray(secureRead(clientFile()))}catch(e:Exception){JSONArray()}
  private fun rememberClient(last:String,first:String){
   if(last.isBlank()&&first.isBlank())return
   val a=loadClients(); for(i in 0 until a.length()){val o=a.getJSONObject(i);if(o.optString("last")==last&&o.optString("first")==first)return}
-  a.put(JSONObject().put("last",last).put("first",first));clientFile().writeText(a.toString(2))
+  a.put(JSONObject().put("last",last).put("first",first));secureWrite(clientFile(),a.toString(2))
  }
  private fun showClients(last:EditText,first:EditText){
   val a=loadClients();val labels=ArrayList<String>();for(i in 0 until a.length()){val o=a.getJSONObject(i);labels.add(o.optString("last")+", "+o.optString("first"))}
   AlertDialog.Builder(this).setTitle("Klienten").setItems(labels.toTypedArray()){_,i->val o=a.getJSONObject(i);last.setText(o.optString("last"));first.setText(o.optString("first"))}.setNegativeButton("Schließen",null).show()
  }
  private fun showHistory(last:String,first:String){
-  val dir=File(filesDir,"sessions");val files=dir.listFiles{f->f.name.startsWith("session_")&&f.extension=="json"}?.sortedByDescending{it.lastModified()}?: emptyList()
+  val dir=File(filesDir,"sessions");val files=dir.listFiles{f->f.name.startsWith("session_")&&(f.extension=="json"||f.extension=="enc")}?.sortedByDescending{it.lastModified()}?: emptyList()
   val rows=ArrayList<Pair<String,String>>()
-  for(f in files)try{val o=JSONObject(f.readText());if(o.optString("last")==last&&o.optString("first")==first){
+  for(f in files)try{val o=JSONObject(secureRead(f));if(o.optString("last")==last&&o.optString("first")==first){
     rows.add(Pair(o.optString("date")+"   "+o.optString("begin")+"–"+o.optString("end"),o.optString("notes")))
   }}catch(_:Exception){}
   if(rows.isEmpty()){Toast.makeText(this,"Keine gespeicherten Sitzungen",Toast.LENGTH_SHORT).show();return}
@@ -82,7 +106,7 @@ class MainActivity: Activity() {
   val save=Button(this).apply{text="Sitzung lokal speichern";setOnClickListener{
     val o=JSONObject();o.put("last",last.text.toString());o.put("first",first.text.toString());o.put("date",date.text.toString());o.put("begin",begin.text.toString());o.put("end",end.text.toString());o.put("seconds",elapsed/1000);o.put("notes",note.text.toString())
     rememberClient(last.text.toString().trim(),first.text.toString().trim())
-    val dir=File(filesDir,"sessions");dir.mkdirs();val stamp=System.currentTimeMillis();val inkFile=File(dir,"handwriting_"+stamp+".png");ink.savePng(inkFile);o.put("ink_file",inkFile.absolutePath);File(dir,"session_"+stamp+".json").writeText(o.toString(2))
+    val dir=File(filesDir,"sessions");dir.mkdirs();val stamp=System.currentTimeMillis();val inkFile=File(dir,"handwriting_"+stamp+".png");ink.savePng(inkFile);o.put("ink_file",inkFile.absolutePath);secureWrite(File(dir,"session_"+stamp+".json.enc"),o.toString(2))
     Toast.makeText(activity,"Sitzung + Handschrift lokal gespeichert",Toast.LENGTH_SHORT).show()
   }};root.addView(save)
   setContentView(root);h.post(tick)
