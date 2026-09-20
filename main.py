@@ -344,8 +344,9 @@ class Main(QMainWindow):
         self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(self.pages,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
-        self.wallclock=QLabel()
-        self.statusBar().addPermanentWidget(self.wallclock)
+        self.wallclock=QLabel(); self.userbadge=QLabel()
+        self.statusBar().addWidget(self.userbadge); self.statusBar().addPermanentWidget(self.wallclock)
+        self.update_user_badge()
         self.walltimer=QTimer(self); self.walltimer.timeout.connect(self.update_wallclock); self.walltimer.start(250); self.update_wallclock(); self.locktimer=QTimer(self); self.locktimer.timeout.connect(self.check_autolock); self.locktimer.start(30000)
         self.setStyleSheet("""
         QMainWindow { background:#f4f6f8; }
@@ -391,6 +392,8 @@ class Main(QMainWindow):
         """)
         self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(15000)
         QTimer.singleShot(500,self.restore_draft)
+    def update_user_badge(self):
+        u=self.current_user or {}; self.userbadge.setText("Angemeldet: "+u.get("display_name",u.get("username",""))+" · "+u.get("role",""))
     def update_wallclock(self):
         self.wallclock.setText("LIVE  "+QTime.currentTime().toString("HH:mm:ss"))
     def event(self,e):
@@ -401,7 +404,7 @@ class Main(QMainWindow):
         if mins>0 and (datetime.now()-self.last_activity).total_seconds()>=mins*60:
             self.locktimer.stop(); dlg=LoginDialog()
             if dlg.exec()!=QDialog.Accepted: QApplication.quit(); return
-            self.current_user=dlg.user; self.last_activity=datetime.now(); self.locktimer.start(30000); audit("UNLOCK","Anwendung entsperrt",self.current_user.get("username",""))
+            self.current_user=dlg.user; self.update_user_badge(); self.last_activity=datetime.now(); self.locktimer.start(30000); audit("UNLOCK","Anwendung entsperrt",self.current_user.get("username",""))
 
     def role(self):
         return (self.current_user or {}).get("role","Therapeut")
