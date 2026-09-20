@@ -2,7 +2,7 @@ import sys, json, os, re, math, shutil, sqlite3
 from pathlib import Path
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout)
+from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap
 from reportlab.lib.pagesizes import A4
@@ -346,7 +346,7 @@ class Main(QMainWindow):
         title=QLabel("Neue Rechnung"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Einzelrechnung oder Sammelrechnung aus noch nicht abgerechneten Sitzungen"); sub.setObjectName("pageSub"); v.addWidget(sub)
         card=QFrame(); card.setObjectName("formCard"); f=QFormLayout(card); f.setSpacing(12)
-        self.i_no=QLineEdit(next_no()); self.i_last=QLineEdit(); self.i_first=QLineEdit(); self.i_addr=QLineEdit(); self.i_diag=QLineEdit(); self.pending_sessions=None
+        self.i_no=QLineEdit(next_no()); self.i_last=QLineEdit(); self.i_first=QLineEdit(); self.i_addr=QLineEdit(); self.i_diag=QLineEdit(); self.pending_sessions=None; self.manual_items=[]
         self.i_date=QDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstige"])
         self.i_min=QSpinBox(); self.i_min.setRange(1,1000); self.i_min.setValue(45); self.i_red=QCheckBox("Ermäßigter Satz")
         self.i_start=QTimeEdit(); self.i_start.setDisplayFormat("HH:mm"); self.i_end=QTimeEdit(); self.i_end.setDisplayFormat("HH:mm")
@@ -357,11 +357,24 @@ class Main(QMainWindow):
         self.i_start.timeChanged.connect(invoice_times); self.i_end.timeChanged.connect(invoice_times)
         self.i_last.editingFinished.connect(self.fill_invoice_client); self.i_first.editingFinished.connect(self.fill_invoice_client)
         f.addRow("",self.i_red); v.addWidget(card)
+        itemrow=QHBoxLayout()
+        additem=QPushButton("＋ Leistung zur Rechnung hinzufügen"); additem.setMinimumHeight(46)
+        self.iteminfo=QLabel("Noch keine zusätzlichen Leistungen"); self.iteminfo.setObjectName("pageSub")
+        def add_manual_item():
+            typ=self.i_type.currentText(); mins=self.i_min.value()
+            if typ=="Sonstige":
+                val,ok=QInputDialog.getDouble(self,"Sonstige Leistung","Betrag in €",0,0,100000,2)
+                if not ok:return
+                amount=round(val,2)
+            else: amount=round(amount_for(mins,typ,self.i_red.isChecked()),2)
+            self.manual_items.append({"date":self.i_date.date().toString("yyyy-MM-dd"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amount})
+            self.pending_sessions=None; self.iteminfo.setText(f"{len(self.manual_items)} Leistungen · {sum(x['amount'] for x in self.manual_items):.2f} €")
+        additem.clicked.connect(add_manual_item); itemrow.addWidget(additem); itemrow.addWidget(self.iteminfo,1); v.addLayout(itemrow)
         q=QPushButton("Unberechnete Sitzungen laden / Sammelrechnung"); q.setMinimumHeight(50); q.clicked.connect(self.load_unbilled_sessions); v.addWidget(q)
         preview=QPushButton("Rechnung vor Erstellung prüfen"); preview.setMinimumHeight(50)
         def preview_invoice():
             no=self.i_no.text().strip(); last=self.i_last.text().strip(); first=self.i_first.text().strip()
-            rows=self.pending_sessions
+            rows=self.pending_sessions or self.manual_items
             if rows:
                 lines="\n".join(f'{s.get("date","")}  {s.get("start","")}–{s.get("end","")}  {s.get("minutes",0)} Min.  {s.get("type","")}  {amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))):.2f} €' for s in rows)
                 total=sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows)
@@ -388,9 +401,9 @@ class Main(QMainWindow):
         if any(x["number"]==no for x in DB["invoices"]):return QMessageBox.warning(self,"Doppelt","Diese Rechnungsnummer existiert bereits.")
         last,first=self.i_last.text().strip(),self.i_first.text().strip()
         if not last or not first:return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
-        rows=getattr(self,"pending_sessions",None)
+        rows=getattr(self,"pending_sessions",None) or self.manual_items
         if rows:
-            mins=sum(int(s.get("minutes",0)) for s in rows); typ="Sammelrechnung"; amt=round(sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows),2)
+            mins=sum(int(s.get("minutes",0)) for s in rows); typ="Sammelrechnung"; amt=round(sum(float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))) for s in rows),2)
         else:
             mins=self.i_min.value(); typ=self.i_type.currentText(); amt=round(amount_for(mins,typ,self.i_red.isChecked()),2)
         c=next((x for x in DB["clients"] if x.get("last","").lower()==last.lower() and x.get("first","").lower()==first.lower()),None)
@@ -414,7 +427,7 @@ class Main(QMainWindow):
         if self.i_diag.text().strip():can.drawString(50,y,"Diagnose: "+self.i_diag.text().strip()); y-=22
         if rows:
             for s in rows:
-                a=amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))
+                a=float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))))
                 can.drawString(50,y,f'{s.get("date","")}   {s.get("start","")}–{s.get("end","")}   {s.get("minutes",0)} Min.   {s.get("type","")}'); can.drawRightString(W-50,y,f"{a:.2f} EUR"); y-=18
         else:
             can.drawString(50,y,f"{self.i_date.date().toString('dd.MM.yyyy')}   {mins} Min.   {typ}"); can.drawRightString(W-50,y,f"{amt:.2f} EUR"); y-=18
