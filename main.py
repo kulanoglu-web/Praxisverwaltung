@@ -1025,7 +1025,28 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             username=ut.item(r,0).text(); role,ok=QInputDialog.getItem(self,"Rolle ändern","Rolle:",["Administrator","Therapeut","Lesen"],0,False)
             if not ok:return
             con=sqlite3.connect(DBFILE); con.execute("UPDATE users SET role=? WHERE username=?",(role,username)); con.commit(); con.close(); audit("USER_ROLE","Rolle geändert: "+username+" -> "+role,self.current_user.get("username","") if self.current_user else ""); refresh_users()
-        ur=QHBoxLayout(); toggle=QPushButton("Aktivieren / Deaktivieren"); rolebtn=QPushButton("Rolle ändern"); toggle.clicked.connect(toggle_user); rolebtn.clicked.connect(change_role); ur.addWidget(toggle); ur.addWidget(rolebtn); ur.addStretch()
+        def recovery_for_user():
+            r=ut.currentRow()
+            if r<0:return
+            username=ut.item(r,0).text()
+            rq,ok=QInputDialog.getText(self,"Sicherheitsfrage","Neue Sicherheitsfrage für "+username+":")
+            if not ok or not rq.strip():return
+            ra,ok=QInputDialog.getText(self,"Sicherheitsfrage","Antwort:")
+            if not ok or not ra.strip():return
+            con=sqlite3.connect(DBFILE); con.execute("UPDATE users SET recovery_question=?,recovery_answer_hash=?,failed_attempts=0,locked_until=NULL WHERE username=?",(rq.strip(),password_hash(normalize_recovery_answer(ra)),username)); con.commit(); con.close()
+            audit("RECOVERY_UPDATED","Sicherheitsfrage aktualisiert: "+username,self.current_user.get("username","") if self.current_user else ""); QMessageBox.information(self,"Sicherheitsfrage","Sicherheitsfrage wurde aktualisiert.")
+        def admin_password_reset():
+            r=ut.currentRow()
+            if r<0:return
+            username=ut.item(r,0).text(); pwd,ok=QInputDialog.getText(self,"Passwort setzen","Neues Passwort für "+username+":",QLineEdit.Password)
+            if not ok:return
+            if len(pwd)<8:return QMessageBox.warning(self,"Passwort","Bitte mindestens 8 Zeichen verwenden.")
+            con=sqlite3.connect(DBFILE); con.execute("UPDATE users SET password_hash=?,failed_attempts=0,locked_until=NULL WHERE username=?",(password_hash(pwd),username)); con.commit(); con.close()
+            audit("ADMIN_PASSWORD_RESET","Passwort administrativ zurückgesetzt: "+username,self.current_user.get("username","") if self.current_user else ""); QMessageBox.information(self,"Passwort","Neues Passwort wurde gespeichert.")
+        ur=QHBoxLayout(); toggle=QPushButton("Aktivieren / Deaktivieren"); rolebtn=QPushButton("Rolle ändern"); recoverybtn=QPushButton("Sicherheitsfrage setzen"); resetbtn=QPushButton("Passwort setzen")
+        toggle.clicked.connect(toggle_user); rolebtn.clicked.connect(change_role); recoverybtn.clicked.connect(recovery_for_user); resetbtn.clicked.connect(admin_password_reset)
+        for b in (toggle,rolebtn,recoverybtn,resetbtn): ur.addWidget(b)
+        ur.addStretch()
         v.addWidget(ut); v.addLayout(ur); refresh_users()
         return w
 
