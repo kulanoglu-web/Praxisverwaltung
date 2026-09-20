@@ -8,6 +8,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import android.content.Context
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.File
 
 class InkView(ctx: android.content.Context): View(ctx) {
@@ -21,6 +22,17 @@ class InkView(ctx: android.content.Context): View(ctx) {
  fun savePng(file:File){val b=Bitmap.createBitmap(width.coerceAtLeast(1),height.coerceAtLeast(1),Bitmap.Config.ARGB_8888);val c=Canvas(b);draw(c);file.outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)}}
 }
 class MainActivity: Activity() {
+ private fun clientFile()=File(filesDir,"clients.json")
+ private fun loadClients():JSONArray=try{JSONArray(clientFile().readText())}catch(e:Exception){JSONArray()}
+ private fun rememberClient(last:String,first:String){
+  if(last.isBlank()&&first.isBlank())return
+  val a=loadClients(); for(i in 0 until a.length()){val o=a.getJSONObject(i);if(o.optString("last")==last&&o.optString("first")==first)return}
+  a.put(JSONObject().put("last",last).put("first",first));clientFile().writeText(a.toString(2))
+ }
+ private fun showClients(last:EditText,first:EditText){
+  val a=loadClients();val labels=ArrayList<String>();for(i in 0 until a.length()){val o=a.getJSONObject(i);labels.add(o.optString("last")+", "+o.optString("first"))}
+  AlertDialog.Builder(this).setTitle("Klienten").setItems(labels.toTypedArray()){_,i->val o=a.getJSONObject(i);last.setText(o.optString("last"));first.setText(o.optString("first"))}.setNegativeButton("Schließen",null).show()
+ }
  private lateinit var clock:TextView; private lateinit var timer:TextView; private var startMs=0L; private var elapsed=0L; private var running=false
  private val h=Handler(Looper.getMainLooper())
  private val tick=object:Runnable{override fun run(){
@@ -36,6 +48,7 @@ class MainActivity: Activity() {
   val names=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
   val last=EditText(this).apply{hint="Nachname"}; val first=EditText(this).apply{hint="Vorname"}
   names.addView(last,LinearLayout.LayoutParams(0,-2,1f));names.addView(first,LinearLayout.LayoutParams(0,-2,1f));root.addView(names)
+  val choose=Button(this).apply{text="Klient auswählen";setOnClickListener{showClients(last,first)}};root.addView(choose)
   val date=EditText(this).apply{hint="Datum";setText(SimpleDateFormat("dd.MM.yyyy",Locale.GERMANY).format(Date()))}
   val begin=EditText(this).apply{hint="Beginn (manuell)"}; val end=EditText(this).apply{hint="Ende"}
   root.addView(date);root.addView(begin);root.addView(end)
@@ -50,6 +63,7 @@ class MainActivity: Activity() {
   buttons.addView(start);buttons.addView(pause);buttons.addView(stop);buttons.addView(eraser);buttons.addView(clear);root.addView(buttons)
   val save=Button(this).apply{text="Sitzung lokal speichern";setOnClickListener{
     val o=JSONObject();o.put("last",last.text.toString());o.put("first",first.text.toString());o.put("date",date.text.toString());o.put("begin",begin.text.toString());o.put("end",end.text.toString());o.put("seconds",elapsed/1000);o.put("notes",note.text.toString())
+    rememberClient(last.text.toString().trim(),first.text.toString().trim())
     val dir=File(filesDir,"sessions");dir.mkdirs();val stamp=System.currentTimeMillis();val inkFile=File(dir,"handwriting_"+stamp+".png");ink.savePng(inkFile);o.put("ink_file",inkFile.absolutePath);File(dir,"session_"+stamp+".json").writeText(o.toString(2))
     Toast.makeText(this,"Sitzung + Handschrift lokal gespeichert",Toast.LENGTH_SHORT).show()
   }};root.addView(save)
