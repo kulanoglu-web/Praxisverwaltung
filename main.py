@@ -660,15 +660,24 @@ class Main(QMainWindow):
             if self.i_diag.text().strip(): c["diagnosis"]=self.i_diag.text().strip()
         d=client_dir(c)/"Rechnungen"; pdf=d/f"Rechnung_{no}.pdf"
         can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
-        # Praxis-Logo als druckfähige Wortmarke
-        can.setFillColor(HexColor("#17324d")); can.circle(W-92,H-63,31,stroke=1,fill=0)
-        can.setFont("Helvetica-Bold",12); can.drawCentredString(W-92,H-61,"EK")
+        # Rechnungskopf aus den Praxiseinstellungen
+        logo_path=get_setting("logo_path","")
+        if logo_path and Path(logo_path).exists():
+            try: can.drawImage(logo_path,W-145,H-105,width=95,height=65,preserveAspectRatio=True,mask="auto")
+            except Exception: pass
+        else:
+            can.setFillColor(HexColor("#17324d")); can.circle(W-92,H-63,31,stroke=1,fill=0)
+            initials="".join(x[:1] for x in get_setting("owner_name","EK").split()[:2]).upper() or "EK"
+            can.setFont("Helvetica-Bold",12); can.drawCentredString(W-92,H-61,initials)
         can.setFillColor(HexColor("#000000"))
-        can.setFont("Helvetica-Bold",13); can.drawString(50,H-55,"Erdoğan Kulanoğlu – Psychologische Privatpraxis")
-        can.setFont("Helvetica",9); can.drawString(50,H-72,"Psychologe M. Sc. · Sozialarbeiter B.A. · Heilpraktiker für Psychotherapie")
-        can.drawString(50,H-87,"Ehe-, Familien- und Lebensberater · Zertifizierter systemischer Berater und Therapeut nach dem SIT-Modell")
-        can.drawString(50,H-102,"Schönwalder Str. 59, 13585 Berlin · Mobil: 0176 43605753 · Fax: 030 43205928")
-        can.drawString(50,H-117,"info@psychologe-spandau.de · www.psychologe-spandau.de · Steuernummer: 19/405/00254")
+        owner=get_setting("owner_name",""); practice=get_setting("practice_name","")
+        can.setFont("Helvetica-Bold",13); can.drawString(50,H-55,(owner+" – "+practice).strip(" –"))
+        can.setFont("Helvetica",9); can.drawString(50,H-72,get_setting("qualifications",""))
+        can.drawString(50,H-87,get_setting("address",""))
+        contact=" · ".join(x for x in [("Tel.: "+get_setting("phone","")) if get_setting("phone","") else "",("Fax: "+get_setting("fax","")) if get_setting("fax","") else ""] if x)
+        can.drawString(50,H-102,contact)
+        web=" · ".join(x for x in [get_setting("email",""),get_setting("website",""),("Steuernummer: "+get_setting("tax_number","")) if get_setting("tax_number","") else ""] if x)
+        can.drawString(50,H-117,web)
         can.setFont("Helvetica-Bold",16); can.drawString(50,H-150,f"Rechnung {no}")
         can.setFont("Helvetica",9); can.drawRightString(W-50,H-150,"Rechnungsdatum: "+datetime.now().strftime("%d.%m.%Y"))
         can.setFont("Helvetica",11); y=H-185; can.drawString(50,y,f"{first} {last}"); y-=16
@@ -683,8 +692,8 @@ class Main(QMainWindow):
         y-=17
         can.setFont("Helvetica-Bold",12); can.drawRightString(W-50,y,f"Gesamt: {amt:.2f} EUR"); y-=35
         can.setFont("Helvetica",9); can.drawString(50,y,"Zahlbar innerhalb von 14 Tagen. Verwendungszweck: "+no); y-=14
-        can.drawString(50,y,"IBAN DE13 5001 0517 5404 0811 30 · BIC INGDDEFFXXX"); y-=14
-        can.drawString(50,y,"PayPal: erdogankulanoglu@hotmail.com"); y-=14
+        can.drawString(50,y,"IBAN "+get_setting("iban","")+" · BIC "+get_setting("bic","")); y-=14
+        if get_setting("paypal",""): can.drawString(50,y,"PayPal: "+get_setting("paypal","")); y-=14
         can.drawString(50,y,"Leistungen als Heilpraktiker sind nach § 4 Nr. 14 Buchstabe a UStG umsatzsteuerbefreit.")
         can.drawString(50,55,"Elektronisch erstellt und ohne Unterschrift/Stempel gültig."); can.save()
         invoice_items=[]
