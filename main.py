@@ -733,7 +733,7 @@ class Main(QMainWindow):
             if DBFILE.exists():
                 con=sqlite3.connect(DBFILE); out=sqlite3.connect(dest/DBFILE.name); con.backup(out); out.close(); con.close()
             for x in (ROOT/"Einnahmen").glob("*.xlsx"): shutil.copy2(x,dest/x.name)
-            shutil.copytree(ROOT/"Klienten",dest/"Klienten",dirs_exist_ok=True); if KEYFILE.exists(): shutil.copy2(KEYFILE,dest/KEYFILE.name)
+            shutil.copytree(ROOT/"Klienten",dest/"Klienten",dirs_exist_ok=True)\n            if KEYFILE.exists(): shutil.copy2(KEYFILE,dest/KEYFILE.name)
             (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nDatenbank: "+str(DBFILE)+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[]))),encoding="utf-8"); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
         backup.clicked.connect(do_backup); v.addWidget(backup); return w
     def manual_ui(self):
