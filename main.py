@@ -570,15 +570,27 @@ class Main(QMainWindow):
             r,inv=selected_invoice()
             if not inv:return
             if QMessageBox.question(self,"Stornieren",f'Rechnung {inv.get("number","")} wirklich stornieren?')!=QMessageBox.Yes:return
-            inv["status"]="storniert"; inv["cancelled_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("storniert")
+            inv["status"]="storniert"; inv["cancelled_date"]=datetime.now().strftime("%Y-%m-%d")
+            no=inv.get("number","")
+            released=0
+            for s in DB["sessions"]:
+                if s.get("invoice_number")==no:
+                    s["billed"]=False; s["invoice_number"]=""; released+=1
+            save_data(); update_excel(); t.item(r,3).setText("storniert")
+            QMessageBox.information(self,"Storniert",f"Rechnung {no} wurde storniert.\n{released} verknüpfte Sitzung(en) sind wieder abrechenbar.")
         cancel.clicked.connect(cancel_invoice); h.addWidget(cancel)
         openpdf=QPushButton("PDF öffnen"); openpdf.setMinimumHeight(50)
         def open_pdf():
             _,inv=selected_invoice()
             if not inv:return
             p=inv.get("pdf","")
-            if p and Path(p).exists(): QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
-            else: QMessageBox.information(self,"PDF","Für diese Rechnung ist kein PDF-Pfad gespeichert.")
+            if p and Path(p).exists(): QDesktopServices.openUrl(QUrl.fromLocalFile(str(p))); return
+            client=inv.get("client","")
+            if "," in client:
+                last,first=[x.strip() for x in client.split(",",1)]
+                guess=client_dir({"last":last,"first":first})/"Rechnungen"/f"Rechnung_{inv.get('number','')}.pdf"
+                if guess.exists(): inv["pdf"]=str(guess); save_data(); QDesktopServices.openUrl(QUrl.fromLocalFile(str(guess))); return
+            QMessageBox.information(self,"PDF","Das PDF konnte nicht gefunden werden.")
         openpdf.clicked.connect(open_pdf); h.addWidget(openpdf); v.addLayout(h)
         backup=QPushButton("Datensicherung erstellen"); backup.setMinimumHeight(48)
         def do_backup():
