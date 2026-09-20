@@ -896,11 +896,12 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             if p: logo.setText(p)
         choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
         lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(1,120); lock.setValue(int(get_setting("auto_lock_minutes","15"))); lock.setSuffix(" Minuten"); lockrow.addWidget(lock); lockrow.addStretch(); form.addRow("Automatische Sperre",lockrow)
+        travel=QDoubleSpinBox(); travel.setRange(0,500); travel.setDecimals(2); travel.setValue(float(get_setting("travel_surcharge","25"))); travel.setSuffix(" €"); form.addRow("Hausbesuch Anfahrt",travel)
         v.addLayout(form)
         save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(52)
         def save_settings():
             for k,ed in fields.items(): set_setting(k,ed.text().strip())
-            set_setting("auto_lock_minutes",lock.value())
+            set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value())
             QMessageBox.information(self,"Gespeichert","Die Praxisvorlage wurde gespeichert. Deine bisherigen Daten bleiben die Standardvorlage.")
         save.clicked.connect(save_settings); v.addWidget(save)
         rates=QLabel("Honorarsätze"); rates.setObjectName("sectionTitle"); v.addWidget(rates)
