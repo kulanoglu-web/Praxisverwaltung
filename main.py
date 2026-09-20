@@ -63,7 +63,27 @@ def init_sqlite():
       FOREIGN KEY(invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
       FOREIGN KEY(session_id) REFERENCES sessions(id));
     CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
-    """); con.commit(); con.close()
+    CREATE TABLE IF NOT EXISTS users(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
+      display_name TEXT NOT NULL, role TEXT DEFAULT 'Therapeut', active INTEGER DEFAULT 1,
+      password_hash TEXT, created_at TEXT);
+    CREATE TABLE IF NOT EXISTS fee_rates(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
+      minutes INTEGER NOT NULL DEFAULT 45, amount REAL NOT NULL DEFAULT 70,
+      reduced_amount REAL, billing_mode TEXT DEFAULT 'proportional', active INTEGER DEFAULT 1);
+    """)
+    defaults={
+      "practice_name":"Psychologische Privatpraxis","owner_name":"Erdoğan Kulanoğlu",
+      "qualifications":"Psychologe M. Sc. · Sozialarbeiter B.A. · Heilpraktiker für Psychotherapie",
+      "address":"Schönwalder Str. 59, 13585 Berlin","phone":"0176 43605753","fax":"030 43205928",
+      "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254",
+      "iban":"DE13 5001 0517 5404 0811 30","bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com",
+      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":""
+    }
+    for k,v in defaults.items(): con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",(k,v))
+    for name,mins,amount,reduced,mode in [("Einzeltherapie",45,70,60,"proportional"),("Paargespräch",45,70,60,"proportional"),("Onlinegespräch",45,70,60,"proportional"),("Notfalltelefonat",30,45,45,"started_unit"),("Hausbesuch",45,70,60,"proportional_plus_travel")]:
+        con.execute("INSERT OR IGNORE INTO fee_rates(name,minutes,amount,reduced_amount,billing_mode) VALUES(?,?,?,?,?)",(name,mins,amount,reduced,mode))
+    con.commit(); con.close()
 
 def sync_sqlite():
     init_sqlite(); con=sqlite3.connect(DBFILE); cur=con.cursor()
@@ -87,6 +107,17 @@ def sync_sqlite():
                 cur.execute("""INSERT INTO invoice_items(invoice_id,session_id,service_date,start,end,minutes,type,reduced,amount)
                 VALUES(?,?,?,?,?,?,?,?,?)""",(iid,it.get("id"),it.get("date",""),it.get("start",""),it.get("end",""),it.get("minutes",0),it.get("type",""),1 if it.get("reduced") else 0,it.get("amount",0)))
     con.commit(); con.close()
+
+def get_setting(key,default=""):
+    con=sqlite3.connect(DBFILE); row=con.execute("SELECT value FROM settings WHERE key=?",(key,)).fetchone(); con.close()
+    return row[0] if row else default
+
+def set_setting(key,value):
+    con=sqlite3.connect(DBFILE); con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(key,str(value))); con.commit(); con.close()
+
+def get_fee_rates():
+    con=sqlite3.connect(DBFILE); rows=con.execute("SELECT name,minutes,amount,reduced_amount,billing_mode FROM fee_rates WHERE active=1 ORDER BY id").fetchall(); con.close()
+    return rows
 
 def load_data():
     if DATA.exists():
@@ -143,10 +174,10 @@ class Main(QMainWindow):
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(14,20,14,20)
         brand=QLabel("PRAXISPRO\nPsychologische Privatpraxis"); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
-        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","▤  Neue Rechnung","▣  Rechnungen"]: self.nav.addItem(x)
+        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
         foot=QLabel("Lokale Praxisverwaltung"); foot.setObjectName("sidefoot"); sv.addWidget(foot)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui())
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui())
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(self.pages,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -645,6 +676,34 @@ class Main(QMainWindow):
             for x in (ROOT/"Einnahmen").glob("*.xlsx"): shutil.copy2(x,dest/x.name)
             shutil.copytree(ROOT/"Klienten",dest/"Klienten",dirs_exist_ok=True); (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nDatenbank: "+str(DBFILE)+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[]))),encoding="utf-8"); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
         backup.clicked.connect(do_backup); v.addWidget(backup); return w
+    def settings_ui(self):
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
+        title=QLabel("Praxiseinstellungen"); title.setObjectName("pageTitle"); v.addWidget(title)
+        sub=QLabel("Vorlage anpassen – Praxisdaten, Bankverbindung, Herstellerangaben und Logo."); sub.setObjectName("pageSub"); v.addWidget(sub)
+        form=QFormLayout(); fields={}
+        labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("address","Anschrift"),("phone","Telefon"),("fax","Fax"),("email","E-Mail"),("website","Website"),("tax_number","Steuernummer"),("iban","IBAN"),("bic","BIC"),("paypal","PayPal"),("manufacturer","Herstellername"),("copyright","Copyright")]
+        for key,label in labels:
+            ed=QLineEdit(get_setting(key)); fields[key]=ed; form.addRow(label,ed)
+        logo=QLineEdit(get_setting("logo_path")); fields["logo_path"]=logo; choose=QPushButton("Logo auswählen …")
+        def pick_logo():
+            p,_=QFileDialog.getOpenFileName(self,"Praxislogo auswählen","","Bilder (*.png *.jpg *.jpeg)")
+            if p: logo.setText(p)
+        choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
+        v.addLayout(form)
+        save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(52)
+        def save_settings():
+            for k,ed in fields.items(): set_setting(k,ed.text().strip())
+            QMessageBox.information(self,"Gespeichert","Die Praxisvorlage wurde gespeichert. Deine bisherigen Daten bleiben die Standardvorlage.")
+        save.clicked.connect(save_settings); v.addWidget(save)
+        rates=QLabel("Honorarsätze"); rates.setObjectName("sectionTitle"); v.addWidget(rates)
+        rt=QTableWidget(0,4); rt.setHorizontalHeaderLabels(["Leistung","Einheit Min.","Regulär €","Ermäßigt €"]); rt.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        for name,mins,amount,reduced,mode in get_fee_rates():
+            r=rt.rowCount(); rt.insertRow(r)
+            for j,val in enumerate([name,mins,amount,reduced if reduced is not None else ""]): rt.setItem(r,j,QTableWidgetItem(str(val)))
+        v.addWidget(rt)
+        hint=QLabel("Die Honorarsätze liegen jetzt in der Datenbank und können im nächsten Schritt direkt über diese Tabelle bearbeitet und erweitert werden."); hint.setWordWrap(True); hint.setObjectName("pageSub"); v.addWidget(hint)
+        return w
+
     def dashboard_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(18)
         y=str(datetime.now().year); billed=sum(float(i.get("amount",0)) for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")!="storniert"); paid=sum(float(i.get("amount",0)) for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")=="bezahlt"); open_amt=billed-paid
