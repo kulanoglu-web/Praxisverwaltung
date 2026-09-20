@@ -225,9 +225,44 @@ def update_excel():
     ov.append(["Rechnungsbetrag",total]); ov.append(["Bezahlt",paid]); ov.append(["Offen",total-paid]); ws.column_dimensions["A"].width=20; ws.column_dimensions["B"].width=16; ws.column_dimensions["C"].width=16; ws.column_dimensions["D"].width=28; ws.column_dimensions["E"].width=14; ws.column_dimensions["F"].width=14
     wb.save(f)
 
+class LoginDialog(QDialog):
+    def __init__(self):
+        super().__init__(); self.user=None; self.setWindowTitle("PraxisPro – Anmeldung"); self.setMinimumWidth(420)
+        v=QVBoxLayout(self); t=QLabel("PRAXISPRO"); t.setStyleSheet("font-size:28px;font-weight:800;color:#17324d"); v.addWidget(t)
+        v.addWidget(QLabel(get_setting("practice_name","Psychologische Privatpraxis")))
+        self.username=QLineEdit(); self.username.setPlaceholderText("Benutzername")
+        self.password=QLineEdit(); self.password.setPlaceholderText("Passwort"); self.password.setEchoMode(QLineEdit.Password)
+        v.addWidget(self.username); v.addWidget(self.password)
+        self.info=QLabel(""); self.info.setWordWrap(True); v.addWidget(self.info)
+        b=QPushButton("Anmelden"); b.setMinimumHeight(48); b.clicked.connect(self.try_login); v.addWidget(b)
+        self.password.returnPressed.connect(self.try_login)
+    def try_login(self):
+        con=sqlite3.connect(DBFILE); row=con.execute("SELECT username,display_name,role,password_hash FROM users WHERE username=? AND active=1",(self.username.text().strip(),)).fetchone(); con.close()
+        if row and verify_password(self.password.text(),row[3]):
+            self.user={"username":row[0],"display_name":row[1],"role":row[2]}; audit("LOGIN","Erfolgreiche Anmeldung",row[0]); self.accept()
+        else:
+            audit("LOGIN_FAILED","Fehlgeschlagene Anmeldung",self.username.text().strip()); self.info.setText("Benutzername oder Passwort ist nicht korrekt."); self.password.clear()
+
+def ensure_first_user():
+    con=sqlite3.connect(DBFILE); count=con.execute("SELECT COUNT(*) FROM users").fetchone()[0]; con.close()
+    if count: return True
+    d=QDialog(); d.setWindowTitle("PraxisPro – Ersteinrichtung"); d.setMinimumWidth(460); v=QVBoxLayout(d)
+    v.addWidget(QLabel("Ersten Administrator anlegen"))
+    name=QLineEdit("Erdogan"); name.setPlaceholderText("Benutzername")
+    display=QLineEdit(get_setting("owner_name","Erdoğan Kulanoğlu")); display.setPlaceholderText("Anzeigename")
+    p1=QLineEdit(); p1.setEchoMode(QLineEdit.Password); p1.setPlaceholderText("Passwort – mindestens 8 Zeichen")
+    p2=QLineEdit(); p2.setEchoMode(QLineEdit.Password); p2.setPlaceholderText("Passwort wiederholen")
+    for w in (name,display,p1,p2): v.addWidget(w)
+    buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); v.addWidget(buttons)
+    def create():
+        if not name.text().strip() or len(p1.text())<8 or p1.text()!=p2.text(): QMessageBox.warning(d,"Ersteinrichtung","Benutzername, zwei gleiche Passwörter und mindestens 8 Zeichen erforderlich."); return
+        con=sqlite3.connect(DBFILE); con.execute("INSERT INTO users(username,display_name,role,active,password_hash,created_at) VALUES(?,?,?,?,?,?)",(name.text().strip(),display.text().strip() or name.text().strip(),"Administrator",1,password_hash(p1.text()),datetime.now().isoformat(timespec="seconds"))); con.commit(); con.close(); audit("FIRST_ADMIN_CREATED",display.text().strip(),name.text().strip()); d.accept()
+    buttons.accepted.connect(create); buttons.rejected.connect(d.reject)
+    return d.exec()==QDialog.Accepted
+
 class Main(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle("Praxisverwaltung"); self.resize(1280,820); self.setMinimumSize(1050,700)
+        super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle("Praxisverwaltung"); self.resize(1280,820); self.setMinimumSize(1050,700)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(14,20,14,20)
@@ -242,7 +277,7 @@ class Main(QMainWindow):
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
         self.wallclock=QLabel()
         self.statusBar().addPermanentWidget(self.wallclock)
-        self.walltimer=QTimer(self); self.walltimer.timeout.connect(self.update_wallclock); self.walltimer.start(250); self.update_wallclock()
+        self.walltimer=QTimer(self); self.walltimer.timeout.connect(self.update_wallclock); self.walltimer.start(250); self.update_wallclock(); self.locktimer=QTimer(self); self.locktimer.timeout.connect(self.check_autolock); self.locktimer.start(30000)
         self.setStyleSheet("""
         QMainWindow { background:#f4f6f8; }
         #sidebar { background:#132f47; border:0; }
@@ -289,6 +324,16 @@ class Main(QMainWindow):
         QTimer.singleShot(500,self.restore_draft)
     def update_wallclock(self):
         self.wallclock.setText("LIVE  "+QTime.currentTime().toString("HH:mm:ss"))
+    def event(self,e):
+        if e.type() in (e.Type.MouseButtonPress,e.Type.KeyPress,e.Type.TouchBegin): self.last_activity=datetime.now()
+        return super().event(e)
+    def check_autolock(self):
+        mins=int(get_setting("auto_lock_minutes","15") or 15)
+        if mins>0 and (datetime.now()-self.last_activity).total_seconds()>=mins*60:
+            self.locktimer.stop(); dlg=LoginDialog()
+            if dlg.exec()!=QDialog.Accepted: QApplication.quit(); return
+            self.current_user=dlg.user; self.last_activity=datetime.now(); self.locktimer.start(30000); audit("UNLOCK","Anwendung entsperrt",self.current_user.get("username",""))
+
     def session_ui(self):
         w=QWidget(); v=QVBoxLayout(w); top=QHBoxLayout()
         title=QLabel("Sitzungsnotiz"); title.setStyleSheet("font-size:26px;font-weight:700")
@@ -857,4 +902,8 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
         quick=QLabel("Schnellzugriff"); quick.setObjectName("sectionTitle"); v.addWidget(quick)
         actions=QHBoxLayout(); new_session=QPushButton("＋  Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("▤  Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(4)); clients=QPushButton("♙  Klienten verwalten"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
         info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch(); return w
-app=QApplication(sys.argv); app.setStyleSheet("QPushButton{font-size:16px;padding:8px} QLineEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox{font-size:16px;padding:7px}"); win=Main();win.show();sys.exit(app.exec())
+app=QApplication(sys.argv); app.setStyleSheet("QPushButton{font-size:16px;padding:8px} QLineEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox{font-size:16px;padding:7px}")
+if not ensure_first_user(): sys.exit(0)
+login=LoginDialog()
+if login.exec()!=QDialog.Accepted: sys.exit(0)
+win=Main(); win.current_user=login.user; win.setWindowTitle("PraxisPro – "+login.user.get("display_name","")); win.show(); sys.exit(app.exec())
