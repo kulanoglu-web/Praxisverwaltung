@@ -84,7 +84,7 @@ class Main(QMainWindow):
         super().__init__(); self.setWindowTitle("Praxisverwaltung"); self.resize(1180,780)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         tabs=QTabWidget(); self.setCentralWidget(tabs)
-        tabs.addTab(self.session_ui(),"Sitzungsnotiz"); tabs.addTab(self.invoice_ui(),"Rechnung"); tabs.addTab(self.clients_ui(),"Klienten"); tabs.addTab(self.invoices_ui(),"Rechnungen"); tabs.addTab(self.dashboard_ui(),"Übersicht")
+        tabs.addTab(self.session_ui(),"Sitzungsnotiz"); tabs.addTab(self.helper_ui(),"Sitzungsassistent"); tabs.addTab(self.invoice_ui(),"Rechnung"); tabs.addTab(self.clients_ui(),"Klienten"); tabs.addTab(self.invoices_ui(),"Rechnungen"); tabs.addTab(self.dashboard_ui(),"Übersicht")
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
         self.wallclock=QLabel()
         self.statusBar().addPermanentWidget(self.wallclock)
@@ -121,6 +121,47 @@ class Main(QMainWindow):
         for text,fn in [("▶ Sitzung starten",self.start_session),("⏸ Pause/Fortsetzen",self.pause),("■ Sitzung beenden",self.end_session),("💾 Speichern",self.save_session)]: 
             b=QPushButton(text); b.setMinimumHeight(55); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h); return w
+    def helper_ui(self):
+        w=QWidget(); v=QVBoxLayout(w)
+        title=QLabel("Sitzungsassistent – Fragen & Interventionen"); title.setStyleSheet("font-size:24px;font-weight:700"); v.addWidget(title)
+        hint=QLabel("Arbeitshilfe zur Gesprächsführung – keine automatische Diagnose."); hint.setWordWrap(True); v.addWidget(hint)
+        topics={
+          "Selbstwert / Selbstbewusstsein":{
+            "Fragen":["In welchen Situationen zweifeln Sie besonders an sich?","Was sagen Sie innerlich zu sich, wenn etwas nicht gelingt?","Was gelingt Ihnen trotz der aktuellen Belastung?","Welche eigenen Grenzen möchten Sie klarer vertreten?","Wer würde zuerst bemerken, dass Sie selbstsicherer geworden sind – woran?"],
+            "VT":["Selbstabwertende automatische Gedanken erfassen und prüfen.","Verhaltensübungen mit kleinen, erreichbaren Schritten planen.","Ressourcen- und Erfolgstagebuch als mögliche Übung besprechen."],
+            "TP":["Wiederkehrende Beziehungserfahrungen und Selbstbewertungen explorieren.","Affekte bei Kritik, Ablehnung oder Anerkennung genauer wahrnehmen."],
+            "Systemisch":["Ausnahmen vom Problem und vorhandene Kompetenzen erfragen.","Zirkuläre Fragen zur Wahrnehmung durch wichtige Bezugspersonen nutzen.","Skalierungsfragen und kleine nächste Schritte entwickeln."]},
+          "Paar – Kommunikation / Konflikte":{
+            "Fragen":["Woran merken Sie beide, dass ein Konflikt beginnt?","Was passiert typischerweise unmittelbar danach?","Was wünschen Sie sich in diesem Moment vom anderen?","Wann gelingt Kommunikation zwischen Ihnen besser?","Was möchten Sie trotz des Konflikts an Ihrer Beziehung bewahren?"],
+            "VT":["Konkrete Konfliktsituationen und Verhalten beider Partner analysieren.","Ich-Botschaften, aktives Zuhören und vereinbarte Gesprächspausen erproben."],
+            "TP":["Verletzlichkeit, Erwartungen und wiederkehrende Beziehungsmuster explorieren.","Bedeutung von Nähe, Zurückweisung und Abhängigkeit für beide Partner betrachten."],
+            "Systemisch":["Interaktionskreislauf statt Schuldfrage sichtbar machen.","Zirkuläre Fragen, Perspektivwechsel und Ressourcen des Paares nutzen."]},
+          "Depressive Beschwerden":{
+            "Fragen":["Was belastet Sie derzeit am stärksten?","Was hat sich bei Stimmung, Interesse oder Antrieb verändert?","Wie sind Schlaf, Appetit und Konzentration?","Was gibt Ihnen aktuell noch Halt oder Entlastung?","Gab es Gedanken, nicht mehr leben zu wollen oder sich etwas anzutun?"],
+            "VT":["Aktivitätsniveau und Verstärkerverlust explorieren.","Kleine realistische Aktivitäten und Tagesstruktur besprechen.","Belastende Gedanken und deren Wirkung untersuchen."],
+            "TP":["Aktuelle Auslöser, Verluste, Konflikte und Beziehungserfahrungen explorieren.","Umgang mit Ärger, Schuld, Trauer und Selbstwert betrachten."],
+            "Systemisch":["Ausnahmen und unterstützende Beziehungen identifizieren.","Veränderungen im sozialen System und hilfreiche Rückmeldeschleifen betrachten."]},
+          "Angst / Panik":{
+            "Fragen":["Wann tritt die Angst besonders auf?","Welche Gedanken und Körperempfindungen bemerken Sie zuerst?","Was tun Sie, um die Angst zu vermeiden oder zu kontrollieren?","Was befürchten Sie, könnte im schlimmsten Fall passieren?","Wann war die Angst geringer und was war dann anders?"],
+            "VT":["Angstkreislauf und Sicherheitsverhalten gemeinsam herausarbeiten.","Geeignete Expositionsschritte nur nach individueller Prüfung planen."],
+            "TP":["Bedeutung der Angst in aktuellen Beziehungen und Konflikten explorieren.","Affekte und innere Konflikte rund um Autonomie, Nähe oder Kontrolle betrachten."],
+            "Systemisch":["Funktion und Kontext der Angst im Lebenssystem explorieren.","Ausnahmen, Ressourcen und Perspektiven wichtiger Bezugspersonen einbeziehen."]}
+        }
+        row=QHBoxLayout(); self.help_topic=QComboBox(); self.help_topic.addItems(topics.keys()); row.addWidget(QLabel("Thema")); row.addWidget(self.help_topic,1); v.addLayout(row)
+        self.help_text=QTextEdit(); self.help_text.setReadOnly(True); self.help_text.setStyleSheet("font-size:17px;padding:10px"); v.addWidget(self.help_text,1)
+        def render():
+            d=topics[self.help_topic.currentText()]; parts=["FRAGEN"]+["• "+x for x in d["Fragen"]]
+            for key in ["VT","TP","Systemisch"]: parts+=["",key]+["• "+x for x in d[key]]
+            self.help_text.setPlainText("\n".join(parts))
+        self.help_topic.currentTextChanged.connect(render); render()
+        add=QPushButton("Ausgewählten Text in Sitzungsnotiz übernehmen"); add.setMinimumHeight(55)
+        def add_note():
+            x=self.help_text.textCursor().selectedText().strip()
+            if not x:return QMessageBox.information(self,"Auswahl","Bitte zuerst eine Frage oder einen Hinweis markieren.")
+            self.notes.append(x)
+        add.clicked.connect(add_note); v.addWidget(add)
+        return w
+
     def restore_draft(self):
         p=ROOT/"Sitzung_Autosave.json"
         if not p.exists(): return
