@@ -3,6 +3,7 @@ import android.app.*
 import android.os.*
 import android.graphics.*
 import android.view.*
+import android.content.SharedPreferences
 import android.widget.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -28,6 +29,8 @@ class InkView(ctx: android.content.Context): View(ctx) {
  fun savePng(file:File){val b=Bitmap.createBitmap(width.coerceAtLeast(1),height.coerceAtLeast(1),Bitmap.Config.ARGB_8888);val c=Canvas(b);draw(c);file.outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)}}
 }
 class MainActivity: Activity() {
+ private var lastInteraction=System.currentTimeMillis()
+ override fun dispatchTouchEvent(ev:MotionEvent):Boolean{lastInteraction=System.currentTimeMillis();return super.dispatchTouchEvent(ev)}
  private fun secretKey():SecretKey{
   val ks=java.security.KeyStore.getInstance("AndroidKeyStore").apply{load(null)}
   val alias="PraxisProLocalKey"
@@ -47,7 +50,15 @@ class MainActivity: Activity() {
  private fun secureFile(file:File):File{val out=File(file.parentFile,file.name+".enc");secureWrite(out,Base64.getEncoder().encodeToString(file.readBytes()));file.delete();return out}
  private fun secureRead(file:File):String=if(file.exists()) decryptString(file.readText()) else ""
 
- private fun clientFile()=File(filesDir,"clients.json")
+ private fun clientFile()=File(filesDir,"clients.json.enc")
+ private fun migratePlaintext(){
+  val old=File(filesDir,"clients.json")
+  if(old.exists()&&!clientFile().exists()){secureWrite(clientFile(),old.readText());old.delete()}
+  val dir=File(filesDir,"sessions");dir.mkdirs()
+  dir.listFiles{f->f.name.startsWith("session_")&&f.extension=="json"}?.forEach{f->
+   val out=File(dir,f.name+".enc");if(!out.exists())secureWrite(out,f.readText());f.delete()
+  }
+ }
  private fun loadClients():JSONArray=try{JSONArray(secureRead(clientFile()))}catch(e:Exception){JSONArray()}
  private fun rememberClient(last:String,first:String){
   if(last.isBlank()&&first.isBlank())return
@@ -75,7 +86,7 @@ class MainActivity: Activity() {
   clock.text="LIVE  "+SimpleDateFormat("HH:mm:ss",Locale.GERMANY).format(Date())
   val ms=elapsed + if(running) System.currentTimeMillis()-startMs else 0L; val sec=ms/1000
   timer.text=String.format(Locale.GERMANY,"%02d:%02d:%02d",sec/3600,(sec%3600)/60,sec%60); h.postDelayed(this,250)}}
- override fun onCreate(b:Bundle?){super.onCreate(b)
+ override fun onCreate(b:Bundle?){super.onCreate(b);window.setFlags(WindowManager.LayoutParams.FLAG_SECURE,WindowManager.LayoutParams.FLAG_SECURE);migratePlaintext()
   val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(24,24,24,24)}
   val title=TextView(this).apply{text="Praxisverwaltung";textSize=26f;setTypeface(null,1)}
   clock=TextView(this).apply{textSize=24f;gravity=Gravity.END}
@@ -105,7 +116,7 @@ class MainActivity: Activity() {
   val clear=Button(this).apply{text="Stift löschen";setOnClickListener{ink.clear()}}
   buttons.addView(start);buttons.addView(pause);buttons.addView(stop);buttons.addView(eraser);buttons.addView(clear);root.addView(buttons)
   val save=Button(this).apply{text="Sitzung lokal speichern";setOnClickListener{
-    val o=JSONObject();o.put("last",last.text.toString());o.put("first",first.text.toString());o.put("date",date.text.toString());o.put("begin",begin.text.toString());o.put("end",end.text.toString());o.put("seconds",elapsed/1000);o.put("notes",note.text.toString())
+    val o=JSONObject();o.put("schema_version",2);o.put("saved_at",System.currentTimeMillis());o.put("last",last.text.toString());o.put("first",first.text.toString());o.put("date",date.text.toString());o.put("begin",begin.text.toString());o.put("end",end.text.toString());o.put("seconds",elapsed/1000);o.put("notes",note.text.toString())
     rememberClient(last.text.toString().trim(),first.text.toString().trim())
     val dir=File(filesDir,"sessions");dir.mkdirs();val stamp=System.currentTimeMillis();val inkFile=File(dir,"handwriting_"+stamp+".png");ink.savePng(inkFile);val protectedInk=secureFile(inkFile);o.put("ink_file",protectedInk.absolutePath);secureWrite(File(dir,"session_"+stamp+".json.enc"),o.toString(2))
     Toast.makeText(activity,"Sitzung + Handschrift lokal gespeichert",Toast.LENGTH_SHORT).show()
