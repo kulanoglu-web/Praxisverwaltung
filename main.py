@@ -125,14 +125,14 @@ def amount_for(minutes,typ,reduced):
 def update_excel():
     year=datetime.now().year; f=ROOT/"Einnahmen"/f"Einnahmen_{year}.xlsx"
     wb=Workbook(); ws=wb.active; ws.title="Einnahmen"
-    ws.append(["Rechnungsnummer","Rechnungsdatum","Zahlungsdatum","Klient","Status","Betrag"])
+    ws.append(["Rechnungsnummer","Rechnungsdatum","Zahlungsdatum","Klient","Status","Betrag"]); ws.freeze_panes="A2"; ws.auto_filter.ref="A1:F1"
     for i in DB["invoices"]:
         if str(i.get("number","")).startswith(str(year)):
             ws.append([i["number"],i["date"],i.get("paid_date",""),i["client"],i.get("status","offen"),i["amount"]])
     ov=wb.create_sheet("Jahresübersicht"); ov.append(["Kennzahl","Betrag"])
     total=sum(float(i["amount"]) for i in DB["invoices"] if str(i.get("number","")).startswith(str(year)) and i.get("status")!="storniert")
     paid=sum(float(i["amount"]) for i in DB["invoices"] if str(i.get("number","")).startswith(str(year)) and i.get("status")=="bezahlt")
-    ov.append(["Rechnungsbetrag",total]); ov.append(["Bezahlt",paid]); ov.append(["Offen",total-paid])
+    ov.append(["Rechnungsbetrag",total]); ov.append(["Bezahlt",paid]); ov.append(["Offen",total-paid]); ws.column_dimensions["A"].width=20; ws.column_dimensions["B"].width=16; ws.column_dimensions["C"].width=16; ws.column_dimensions["D"].width=28; ws.column_dimensions["E"].width=14; ws.column_dimensions["F"].width=14
     wb.save(f)
 
 class Main(QMainWindow):
@@ -205,9 +205,9 @@ class Main(QMainWindow):
         self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setStyleSheet("font-size:32px;font-weight:800;padding:12px;border:2px solid #777;border-radius:10px")
         top.addWidget(title); top.addStretch(); top.addWidget(self.clock); v.addLayout(top)
         f=QFormLayout(); f.setLabelAlignment(Qt.AlignRight); f.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        self.s_last=QLineEdit(); self.s_first=QLineEdit(); self.s_dob=QLineEdit()
+        self.s_last=QLineEdit(); self.s_first=QLineEdit(); self.s_dob=QLineEdit(); self.s_dob.setPlaceholderText("TT.MM.JJJJ")
         for field in (self.s_last,self.s_first,self.s_dob): field.setMinimumWidth(420); field.setMinimumHeight(38)
-        self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_start=QTimeEdit(); self.s_end=QTimeEdit()
+        self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy"); self.s_start=QTimeEdit(); self.s_end=QTimeEdit(); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
         self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"])
         self.s_red=QCheckBox("Ermäßigter Satz")
         for a,b in [("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Datum",self.s_date),("Beginn",self.s_start),("Ende",self.s_end),("Art",self.s_type)]:f.addRow(a,b)
@@ -341,6 +341,7 @@ class Main(QMainWindow):
     def save_session(self):
         last=self.s_last.text().strip(); first=self.s_first.text().strip()
         if not last or not first:return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
+        if self.s_start.time()==self.s_end.time() and self.elapsed()==0:return QMessageBox.warning(self,"Zeitangabe","Bitte Beginn und Ende prüfen oder den Sitzungstimer verwenden.")
         c=next((x for x in DB["clients"] if x["last"].lower()==last.lower() and x["first"].lower()==first.lower()),None)
         if not c:c={"last":last,"first":first,"dob":self.s_dob.text().strip(),"address":"","diagnosis":""}; DB["clients"].append(c)
         else: c["dob"]=self.s_dob.text().strip() or c.get("dob","")
@@ -349,7 +350,7 @@ class Main(QMainWindow):
         start_t=self.s_start.time(); end_t=self.s_end.time()
         mins=start_t.secsTo(end_t)//60 if start_t.isValid() and end_t.isValid() else 0
         if mins <= 0: mins=max(1,round(self.elapsed()/60))
-        rec={"id":datetime.now().strftime("%Y%m%d%H%M%S"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
+        rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
         d=client_dir(c)/"Sitzungen"; inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=str(inkfile)
         DB["sessions"].append(rec); save_data(); (d/f"{rec['date']}_Sitzung.json").write_text(json.dumps(rec,ensure_ascii=False,indent=2),encoding="utf-8")
         auto=ROOT/"Sitzung_Autosave.json"
@@ -361,7 +362,7 @@ class Main(QMainWindow):
         sub=QLabel("Einzelrechnung oder Sammelrechnung aus noch nicht abgerechneten Sitzungen"); sub.setObjectName("pageSub"); v.addWidget(sub)
         card=QFrame(); card.setObjectName("formCard"); f=QFormLayout(card); f.setSpacing(12)
         self.i_no=QLineEdit(next_no()); self.i_last=QLineEdit(); self.i_first=QLineEdit(); self.i_addr=QLineEdit(); self.i_diag=QLineEdit(); self.pending_sessions=None; self.manual_items=[]
-        self.i_date=QDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstige"])
+        self.i_date=QDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_date.setDisplayFormat("dd.MM.yyyy"); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstige"])
         self.i_min=QSpinBox(); self.i_min.setRange(1,1000); self.i_min.setValue(45); self.i_red=QCheckBox("Ermäßigter Satz")
         self.i_start=QTimeEdit(); self.i_start.setDisplayFormat("HH:mm"); self.i_end=QTimeEdit(); self.i_end.setDisplayFormat("HH:mm")
         for a,b in [("Rechnungsnummer",self.i_no),("Nachname",self.i_last),("Vorname",self.i_first),("Adresse (optional)",self.i_addr),("Diagnose (optional)",self.i_diag),("Leistungsdatum",self.i_date),("Beginn",self.i_start),("Ende",self.i_end),("Leistung",self.i_type),("Dauer Minuten",self.i_min)]:f.addRow(a,b)
@@ -419,7 +420,7 @@ class Main(QMainWindow):
             self.i_first.setText(x.get("first","")); self.i_last.setText(x.get("last","")); self.i_addr.setText(x.get("address","")); self.i_diag.setText(x.get("diagnosis",""))
     def load_unbilled_sessions(self):
         last,first=self.i_last.text().strip().lower(),self.i_first.text().strip().lower()
-        rows=[s for s in DB["sessions"] if not s.get("billed") and s.get("last","").lower()==last and s.get("first","").lower()==first]
+        rows=sorted([s for s in DB["sessions"] if not s.get("billed") and s.get("last","").lower()==last and s.get("first","").lower()==first],key=lambda s:(s.get("date",""),s.get("start","")))
         if not rows: return QMessageBox.information(self,"Sitzungen","Keine unberechneten Sitzungen für diesen Klienten gefunden.")
         self.pending_sessions=rows
         details="\n".join(f'{s.get("date","")} | {s.get("start","")}–{s.get("end","")} | {s.get("minutes",0)} Min. | {s.get("type","")}' for s in rows)
@@ -493,7 +494,7 @@ class Main(QMainWindow):
         title=QLabel("Klienten"); title.setObjectName("pageTitle"); v.addWidget(title)
         tools=QHBoxLayout(); search=QLineEdit(); search.setPlaceholderText("Klient suchen …"); search.setClearButtonEnabled(True); tools.addWidget(search,1); v.addLayout(tools)
         t=QTableWidget(0,3); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setAlternatingRowColors(True); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers)
-        for c in DB["clients"]: r=t.rowCount();t.insertRow(r);[t.setItem(r,j,QTableWidgetItem(str(c.get(k,"")))) for j,k in enumerate(["last","first","dob"])]
+        for c in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): r=t.rowCount();t.insertRow(r);[t.setItem(r,j,QTableWidgetItem(str(c.get(k,"")))) for j,k in enumerate(["last","first","dob"])]
         v.addWidget(t)
         def filter_clients(txt):
             q=txt.strip().lower()
@@ -548,7 +549,23 @@ class Main(QMainWindow):
             view.clicked.connect(open_selected)
             actionrow=QHBoxLayout(); actionrow.addWidget(view); actionrow.addWidget(edit); lay.addLayout(actionrow)
             close=QDialogButtonBox(QDialogButtonBox.Close); close.rejected.connect(dlg.reject); lay.addWidget(close); dlg.exec()
-        opensessions.clicked.connect(show_sessions); v.addWidget(opensessions)
+        opensessions.clicked.connect(show_sessions); t.cellDoubleClicked.connect(lambda *_: show_sessions()); v.addWidget(opensessions)
+        clientactions=QHBoxLayout()
+        tosession=QPushButton("Neue Sitzung für Klient"); toinvoice=QPushButton("Neue Rechnung für Klient")
+        def selected_client():
+            r=t.currentRow()
+            if r<0:return None
+            last=t.item(r,0).text(); first=t.item(r,1).text()
+            return next((x for x in DB["clients"] if x.get("last")==last and x.get("first")==first),None)
+        def client_to_session():
+            x=selected_client()
+            if not x:return
+            self.s_last.setText(x.get("last","")); self.s_first.setText(x.get("first","")); self.s_dob.setText(x.get("dob","")); self.nav.setCurrentRow(1)
+        def client_to_invoice():
+            x=selected_client()
+            if not x:return
+            self.i_last.setText(x.get("last","")); self.i_first.setText(x.get("first","")); self.i_addr.setText(x.get("address","")); self.i_diag.setText(x.get("diagnosis","")); self.nav.setCurrentRow(4)
+        tosession.clicked.connect(client_to_session); toinvoice.clicked.connect(client_to_invoice); clientactions.addWidget(tosession); clientactions.addWidget(toinvoice); v.addLayout(clientactions)
         openink=QPushButton("Letzte Handschrift des ausgewählten Klienten anzeigen"); openink.setMinimumHeight(45)
         def show_ink():
             r=t.currentRow()
@@ -585,13 +602,18 @@ class Main(QMainWindow):
             no=t.item(r,0).text(); return r,next((x for x in DB["invoices"] if x.get("number")==no),None)
         def mark_paid():
             r,inv=selected_invoice()
-            if inv: inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("bezahlt")
+            if inv:
+                if inv.get("status")=="storniert": return QMessageBox.warning(self,"Status","Eine stornierte Rechnung kann nicht als bezahlt markiert werden.")
+                inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("bezahlt")
         paid.clicked.connect(mark_paid); h.addWidget(paid)
         cancel=QPushButton("Rechnung stornieren"); cancel.setMinimumHeight(50)
         def cancel_invoice():
             r,inv=selected_invoice()
             if not inv:return
-            if QMessageBox.question(self,"Stornieren",f'Rechnung {inv.get("number","")} wirklich stornieren?')!=QMessageBox.Yes:return
+            if inv.get("status")=="storniert": return QMessageBox.information(self,"Stornieren","Diese Rechnung ist bereits storniert.")
+            msg=f'Rechnung {inv.get("number","")} wirklich stornieren?'
+            if inv.get("status")=="bezahlt": msg+="\n\nAchtung: Die Rechnung ist bereits als bezahlt markiert."
+            if QMessageBox.question(self,"Stornieren",msg)!=QMessageBox.Yes:return
             inv["status"]="storniert"; inv["cancelled_date"]=datetime.now().strftime("%Y-%m-%d")
             no=inv.get("number","")
             released=0
@@ -621,7 +643,7 @@ class Main(QMainWindow):
             if DBFILE.exists():
                 con=sqlite3.connect(DBFILE); out=sqlite3.connect(dest/DBFILE.name); con.backup(out); out.close(); con.close()
             for x in (ROOT/"Einnahmen").glob("*.xlsx"): shutil.copy2(x,dest/x.name)
-            shutil.copytree(ROOT/"Klienten",dest/"Klienten",dirs_exist_ok=True); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
+            shutil.copytree(ROOT/"Klienten",dest/"Klienten",dirs_exist_ok=True); (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nDatenbank: "+str(DBFILE)+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[]))),encoding="utf-8"); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
         backup.clicked.connect(do_backup); v.addWidget(backup); return w
     def dashboard_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(18)
@@ -633,7 +655,7 @@ class Main(QMainWindow):
         cards.addWidget(card("ABGERECHNET",f"{billed:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,0)
         cards.addWidget(card("BEZAHLT",f"{paid:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,1)
         cards.addWidget(card("OFFEN",f"{open_amt:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,2)
-        cards.addWidget(card("KLIENTEN",str(len(DB["clients"]))),1,0); cards.addWidget(card("SITZUNGEN",str(len(DB["sessions"]))),1,1); cards.addWidget(card("OFFENE RECHNUNGEN",str(sum(1 for i in DB["invoices"] if i.get("status","offen")=="offen"))),1,2); v.addLayout(cards)
+        cards.addWidget(card("KLIENTEN",str(len(DB["clients"]))),1,0); cards.addWidget(card("SITZUNGEN "+y,str(sum(1 for s in DB["sessions"] if str(s.get("date","")).startswith(y)))),1,1); cards.addWidget(card("OFFENE RECHNUNGEN",str(sum(1 for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status","offen")=="offen"))),1,2); v.addLayout(cards)
         quick=QLabel("Schnellzugriff"); quick.setObjectName("sectionTitle"); v.addWidget(quick)
         actions=QHBoxLayout(); new_session=QPushButton("＋  Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("▤  Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(4)); clients=QPushButton("♙  Klienten verwalten"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
         info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch(); return w
