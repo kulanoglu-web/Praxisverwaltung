@@ -88,11 +88,11 @@ class Main(QMainWindow):
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
         self.wallclock=QLabel()
         self.statusBar().addPermanentWidget(self.wallclock)
-        self.walltimer=QTimer(self); self.walltimer.timeout.connect(self.update_wallclock); self.walltimer.start(1000); self.update_wallclock()
+        self.walltimer=QTimer(self); self.walltimer.timeout.connect(self.update_wallclock); self.walltimer.start(250); self.update_wallclock()
         self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(15000)
         QTimer.singleShot(500,self.restore_draft)
     def update_wallclock(self):
-        self.wallclock.setText("Aktuelle Uhrzeit  "+datetime.now().strftime("%H:%M:%S"))
+        self.wallclock.setText("LIVE  "+QTime.currentTime().toString("HH:mm:ss"))
     def session_ui(self):
         w=QWidget(); v=QVBoxLayout(w); top=QHBoxLayout()
         title=QLabel("Sitzungsnotiz"); title.setStyleSheet("font-size:26px;font-weight:700")
@@ -147,7 +147,7 @@ class Main(QMainWindow):
         if x:
             self.s_first.setText(x.get("first","")); self.s_last.setText(x.get("last","")); self.s_dob.setText(x.get("dob",""))
     def start_session(self):
-        now=datetime.now(); self.s_date.setDate(QDate.currentDate()); self.s_start.setTime(QTime.currentTime()); self.started=now; self.acc=0; self.running=True
+        now=datetime.now(); self.s_date.setDate(QDate.currentDate()); self.s_start.setTime(QTime.currentTime()); self.started=now; self.acc=0; self.running=True; self.update_wallclock()
     def pause(self):
         if self.running and self.started: self.acc+=(datetime.now()-self.started).total_seconds(); self.running=False
         else:self.started=datetime.now(); self.running=True
@@ -159,7 +159,7 @@ class Main(QMainWindow):
         s=self.elapsed(); self.clock.setText(f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}")
     def end_session(self):
         if self.running and self.started:self.acc+=(datetime.now()-self.started).total_seconds()
-        self.running=False; self.s_end.setTime(QTime.currentTime())
+        self.running=False; self.s_end.setTime(QTime.currentTime()); self.update_wallclock()
     def save_session(self):
         last=self.s_last.text().strip(); first=self.s_first.text().strip()
         if not last or not first:return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
