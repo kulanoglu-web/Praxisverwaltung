@@ -904,7 +904,29 @@ class Main(QMainWindow):
             if KEYFILE.exists(): shutil.copy2(KEYFILE,key_export)
             (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[])))+"\nDer Wiederherstellungsschlüssel wurde separat erstellt und darf nicht zusammen mit dem Backup aufbewahrt werden.",encoding="utf-8")
             QMessageBox.information(self,"Sicherung","Sicherung erstellt:\n"+str(dest)+"\n\nWiederherstellungsschlüssel separat erstellt:\n"+str(key_export)+"\n\nBitte Schlüssel und Backup getrennt aufbewahren.")
-        backup.clicked.connect(lambda: do_backup() if self.require_edit() else None); v.addWidget(backup); return w
+        backup.clicked.connect(lambda: do_backup() if self.require_edit() else None); v.addWidget(backup)
+        restore=QPushButton("Datensicherung wiederherstellen …"); restore.setMinimumHeight(48)
+        def do_restore():
+            if not self.is_admin(): return QMessageBox.warning(self,"Keine Berechtigung","Wiederherstellung ist Administratoren vorbehalten.")
+            folder=QFileDialog.getExistingDirectory(self,"Backup-Ordner auswählen",str(ROOT/"Backups"))
+            if not folder:return
+            key,_=QFileDialog.getOpenFileName(self,"Wiederherstellungsschlüssel auswählen",str(ROOT/"Backups"),"Schlüssel (*.key);;Alle Dateien (*)")
+            if not key:return
+            src=Path(folder)
+            if not (src/DATA.name).exists() or not (src/DBFILE.name).exists(): return QMessageBox.warning(self,"Wiederherstellung","Der ausgewählte Ordner enthält kein vollständiges PraxisPro-Backup.")
+            try:
+                testkey=Path(key).read_bytes(); token=(src/DATA.name).read_text(encoding="utf-8")
+                if token.startswith("enc:"): Fernet(testkey).decrypt(token[4:].encode("ascii"))
+            except Exception:return QMessageBox.critical(self,"Wiederherstellung","Der Schlüssel passt nicht zu dieser Sicherung.")
+            if QMessageBox.question(self,"Wiederherstellung","Die aktuellen Praxisdaten werden ersetzt. Fortfahren?")!=QMessageBox.Yes:return
+            stamp=datetime.now().strftime("%Y%m%d_%H%M%S"); safety=ROOT/"Backups"/("Vor_Wiederherstellung_"+stamp); safety.mkdir(parents=True,exist_ok=True)
+            if DATA.exists():shutil.copy2(DATA,safety/DATA.name)
+            if DBFILE.exists():shutil.copy2(DBFILE,safety/DBFILE.name)
+            shutil.copy2(key,KEYFILE); shutil.copy2(src/DATA.name,DATA); shutil.copy2(src/DBFILE.name,DBFILE)
+            if (src/"Klienten").exists(): shutil.copytree(src/"Klienten",ROOT/"Klienten",dirs_exist_ok=True)
+            audit("BACKUP_RESTORE","Datensicherung wiederhergestellt",self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.information(self,"Wiederherstellung","Wiederherstellung abgeschlossen. PraxisPro wird jetzt beendet. Bitte anschließend neu starten."); QApplication.quit()
+        restore.clicked.connect(do_restore); v.addWidget(restore); return w
     def manual_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
         title=QLabel("Benutzerhandbuch"); title.setObjectName("pageTitle"); v.addWidget(title)
