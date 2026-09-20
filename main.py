@@ -886,10 +886,11 @@ class Main(QMainWindow):
             if DATA.exists(): shutil.copy2(DATA,dest/DATA.name)
             if DBFILE.exists():
                 con=sqlite3.connect(DBFILE); out=sqlite3.connect(dest/DBFILE.name); con.backup(out); out.close(); con.close()
-            for x in (ROOT/"Einnahmen").glob("*.xlsx"): shutil.copy2(x,dest/x.name)
-            shutil.copytree(ROOT/"Klienten",dest/"Klienten",dirs_exist_ok=True)
-            if KEYFILE.exists(): shutil.copy2(KEYFILE,dest/KEYFILE.name)
-            (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nDatenbank: "+str(DBFILE)+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[]))),encoding="utf-8"); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
+            # Exporte (PDF/XLSX) bleiben bewusst außerhalb der verschlüsselten Datensicherung.
+            # Der lokale Hauptschlüssel wird niemals zusammen mit dem Backup kopiert.
+            for src in (ROOT/"Klienten").rglob("*.enc"):
+                rel=src.relative_to(ROOT/"Klienten"); target=dest/"Klienten"/rel; target.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(src,target)
+            (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nDatenbank: "+str(DBFILE)+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[])))+"\nHinweis: Der lokale Entschlüsselungsschlüssel sowie offene PDF-/Excel-Exporte sind nicht Bestandteil dieser Sicherung.",encoding="utf-8"); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
         backup.clicked.connect(do_backup); v.addWidget(backup); return w
     def manual_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
