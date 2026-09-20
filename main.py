@@ -61,7 +61,7 @@ def update_excel():
 class Main(QMainWindow):
     def __init__(self):
         super().__init__(); self.setWindowTitle("Praxisverwaltung"); self.resize(1180,780)
-        self.started=None; self.acc=0; self.running=False
+        self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         tabs=QTabWidget(); self.setCentralWidget(tabs)
         tabs.addTab(self.session_ui(),"Sitzungsnotiz"); tabs.addTab(self.invoice_ui(),"Rechnung"); tabs.addTab(self.clients_ui(),"Klienten"); tabs.addTab(self.invoices_ui(),"Rechnungen"); tabs.addTab(self.dashboard_ui(),"Übersicht")
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -69,6 +69,7 @@ class Main(QMainWindow):
         self.statusBar().addPermanentWidget(self.wallclock)
         self.walltimer=QTimer(self); self.walltimer.timeout.connect(self.update_wallclock); self.walltimer.start(1000); self.update_wallclock()
         self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(15000)
+        QTimer.singleShot(500,self.restore_draft)
     def update_wallclock(self):
         self.wallclock.setText("Aktuelle Uhrzeit  "+datetime.now().strftime("%H:%M:%S"))
     def session_ui(self):
@@ -87,6 +88,22 @@ class Main(QMainWindow):
         for text,fn in [("▶ Sitzung starten",self.start_session),("⏸ Pause/Fortsetzen",self.pause),("■ Sitzung beenden",self.end_session),("💾 Speichern",self.save_session)]: 
             b=QPushButton(text); b.setMinimumHeight(55); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h); return w
+    def restore_draft(self):
+        p=ROOT/"Sitzung_Autosave.json"
+        if not p.exists(): return
+        try:
+            d=json.loads(p.read_text(encoding="utf-8"))
+            if QMessageBox.question(self,"Sitzung wiederherstellen","Es gibt eine automatisch gespeicherte Sitzung. Wiederherstellen?")==QMessageBox.Yes:
+                self.s_last.setText(d.get("last","")); self.s_first.setText(d.get("first","")); self.s_dob.setText(d.get("dob",""))
+                qd=QDate.fromString(d.get("date",""),"yyyy-MM-dd")
+                if qd.isValid(): self.s_date.setDate(qd)
+                qs=QTime.fromString(d.get("start",""),"HH:mm")
+                if qs.isValid(): self.s_start.setTime(qs)
+                qe=QTime.fromString(d.get("end",""),"HH:mm")
+                if qe.isValid(): self.s_end.setTime(qe)
+                self.s_type.setCurrentText(d.get("type","Einzeltherapie")); self.s_red.setChecked(bool(d.get("reduced",False))); self.notes.setPlainText(d.get("notes",""))
+                self.acc=int(d.get("seconds",0)); self.running=False; self.started=None
+        except Exception: pass
     def autosave_session(self):
         if not self.running and not self.notes.toPlainText().strip(): return
         draft={"last":self.s_last.text(),"first":self.s_first.text(),"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"seconds":self.elapsed(),"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"running":self.running}
@@ -122,13 +139,26 @@ class Main(QMainWindow):
         self.i_date=QDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"])
         self.i_min=QSpinBox(); self.i_min.setRange(1,1000); self.i_min.setValue(45); self.i_red=QCheckBox("Ermäßigt")
         for a,b in [("Rechnungsnummer",self.i_no),("Nachname",self.i_last),("Vorname",self.i_first),("Adresse (optional)",self.i_addr),("Diagnose (optional)",self.i_diag),("Leistungsdatum",self.i_date),("Leistung",self.i_type),("Dauer Minuten",self.i_min)]:f.addRow(a,b)
-        f.addRow("",self.i_red); v.addLayout(f); b=QPushButton("PDF-Rechnung erstellen"); b.setMinimumHeight(60); b.clicked.connect(self.make_invoice); v.addWidget(b); return w
+        f.addRow("",self.i_red); v.addLayout(f)
+        q=QPushButton("Unberechnete Sitzungen laden / Sammelrechnung"); q.setMinimumHeight(50); q.clicked.connect(self.load_unbilled_sessions); v.addWidget(q)
+        b=QPushButton("PDF-Rechnung erstellen"); b.setMinimumHeight(60); b.clicked.connect(self.make_invoice); v.addWidget(b); return w
+    def load_unbilled_sessions(self):
+        last,first=self.i_last.text().strip().lower(),self.i_first.text().strip().lower()
+        rows=[s for s in DB["sessions"] if not s.get("billed") and s.get("last","").lower()==last and s.get("first","").lower()==first]
+        if not rows: return QMessageBox.information(self,"Sitzungen","Keine unberechneten Sitzungen für diesen Klienten gefunden.")
+        self.pending_sessions=rows
+        total=sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows)
+        QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\nGesamt: {total:.2f} €\nBeim Erstellen der Rechnung werden alle Positionen übernommen.")
     def make_invoice(self):
         no=self.i_no.text().strip()
         if any(x["number"]==no for x in DB["invoices"]):return QMessageBox.warning(self,"Doppelt","Diese Rechnungsnummer existiert bereits.")
         last,first=self.i_last.text().strip(),self.i_first.text().strip()
         if not last or not first:return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
-        mins=self.i_min.value(); typ=self.i_type.currentText(); amt=round(amount_for(mins,typ,self.i_red.isChecked()),2)
+        rows=getattr(self,"pending_sessions",None)
+        if rows:
+            mins=sum(int(s.get("minutes",0)) for s in rows); typ="Sammelrechnung"; amt=round(sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows),2)
+        else:
+            mins=self.i_min.value(); typ=self.i_type.currentText(); amt=round(amount_for(mins,typ,self.i_red.isChecked()),2)
         c={"last":last,"first":first}; d=client_dir(c)/"Rechnungen"; pdf=d/f"Rechnung_{no}.pdf"
         can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
         # Praxis-Logo als druckfähige Wortmarke
@@ -142,13 +172,25 @@ class Main(QMainWindow):
         can.setFont("Helvetica",11); y=H-170; can.drawString(50,y,f"{first} {last}"); y-=16
         if self.i_addr.text().strip():can.drawString(50,y,self.i_addr.text().strip()); y-=16
         if self.i_diag.text().strip():can.drawString(50,y,"Diagnose: "+self.i_diag.text().strip()); y-=22
-        can.drawString(50,y,f"{self.i_date.date().toString('dd.MM.yyyy')}   {mins} Min.   {typ}"); can.drawRightString(W-50,y,f"{amt:.2f} EUR"); y-=35
+        if rows:
+            for s in rows:
+                a=amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))
+                can.drawString(50,y,f'{s.get("date","")}   {s.get("start","")}–{s.get("end","")}   {s.get("minutes",0)} Min.   {s.get("type","")}'); can.drawRightString(W-50,y,f"{a:.2f} EUR"); y-=18
+        else:
+            can.drawString(50,y,f"{self.i_date.date().toString('dd.MM.yyyy')}   {mins} Min.   {typ}"); can.drawRightString(W-50,y,f"{amt:.2f} EUR"); y-=18
+        y-=17
         can.setFont("Helvetica-Bold",12); can.drawRightString(W-50,y,f"Gesamt: {amt:.2f} EUR"); y-=35
         can.setFont("Helvetica",9); can.drawString(50,y,"Zahlbar innerhalb von 14 Tagen. Verwendungszweck: "+no); y-=14
         can.drawString(50,y,"IBAN DE13 5001 0517 5404 0811 30 · BIC INGDDEFFXXX"); y-=14
         can.drawString(50,y,"Leistungen als Heilpraktiker sind nach § 4 Nr. 14 Buchstabe a UStG umsatzsteuerbefreit.")
         can.drawString(50,55,"Elektronisch erstellt und ohne Unterschrift/Stempel gültig."); can.save()
-        DB["invoices"].append({"number":no,"date":datetime.now().strftime("%Y-%m-%d"),"client":f"{last}, {first}","amount":amt,"status":"offen","paid_date":""}); save_data(); update_excel(); self.i_no.setText(next_no())
+        DB["invoices"].append({"number":no,"date":datetime.now().strftime("%Y-%m-%d"),"client":f"{last}, {first}","amount":amt,"status":"offen","paid_date":""})
+        if rows:
+            ids={s.get("id") for s in rows}
+            for s in DB["sessions"]:
+                if s.get("id") in ids: s["billed"]=True; s["invoice_number"]=no
+            self.pending_sessions=None
+        save_data(); update_excel(); self.i_no.setText(next_no())
         QMessageBox.information(self,"Fertig",f"PDF gespeichert:\n{pdf}")
     def clients_ui(self):
         w=QWidget(); v=QVBoxLayout(w); t=QTableWidget(0,3); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
