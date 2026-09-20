@@ -255,12 +255,19 @@ class PasswordResetDialog(QDialog):
         con=sqlite3.connect(DBFILE); row=con.execute("SELECT recovery_question FROM users WHERE username=? AND active=1",(self.username.text().strip(),)).fetchone(); con.close()
         self.question.setText(row[0] if row and row[0] else "Für diesen Benutzer ist keine Sicherheitsfrage hinterlegt.")
     def reset_password(self):
-        username=self.username.text().strip(); con=sqlite3.connect(DBFILE); row=con.execute("SELECT recovery_answer_hash FROM users WHERE username=? AND active=1",(username,)).fetchone()
+        username=self.username.text().strip(); con=sqlite3.connect(DBFILE); row=con.execute("SELECT recovery_answer_hash,COALESCE(failed_attempts,0),locked_until FROM users WHERE username=? AND active=1",(username,)).fetchone()
+        if row and row[2]:
+            try:
+                if datetime.now()<datetime.fromisoformat(row[2]): con.close(); QMessageBox.warning(self,"Passwort zurücksetzen","Zur Sicherheit ist die Wiederherstellung vorübergehend gesperrt."); return
+            except ValueError: pass
         if not row or not row[0] or not verify_password(normalize_recovery_answer(self.answer.text()),row[0]):
+            if row:
+                attempts=row[1]+1; locked=(datetime.now()+timedelta(minutes=10)).isoformat(timespec="seconds") if attempts>=5 else None
+                con.execute("UPDATE users SET failed_attempts=?,locked_until=? WHERE username=?",(0 if locked else attempts,locked,username)); con.commit()
             con.close(); audit("PASSWORD_RESET_FAILED","Sicherheitsantwort falsch",username); QMessageBox.warning(self,"Passwort zurücksetzen","Benutzername oder Sicherheitsantwort ist nicht korrekt."); return
         if len(self.p1.text())<8 or self.p1.text()!=self.p2.text():
             con.close(); QMessageBox.warning(self,"Passwort","Zwei gleiche Passwörter mit mindestens 8 Zeichen erforderlich."); return
-        con.execute("UPDATE users SET password_hash=? WHERE username=?",(password_hash(self.p1.text()),username)); con.commit(); con.close()
+        con.execute("UPDATE users SET password_hash=?,failed_attempts=0,locked_until=NULL WHERE username=?",(password_hash(self.p1.text()),username)); con.commit(); con.close()
         audit("PASSWORD_RESET","Passwort über Sicherheitsfrage zurückgesetzt",username); QMessageBox.information(self,"Passwort","Das Passwort wurde geändert."); self.accept()
 
 class LoginDialog(QDialog):
