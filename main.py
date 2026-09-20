@@ -28,6 +28,10 @@ class InkCanvas(QWidget):
     def set_eraser(self,on): self.eraser=on
     def set_width(self,w): self.pen_width=w
     def save_png(self,path): return self.image.save(str(path),"PNG")
+    def load_png(self,path):
+        img=QImage(str(path))
+        if not img.isNull(): self.image=img.convertToFormat(QImage.Format_ARGB32).scaled(1200,700,Qt.IgnoreAspectRatio,Qt.SmoothTransformation); self.history=[]; self.update(); return True
+        return False
 from openpyxl import Workbook, load_workbook
 
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
@@ -297,10 +301,13 @@ class Main(QMainWindow):
                 qe=QTime.fromString(d.get("end",""),"HH:mm")
                 if qe.isValid(): self.s_end.setTime(qe)
                 self.s_type.setCurrentText(d.get("type","Einzeltherapie")); self.s_red.setChecked(bool(d.get("reduced",False))); self.notes.setPlainText(d.get("notes",""))
+                inkfile=d.get("ink_file","")
+                if inkfile and Path(inkfile).exists(): self.ink.load_png(inkfile)
                 self.acc=int(d.get("seconds",0)); self.running=False; self.started=None
+                self.nav.setCurrentRow(1)
         except Exception: pass
     def autosave_session(self):
-        if not self.running and not self.notes.toPlainText().strip(): return
+        if not self.running and not self.notes.toPlainText().strip() and not self.s_last.text().strip() and not self.s_first.text().strip(): return
         draft={"last":self.s_last.text(),"first":self.s_first.text(),"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"seconds":self.elapsed(),"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"running":self.running}
         inkdraft=ROOT/"Sitzung_Autosave_Handschrift.png"; self.ink.save_png(inkdraft); draft["ink_file"]=str(inkdraft)
         (ROOT/"Sitzung_Autosave.json").write_text(json.dumps(draft,ensure_ascii=False,indent=2),encoding="utf-8")
