@@ -159,14 +159,20 @@ class Main(QMainWindow):
         s=self.elapsed(); self.clock.setText(f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}")
     def end_session(self):
         if self.running and self.started:self.acc+=(datetime.now()-self.started).total_seconds()
-        self.running=False; self.s_end.setTime(QTime.currentTime()); self.update_wallclock()
+        self.running=False
+        # Endzeit wird beim Beenden mit der realen Uhrzeit vorbelegt, bleibt aber editierbar.
+        self.s_end.setTime(QTime.currentTime()); self.update_wallclock()
     def save_session(self):
         last=self.s_last.text().strip(); first=self.s_first.text().strip()
         if not last or not first:return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
         c=next((x for x in DB["clients"] if x["last"].lower()==last.lower() and x["first"].lower()==first.lower()),None)
         if not c:c={"last":last,"first":first,"dob":self.s_dob.text().strip(),"address":"","diagnosis":""}; DB["clients"].append(c)
         else: c["dob"]=self.s_dob.text().strip() or c.get("dob","")
-        mins=max(1,round(self.elapsed()/60))
+        # Abrechnungsdauer folgt den manuell dokumentierten Beginn-/Endzeiten.
+        # Der Live-Timer bleibt eine unabhängige Kontrollanzeige.
+        start_t=self.s_start.time(); end_t=self.s_end.time()
+        mins=start_t.secsTo(end_t)//60 if start_t.isValid() and end_t.isValid() else 0
+        if mins <= 0: mins=max(1,round(self.elapsed()/60))
         rec={"id":datetime.now().strftime("%Y%m%d%H%M%S"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
         DB["sessions"].append(rec); save_data(); d=client_dir(c)/"Sitzungen"; (d/f"{rec['date']}_Sitzung.json").write_text(json.dumps(rec,ensure_ascii=False,indent=2),encoding="utf-8")
         inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=str(inkfile); save_data()
