@@ -174,10 +174,10 @@ class Main(QMainWindow):
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(14,20,14,20)
         brand=QLabel("PRAXISPRO\nPsychologische Privatpraxis"); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
-        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen"]: self.nav.addItem(x)
+        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Benutzerhandbuch"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
         foot=QLabel("Lokale Praxisverwaltung"); foot.setObjectName("sidefoot"); sv.addWidget(foot)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui())
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui())
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(self.pages,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -676,6 +676,56 @@ class Main(QMainWindow):
             for x in (ROOT/"Einnahmen").glob("*.xlsx"): shutil.copy2(x,dest/x.name)
             shutil.copytree(ROOT/"Klienten",dest/"Klienten",dirs_exist_ok=True); (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nDatenbank: "+str(DBFILE)+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[]))),encoding="utf-8"); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
         backup.clicked.connect(do_backup); v.addWidget(backup); return w
+    def manual_ui(self):
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
+        title=QLabel("Benutzerhandbuch"); title.setObjectName("pageTitle"); v.addWidget(title)
+        sub=QLabel("PraxisPro – Kurzanleitung und wichtige Hinweise"); sub.setObjectName("pageSub"); v.addWidget(sub)
+        text=QTextEdit(); text.setReadOnly(True); text.setStyleSheet("font-size:15px;padding:14px;line-height:1.4;")
+        text.setPlainText("""PRAXISPRO – BENUTZERHANDBUCH
+
+1. ZWECK DER SOFTWARE
+PraxisPro unterstützt die lokale Organisation einer psychologischen bzw. therapeutischen Privatpraxis. Dazu gehören Klientenverwaltung, Sitzungsdokumentation, handschriftliche Notizen, Rechnungen, Einnahmenübersicht und Datensicherung.
+
+2. WICHTIGER HINWEIS ZUR ABRECHNUNG
+PraxisPro verfügt derzeit über KEINE Schnittstelle zur direkten Abrechnung mit gesetzlichen oder privaten Krankenkassen, Kassenärztlichen Vereinigungen, Abrechnungsstellen oder vergleichbaren externen Abrechnungssystemen.
+
+Die Rechnungsfunktion dient der Erstellung und Verwaltung eigener Rechnungen. Eine elektronische Übermittlung oder automatische Erstattung durch eine Krankenkasse erfolgt nicht. Ob und in welcher Höhe Kosten von einer privaten Krankenversicherung, Beihilfe oder einem anderen Kostenträger übernommen werden, muss außerhalb der Software geklärt werden.
+
+3. KLIENTEN
+Unter „Klienten“ können Stammdaten und vorhandene Sitzungen eingesehen werden. Von dort kann direkt eine neue Sitzung oder Rechnung für den ausgewählten Klienten begonnen werden.
+
+4. SITZUNGEN
+Beginn und Ende bleiben manuell veränderbar. Zusätzlich steht ein Sitzungstimer zur Verfügung. Therapienotizen können per Tastatur und über die Handschrift-/Stiftfläche dokumentiert werden. Notizen werden nicht automatisch auf Rechnungen übernommen.
+
+5. SITZUNGSASSISTENT
+Der Sitzungsassistent stellt Fragen und therapeutische Anregungen als Arbeitshilfe bereit. Diese Inhalte ersetzen keine fachliche Diagnostik, Indikationsstellung oder therapeutische Entscheidung.
+
+6. RECHNUNGEN
+Mehrere Leistungen können zu einer Rechnung zusammengefasst werden. Rechnungsnummern werden fortlaufend vorgeschlagen und können kontrolliert werden. Rechnungen können als bezahlt oder storniert gekennzeichnet werden. Bei einer Stornierung werden verknüpfte Sitzungen wieder zur Abrechnung freigegeben.
+
+7. HONORARE UND PRAXISDATEN
+Praxisname, Anschrift, Kontaktdaten, Bankverbindung, Logo und weitere Angaben sind als Praxisvorlage konfigurierbar. Die mitgelieferte Vorlage enthält die Daten der Praxis Erdoğan Kulanoğlu. Honorarsätze werden ebenfalls als konfigurierbare Praxisdaten geführt.
+
+8. MEHRERE BENUTZER
+Die Software wird für eine spätere Nutzung durch mehrere Therapeutinnen und Therapeuten vorbereitet. Benutzerkonten, Rollen und passwortgeschützter Zugang werden schrittweise integriert.
+
+9. DATENSICHERUNG
+Sicherungen sollten regelmäßig erstellt und zusätzlich auf einem geeigneten geschützten Datenträger aufbewahrt werden. Besonders Sitzungsnotizen und Gesundheitsdaten sind vertrauliche Daten.
+
+10. DATENSCHUTZ / AKTUELLER ENTWICKLUNGSSTAND
+Die Anwendung befindet sich noch in Entwicklung. Solange lokale Datenbank, Notizen, Handschriftdateien und Sicherungen nicht vollständig verschlüsselt und die vorgesehenen Zugriffsschutzfunktionen fertiggestellt sind, sollte die Testversion nicht für echte Patientendaten eingesetzt werden.
+
+11. HERSTELLER
+PraxisPro
+Hersteller: Erdoğan Kulanoğlu
+© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.
+
+Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Herstellerangaben angepasst werden.
+""")
+        v.addWidget(text,1)
+        note=QLabel("Hinweis: Das Handbuch wird mit der weiteren Entwicklung der Software ergänzt."); note.setObjectName("pageSub"); v.addWidget(note)
+        return w
+
     def settings_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
         title=QLabel("Praxiseinstellungen"); title.setObjectName("pageTitle"); v.addWidget(title)
