@@ -83,7 +83,7 @@ class MainActivity: Activity() {
     val o=JSONObject();o.put("last",last.text.toString());o.put("first",first.text.toString());o.put("date",date.text.toString());o.put("begin",begin.text.toString());o.put("end",end.text.toString());o.put("seconds",elapsed/1000);o.put("notes",note.text.toString())
     rememberClient(last.text.toString().trim(),first.text.toString().trim())
     val dir=File(filesDir,"sessions");dir.mkdirs();val stamp=System.currentTimeMillis();val inkFile=File(dir,"handwriting_"+stamp+".png");ink.savePng(inkFile);o.put("ink_file",inkFile.absolutePath);File(dir,"session_"+stamp+".json").writeText(o.toString(2))
-    Toast.makeText(this,"Sitzung + Handschrift lokal gespeichert",Toast.LENGTH_SHORT).show()
+    Toast.makeText(activity,"Sitzung + Handschrift lokal gespeichert",Toast.LENGTH_SHORT).show()
   }};root.addView(save)
   setContentView(root);h.post(tick)
  }
