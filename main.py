@@ -179,6 +179,17 @@ class Main(QMainWindow):
         self.i_last.editingFinished.connect(self.fill_invoice_client); self.i_first.editingFinished.connect(self.fill_invoice_client)
         f.addRow("",self.i_red); v.addLayout(f)
         q=QPushButton("Unberechnete Sitzungen laden / Sammelrechnung"); q.setMinimumHeight(50); q.clicked.connect(self.load_unbilled_sessions); v.addWidget(q)
+        preview=QPushButton("Rechnung vor Erstellung prüfen"); preview.setMinimumHeight(50)
+        def preview_invoice():
+            no=self.i_no.text().strip(); last=self.i_last.text().strip(); first=self.i_first.text().strip()
+            rows=self.pending_sessions
+            if rows:
+                lines="\n".join(f'{s.get("date","")}  {s.get("start","")}–{s.get("end","")}  {s.get("minutes",0)} Min.  {s.get("type","")}  {amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))):.2f} €' for s in rows)
+                total=sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows)
+            else:
+                total=amount_for(self.i_min.value(),self.i_type.currentText(),self.i_red.isChecked()); lines=f'{self.i_date.date().toString("dd.MM.yyyy")}  {self.i_min.value()} Min.  {self.i_type.currentText()}  {total:.2f} €'
+            QMessageBox.information(self,"Rechnung prüfen",f"Rechnung {no}\n{first} {last}\n\n{lines}\n\nGesamt: {total:.2f} €")
+        preview.clicked.connect(preview_invoice); v.addWidget(preview)
         b=QPushButton("PDF-Rechnung erstellen"); b.setMinimumHeight(60); b.clicked.connect(self.make_invoice); v.addWidget(b); return w
     def fill_invoice_client(self):
         last,first=self.i_last.text().strip().lower(),self.i_first.text().strip().lower()
@@ -190,8 +201,9 @@ class Main(QMainWindow):
         rows=[s for s in DB["sessions"] if not s.get("billed") and s.get("last","").lower()==last and s.get("first","").lower()==first]
         if not rows: return QMessageBox.information(self,"Sitzungen","Keine unberechneten Sitzungen für diesen Klienten gefunden.")
         self.pending_sessions=rows
+        details="\n".join(f'{s.get("date","")} | {s.get("start","")}–{s.get("end","")} | {s.get("minutes",0)} Min. | {s.get("type","")}' for s in rows)
         total=sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows)
-        QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\nGesamt: {total:.2f} €\nBeim Erstellen der Rechnung werden alle Positionen übernommen.")
+        QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\n\n{details}\n\nGesamt: {total:.2f} €\n\nBitte vor PDF-Erstellung kontrollieren.")
     def make_invoice(self):
         no=self.i_no.text().strip()
         if any(x["number"]==no for x in DB["invoices"]):return QMessageBox.warning(self,"Doppelt","Diese Rechnungsnummer existiert bereits.")
@@ -258,6 +270,22 @@ class Main(QMainWindow):
                 vals=[s.get("date",""),s.get("start",""),s.get("end",""),str(s.get("minutes","")),s.get("type",""),"Ja" if s.get("billed") else "Nein"]
                 for j,x in enumerate(vals):st.setItem(rr,j,QTableWidgetItem(x))
             lay.addWidget(st)
+            edit=QPushButton("Ausgewählte Sitzung korrigieren")
+            def edit_selected():
+                rr=st.currentRow()
+                if rr<0:return
+                date=st.item(rr,0).text(); start=st.item(rr,1).text(); s=next((x for x in rows if x.get("date")==date and x.get("start")==start),None)
+                if not s:return
+                ed=QDialog(dlg); ed.setWindowTitle("Sitzung korrigieren"); form=QFormLayout(ed)
+                mins=QSpinBox(); mins.setRange(1,1000); mins.setValue(int(s.get("minutes",45)))
+                typ=QComboBox(); typ.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); typ.setCurrentText(s.get("type","Einzeltherapie"))
+                note=QTextEdit(); note.setPlainText(s.get("notes","")); form.addRow("Dauer Minuten",mins); form.addRow("Art",typ); form.addRow("Notiz",note)
+                buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); form.addRow(buttons)
+                def save_edit():
+                    s["minutes"]=mins.value(); s["type"]=typ.currentText(); s["notes"]=note.toPlainText(); s["corrected_at"]=datetime.now().isoformat(timespec="seconds"); save_data()
+                    d=client_dir({"last":last,"first":first})/"Sitzungen"; jf=d/f'{s.get("date","")}_Sitzung.json'; jf.write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding="utf-8"); st.item(rr,3).setText(str(s["minutes"])); st.item(rr,4).setText(s["type"]); ed.accept()
+                buttons.accepted.connect(save_edit); buttons.rejected.connect(ed.reject); ed.exec()
+            edit.clicked.connect(edit_selected); lay.addWidget(edit)
             view=QPushButton("Ausgewählte Sitzung / Notiz öffnen")
             def open_selected():
                 rr=st.currentRow()
