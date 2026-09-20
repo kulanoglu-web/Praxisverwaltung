@@ -1,10 +1,10 @@
 import sys, json, os, re, math, shutil, sqlite3
 from pathlib import Path
 from datetime import datetime
-from PySide6.QtCore import Qt, QTimer, QPoint
+from PySide6.QtCore import Qt, QTimer, QPoint, QUrl
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog)
 from PySide6.QtCore import QDate,QTime
-from PySide6.QtGui import QImage, QPainter, QPen, QPixmap
+from PySide6.QtGui import QImage, QPainter, QPen, QPixmap, QDesktopServices
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
@@ -384,14 +384,29 @@ class Main(QMainWindow):
             self.manual_items.append({"date":self.i_date.date().toString("yyyy-MM-dd"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amount})
             self.pending_sessions=None; self.iteminfo.setText(f"{len(self.manual_items)} Leistungen · {sum(x['amount'] for x in self.manual_items):.2f} €")
         additem.clicked.connect(add_manual_item); itemrow.addWidget(additem); itemrow.addWidget(self.iteminfo,1); v.addLayout(itemrow)
+        self.itemtable=QTableWidget(0,6); self.itemtable.setHorizontalHeaderLabels(["Datum","Zeit","Min.","Leistung","Satz","Betrag"]); self.itemtable.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.itemtable.setSelectionBehavior(QTableWidget.SelectRows); self.itemtable.setEditTriggers(QTableWidget.NoEditTriggers); self.itemtable.setMaximumHeight(190); v.addWidget(self.itemtable)
+        def refresh_items():
+            self.itemtable.setRowCount(0)
+            for it in self.manual_items:
+                r=self.itemtable.rowCount(); self.itemtable.insertRow(r)
+                vals=[it.get("date",""),f'{it.get("start","")}–{it.get("end","")}',str(it.get("minutes",0)),it.get("type",""),"ermäßigt" if it.get("reduced") else "regulär",f'{float(it.get("amount",0)):.2f} €']
+                for j,val in enumerate(vals): self.itemtable.setItem(r,j,QTableWidgetItem(str(val)))
+            self.iteminfo.setText("Noch keine zusätzlichen Leistungen" if not self.manual_items else f"{len(self.manual_items)} Leistungen · {sum(float(x.get('amount',0)) for x in self.manual_items):.2f} €")
+        additem.clicked.connect(refresh_items)
+        itembuttons=QHBoxLayout(); removeitem=QPushButton("Ausgewählte Leistung entfernen"); clearitems=QPushButton("Leistungen leeren")
+        def remove_manual_item():
+            r=self.itemtable.currentRow()
+            if 0<=r<len(self.manual_items): self.manual_items.pop(r); refresh_items()
+        def clear_manual_items(): self.manual_items.clear(); refresh_items()
+        removeitem.clicked.connect(remove_manual_item); clearitems.clicked.connect(clear_manual_items); itembuttons.addWidget(removeitem); itembuttons.addWidget(clearitems); v.addLayout(itembuttons)
         q=QPushButton("Unberechnete Sitzungen laden / Sammelrechnung"); q.setMinimumHeight(50); q.clicked.connect(self.load_unbilled_sessions); v.addWidget(q)
         preview=QPushButton("Rechnung vor Erstellung prüfen"); preview.setMinimumHeight(50)
         def preview_invoice():
             no=self.i_no.text().strip(); last=self.i_last.text().strip(); first=self.i_first.text().strip()
             rows=self.pending_sessions or self.manual_items
             if rows:
-                lines="\n".join(f'{s.get("date","")}  {s.get("start","")}–{s.get("end","")}  {s.get("minutes",0)} Min.  {s.get("type","")}  {amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))):.2f} €' for s in rows)
-                total=sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows)
+                lines="\n".join(f'{s.get("date","")}  {s.get("start","")}–{s.get("end","")}  {s.get("minutes",0)} Min.  {s.get("type","")}  {float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))):.2f} €' for s in rows)
+                total=sum(float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))) for s in rows)
             else:
                 total=amount_for(self.i_min.value(),self.i_type.currentText(),self.i_red.isChecked()); lines=f'{self.i_date.date().toString("dd.MM.yyyy")}  {self.i_min.value()} Min.  {self.i_type.currentText()}  {total:.2f} €'
             QMessageBox.information(self,"Rechnung prüfen",f"Rechnung {no}\n{first} {last}\n\n{lines}\n\nGesamt: {total:.2f} €")
@@ -412,6 +427,8 @@ class Main(QMainWindow):
         QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\n\n{details}\n\nGesamt: {total:.2f} €\n\nBitte vor PDF-Erstellung kontrollieren.")
     def make_invoice(self):
         no=self.i_no.text().strip()
+        if not no:return QMessageBox.warning(self,"Fehlt","Eine Rechnungsnummer ist erforderlich.")
+        if not re.fullmatch(r"[A-Za-z0-9._-]+",no):return QMessageBox.warning(self,"Rechnungsnummer","Bitte nur Buchstaben, Zahlen, Punkt, Bindestrich oder Unterstrich verwenden.")
         if any(x["number"]==no for x in DB["invoices"]):return QMessageBox.warning(self,"Doppelt","Diese Rechnungsnummer existiert bereits.")
         last,first=self.i_last.text().strip(),self.i_first.text().strip()
         if not last or not first:return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
@@ -434,9 +451,12 @@ class Main(QMainWindow):
         can.setFillColor(HexColor("#000000"))
         can.setFont("Helvetica-Bold",13); can.drawString(50,H-55,"Erdoğan Kulanoğlu – Psychologische Privatpraxis")
         can.setFont("Helvetica",9); can.drawString(50,H-72,"Psychologe M. Sc. · Sozialarbeiter B.A. · Heilpraktiker für Psychotherapie")
-        can.drawString(50,H-87,"Schönwalder Str. 59, 13585 Berlin · Steuernummer: 19/405/00254")
-        can.setFont("Helvetica-Bold",16); can.drawString(50,H-135,f"Rechnung {no}")
-        can.setFont("Helvetica",11); y=H-170; can.drawString(50,y,f"{first} {last}"); y-=16
+        can.drawString(50,H-87,"Ehe-, Familien- und Lebensberater · Zertifizierter systemischer Berater und Therapeut nach dem SIT-Modell")
+        can.drawString(50,H-102,"Schönwalder Str. 59, 13585 Berlin · Mobil: 0176 43605753 · Fax: 030 43205928")
+        can.drawString(50,H-117,"info@psychologe-spandau.de · www.psychologe-spandau.de · Steuernummer: 19/405/00254")
+        can.setFont("Helvetica-Bold",16); can.drawString(50,H-150,f"Rechnung {no}")
+        can.setFont("Helvetica",9); can.drawRightString(W-50,H-150,"Rechnungsdatum: "+datetime.now().strftime("%d.%m.%Y"))
+        can.setFont("Helvetica",11); y=H-185; can.drawString(50,y,f"{first} {last}"); y-=16
         if self.i_addr.text().strip():can.drawString(50,y,self.i_addr.text().strip()); y-=16
         if self.i_diag.text().strip():can.drawString(50,y,"Diagnose: "+self.i_diag.text().strip()); y-=22
         if rows:
@@ -449,6 +469,7 @@ class Main(QMainWindow):
         can.setFont("Helvetica-Bold",12); can.drawRightString(W-50,y,f"Gesamt: {amt:.2f} EUR"); y-=35
         can.setFont("Helvetica",9); can.drawString(50,y,"Zahlbar innerhalb von 14 Tagen. Verwendungszweck: "+no); y-=14
         can.drawString(50,y,"IBAN DE13 5001 0517 5404 0811 30 · BIC INGDDEFFXXX"); y-=14
+        can.drawString(50,y,"PayPal: erdogankulanoglu@hotmail.com"); y-=14
         can.drawString(50,y,"Leistungen als Heilpraktiker sind nach § 4 Nr. 14 Buchstabe a UStG umsatzsteuerbefreit.")
         can.drawString(50,55,"Elektronisch erstellt und ohne Unterschrift/Stempel gültig."); can.save()
         invoice_items=[]
@@ -464,6 +485,7 @@ class Main(QMainWindow):
                 if s.get("id") in ids: s["billed"]=True; s["invoice_number"]=no
             self.pending_sessions=None
         self.manual_items=[]; self.iteminfo.setText("Noch keine zusätzlichen Leistungen")
+        if hasattr(self,"itemtable"): self.itemtable.setRowCount(0)
         save_data(); update_excel(); self.i_no.setText(next_no())
         QMessageBox.information(self,"Fertig",f"PDF gespeichert:\n{pdf}")
     def clients_ui(self):
