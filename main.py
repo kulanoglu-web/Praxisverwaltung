@@ -523,10 +523,13 @@ class Main(QMainWindow):
         return w
 
     def restore_draft(self):
-        p=ROOT/"Sitzung_Autosave.json"
-        if not p.exists(): return
+        p=ROOT/"Sitzung_Autosave.json.enc"
+        legacy=ROOT/"Sitzung_Autosave.json"
+        if not p.exists() and not legacy.exists(): return
         try:
-            d=json.loads(p.read_text(encoding="utf-8"))
+            if p.exists(): d=json.loads(decrypt_text(p.read_text(encoding="utf-8")))
+            else:
+                d=json.loads(legacy.read_text(encoding="utf-8")); p.write_text(encrypt_text(json.dumps(d,ensure_ascii=False)),encoding="utf-8"); legacy.unlink()
             if QMessageBox.question(self,"Sitzung wiederherstellen","Es gibt eine automatisch gespeicherte Sitzung. Wiederherstellen?")==QMessageBox.Yes:
                 self.s_last.setText(d.get("last","")); self.s_first.setText(d.get("first","")); self.s_dob.setText(d.get("dob",""))
                 qd=QDate.fromString(d.get("date",""),"yyyy-MM-dd")
@@ -544,8 +547,8 @@ class Main(QMainWindow):
     def autosave_session(self):
         if not self.running and not self.notes.toPlainText().strip() and not self.s_last.text().strip() and not self.s_first.text().strip(): return
         draft={"last":self.s_last.text(),"first":self.s_first.text(),"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"seconds":self.elapsed(),"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"running":self.running}
-        inkdraft=ROOT/"Sitzung_Autosave_Handschrift.png"; self.ink.save_png(inkdraft); draft["ink_file"]=str(inkdraft)
-        (ROOT/"Sitzung_Autosave.json").write_text(json.dumps(draft,ensure_ascii=False,indent=2),encoding="utf-8")
+        inkdraft=ROOT/"Sitzung_Autosave_Handschrift.png"; self.ink.save_png(inkdraft); encrypted_ink=encrypt_file(inkdraft); draft["ink_file"]=encrypted_ink
+        (ROOT/"Sitzung_Autosave.json.enc").write_text(encrypt_text(json.dumps(draft,ensure_ascii=False)),encoding="utf-8")
     def fill_session_client(self):
         last,first=self.s_last.text().strip().lower(),self.s_first.text().strip().lower()
         x=next((c for c in DB["clients"] if c.get("last","").lower()==last and (not first or c.get("first","").lower()==first)),None)
@@ -583,8 +586,10 @@ class Main(QMainWindow):
         rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
         d=client_dir(c)/"Sitzungen"; inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=str(inkfile)
         DB["sessions"].append(rec); save_data(); (d/f"{rec['date']}_Sitzung.json").write_text(json.dumps(rec,ensure_ascii=False,indent=2),encoding="utf-8")
-        auto=ROOT/"Sitzung_Autosave.json"
-        if auto.exists(): auto.unlink()
+        for auto in (ROOT/"Sitzung_Autosave.json.enc",ROOT/"Sitzung_Autosave.json",ROOT/"Sitzung_Autosave_Handschrift.png",ROOT/"Sitzung_Autosave_Handschrift.png.enc"):
+            if auto.exists():
+                try:auto.unlink()
+                except Exception:pass
         QMessageBox.information(self,"Gespeichert",f"Sitzung gespeichert: {mins} Minuten.")
     def invoice_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
