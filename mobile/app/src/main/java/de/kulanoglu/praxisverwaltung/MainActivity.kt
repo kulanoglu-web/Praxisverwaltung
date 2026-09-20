@@ -33,6 +33,17 @@ class MainActivity: Activity() {
   val a=loadClients();val labels=ArrayList<String>();for(i in 0 until a.length()){val o=a.getJSONObject(i);labels.add(o.optString("last")+", "+o.optString("first"))}
   AlertDialog.Builder(this).setTitle("Klienten").setItems(labels.toTypedArray()){_,i->val o=a.getJSONObject(i);last.setText(o.optString("last"));first.setText(o.optString("first"))}.setNegativeButton("Schließen",null).show()
  }
+ private fun showHistory(last:String,first:String){
+  val dir=File(filesDir,"sessions");val files=dir.listFiles{f->f.name.startsWith("session_")&&f.extension=="json"}?.sortedByDescending{it.lastModified()}?: emptyList()
+  val rows=ArrayList<Pair<String,String>>()
+  for(f in files)try{val o=JSONObject(f.readText());if(o.optString("last")==last&&o.optString("first")==first){
+    rows.add(Pair(o.optString("date")+"   "+o.optString("begin")+"–"+o.optString("end"),o.optString("notes")))
+  }}catch(_:Exception){}
+  if(rows.isEmpty()){Toast.makeText(this,"Keine gespeicherten Sitzungen",Toast.LENGTH_SHORT).show();return}
+  AlertDialog.Builder(this).setTitle("Sitzungsverlauf – $first $last").setItems(rows.map{it.first}.toTypedArray()){_,i->
+    AlertDialog.Builder(this).setTitle(rows[i].first).setMessage(rows[i].second.ifBlank{"Keine Textnotiz"}).setPositiveButton("Schließen",null).show()
+  }.setNegativeButton("Schließen",null).show()
+ }
  private lateinit var clock:TextView; private lateinit var timer:TextView; private var startMs=0L; private var elapsed=0L; private var running=false
  private val h=Handler(Looper.getMainLooper())
  private val tick=object:Runnable{override fun run(){
@@ -48,7 +59,13 @@ class MainActivity: Activity() {
   val names=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
   val last=EditText(this).apply{hint="Nachname"}; val first=EditText(this).apply{hint="Vorname"}
   names.addView(last,LinearLayout.LayoutParams(0,-2,1f));names.addView(first,LinearLayout.LayoutParams(0,-2,1f));root.addView(names)
-  val choose=Button(this).apply{text="Klient auswählen";setOnClickListener{showClients(last,first)}};root.addView(choose)
+  val clientActions=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+  val choose=Button(this).apply{text="Klient auswählen";setOnClickListener{showClients(last,first)}}
+  val history=Button(this).apply{text="Sitzungsverlauf";setOnClickListener{
+    if(last.text.isBlank()&&first.text.isBlank())Toast.makeText(this@MainActivity,"Bitte zuerst Klient auswählen",Toast.LENGTH_SHORT).show()
+    else showHistory(last.text.toString().trim(),first.text.toString().trim())
+  }}
+  clientActions.addView(choose,LinearLayout.LayoutParams(0,-2,1f));clientActions.addView(history,LinearLayout.LayoutParams(0,-2,1f));root.addView(clientActions)
   val date=EditText(this).apply{hint="Datum";setText(SimpleDateFormat("dd.MM.yyyy",Locale.GERMANY).format(Date()))}
   val begin=EditText(this).apply{hint="Beginn (manuell)"}; val end=EditText(this).apply{hint="Ende"}
   root.addView(date);root.addView(begin);root.addView(end)
