@@ -11,11 +11,14 @@ import org.json.JSONObject
 import java.io.File
 
 class InkView(ctx: android.content.Context): View(ctx) {
- private val paint=Paint().apply{color=Color.BLACK;strokeWidth=6f;style=Paint.Style.STROKE;strokeCap=Paint.Cap.ROUND;isAntiAlias=true}
- private val path=Path()
+ private val paint=Paint().apply{color=Color.BLACK;strokeWidth=6f;style=Paint.Style.STROKE;strokeCap=Paint.Cap.ROUND;strokeJoin=Paint.Join.ROUND;isAntiAlias=true}
+ private val path=Path(); private var eraser=false
+ fun setEraser(on:Boolean){eraser=on;paint.color=if(on) Color.WHITE else Color.BLACK;paint.strokeWidth=if(on) 28f else 6f}
+ fun setWidth(w:Float){if(!eraser)paint.strokeWidth=w}
  override fun onDraw(c:Canvas){super.onDraw(c);c.drawColor(Color.WHITE);c.drawPath(path,paint)}
  override fun onTouchEvent(e:MotionEvent):Boolean { when(e.action){MotionEvent.ACTION_DOWN->path.moveTo(e.x,e.y);MotionEvent.ACTION_MOVE->path.lineTo(e.x,e.y)};invalidate();return true }
  fun clear(){path.reset();invalidate()}
+ fun savePng(file:File){val b=Bitmap.createBitmap(width.coerceAtLeast(1),height.coerceAtLeast(1),Bitmap.Config.ARGB_8888);val c=Canvas(b);draw(c);file.outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)}}
 }
 class MainActivity: Activity() {
  private lateinit var clock:TextView; private lateinit var timer:TextView; private var startMs=0L; private var elapsed=0L; private var running=false
@@ -42,12 +45,13 @@ class MainActivity: Activity() {
   val start=Button(this).apply{text="Start";setOnClickListener{if(!running){startMs=System.currentTimeMillis();running=true}}}
   val pause=Button(this).apply{text="Pause";setOnClickListener{if(running){elapsed+=System.currentTimeMillis()-startMs;running=false}else{startMs=System.currentTimeMillis();running=true}}}
   val stop=Button(this).apply{text="Ende";setOnClickListener{if(running)elapsed+=System.currentTimeMillis()-startMs;running=false;end.setText(SimpleDateFormat("HH:mm",Locale.GERMANY).format(Date()))}}
+  val eraser=ToggleButton(this).apply{textOn="Radierer AN";textOff="Radierer";setOnCheckedChangeListener{_,on->ink.setEraser(on)}}
   val clear=Button(this).apply{text="Stift löschen";setOnClickListener{ink.clear()}}
-  buttons.addView(start);buttons.addView(pause);buttons.addView(stop);buttons.addView(clear);root.addView(buttons)
+  buttons.addView(start);buttons.addView(pause);buttons.addView(stop);buttons.addView(eraser);buttons.addView(clear);root.addView(buttons)
   val save=Button(this).apply{text="Sitzung lokal speichern";setOnClickListener{
     val o=JSONObject();o.put("last",last.text.toString());o.put("first",first.text.toString());o.put("date",date.text.toString());o.put("begin",begin.text.toString());o.put("end",end.text.toString());o.put("seconds",elapsed/1000);o.put("notes",note.text.toString())
-    val dir=File(filesDir,"sessions");dir.mkdirs();File(dir,"session_"+System.currentTimeMillis()+".json").writeText(o.toString(2))
-    Toast.makeText(this,"Sitzung lokal gespeichert",Toast.LENGTH_SHORT).show()
+    val dir=File(filesDir,"sessions");dir.mkdirs();val stamp=System.currentTimeMillis();val inkFile=File(dir,"handwriting_"+stamp+".png");ink.savePng(inkFile);o.put("ink_file",inkFile.absolutePath);File(dir,"session_"+stamp+".json").writeText(o.toString(2))
+    Toast.makeText(this,"Sitzung + Handschrift lokal gespeichert",Toast.LENGTH_SHORT).show()
   }};root.addView(save)
   setContentView(root);h.post(tick)
  }
