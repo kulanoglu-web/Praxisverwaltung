@@ -339,7 +339,7 @@ class Main(QMainWindow):
         sv.addWidget(self.nav,1)
         foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); sv.addWidget(foot)
         self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui())
-        self.nav.currentRowChanged.connect(self.pages.setCurrentIndex); self.nav.setCurrentRow(0)
+        self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(self.pages,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
         self.wallclock=QLabel()
@@ -400,6 +400,21 @@ class Main(QMainWindow):
             self.locktimer.stop(); dlg=LoginDialog()
             if dlg.exec()!=QDialog.Accepted: QApplication.quit(); return
             self.current_user=dlg.user; self.last_activity=datetime.now(); self.locktimer.start(30000); audit("UNLOCK","Anwendung entsperrt",self.current_user.get("username",""))
+
+    def role(self):
+        return (self.current_user or {}).get("role","Therapeut")
+    def can_edit(self): return self.role() in ("Administrator","Therapeut")
+    def is_admin(self): return self.role()=="Administrator"
+    def navigate(self,index):
+        # Einstellungen mit Benutzer-/Sicherheitsverwaltung nur für Administratoren.
+        if index==6 and not self.is_admin():
+            QMessageBox.warning(self,"Keine Berechtigung","Praxiseinstellungen und Benutzerverwaltung sind Administratoren vorbehalten.")
+            self.nav.blockSignals(True); self.nav.setCurrentRow(self.pages.currentIndex()); self.nav.blockSignals(False); return
+        self.pages.setCurrentIndex(index)
+    def require_edit(self):
+        if self.can_edit(): return True
+        QMessageBox.warning(self,"Nur Lesen","Dieser Benutzer hat nur Leserechte und kann keine Daten verändern.")
+        return False
 
     def session_ui(self):
         w=QWidget(); v=QVBoxLayout(w); top=QHBoxLayout()
@@ -553,6 +568,7 @@ class Main(QMainWindow):
         # Endzeit wird beim Beenden mit der realen Uhrzeit vorbelegt, bleibt aber editierbar.
         self.s_end.setTime(QTime.currentTime()); self.update_wallclock()
     def save_session(self):
+        if not self.require_edit(): return
         last=self.s_last.text().strip(); first=self.s_first.text().strip()
         if not last or not first:return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
         if self.s_start.time()==self.s_end.time() and self.elapsed()==0:return QMessageBox.warning(self,"Zeitangabe","Bitte Beginn und Ende prüfen oder den Sitzungstimer verwenden.")
