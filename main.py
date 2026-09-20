@@ -437,7 +437,7 @@ class Main(QMainWindow):
         can.drawString(50,y,"IBAN DE13 5001 0517 5404 0811 30 · BIC INGDDEFFXXX"); y-=14
         can.drawString(50,y,"Leistungen als Heilpraktiker sind nach § 4 Nr. 14 Buchstabe a UStG umsatzsteuerbefreit.")
         can.drawString(50,55,"Elektronisch erstellt und ohne Unterschrift/Stempel gültig."); can.save()
-        DB["invoices"].append({"number":no,"date":datetime.now().strftime("%Y-%m-%d"),"client":f"{last}, {first}","amount":amt,"status":"offen","paid_date":""})
+        DB["invoices"].append({"number":no,"date":datetime.now().strftime("%Y-%m-%d"),"client":f"{last}, {first}","amount":amt,"status":"offen","paid_date":"","pdf":str(pdf)})
         if rows:
             ids={s.get("id") for s in rows}
             for s in DB["sessions"]:
@@ -522,30 +522,52 @@ class Main(QMainWindow):
                 for j,k in enumerate(["last","first","dob"]): t.setItem(r,j,QTableWidgetItem(str(cc.get(k,""))))
         b.clicked.connect(refresh); v.addWidget(b); return w
     def invoices_ui(self):
-        w=QWidget(); v=QVBoxLayout(w); t=QTableWidget(0,5); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
+        title=QLabel("Rechnungen"); title.setObjectName("pageTitle"); v.addWidget(title)
+        sub=QLabel("Offene, bezahlte und stornierte Rechnungen verwalten"); sub.setObjectName("pageSub"); v.addWidget(sub)
+        search=QLineEdit(); search.setPlaceholderText("Rechnung oder Klient suchen …"); search.setClearButtonEnabled(True); v.addWidget(search)
+        t=QTableWidget(0,5); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True)
         for i in reversed(DB["invoices"]):
-            r=t.rowCount(); t.insertRow(r)
-            vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),f'{float(i.get("amount",0)):.2f} €']
+            r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),f'{float(i.get("amount",0)):.2f} €']
             for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
-        v.addWidget(t)
+        def filt(q):
+            q=q.lower().strip()
+            for r in range(t.rowCount()): t.setRowHidden(r,q not in " ".join(t.item(r,j).text().lower() for j in range(t.columnCount()) if t.item(r,j)))
+        search.textChanged.connect(filt); v.addWidget(t)
         h=QHBoxLayout()
-        paid=QPushButton("Ausgewählte Rechnung als bezahlt markieren"); paid.setMinimumHeight(50)
-        def mark_paid():
+        paid=QPushButton("✓ Als bezahlt markieren"); paid.setMinimumHeight(50)
+        def selected_invoice():
             r=t.currentRow()
-            if r<0:return
-            no=t.item(r,0).text(); inv=next((x for x in DB["invoices"] if x.get("number")==no),None)
+            if r<0:return None,None
+            no=t.item(r,0).text(); return r,next((x for x in DB["invoices"] if x.get("number")==no),None)
+        def mark_paid():
+            r,inv=selected_invoice()
             if inv: inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("bezahlt")
         paid.clicked.connect(mark_paid); h.addWidget(paid)
-        backup=QPushButton("Datensicherung erstellen"); backup.setMinimumHeight(50)
+        cancel=QPushButton("Rechnung stornieren"); cancel.setMinimumHeight(50)
+        def cancel_invoice():
+            r,inv=selected_invoice()
+            if not inv:return
+            if QMessageBox.question(self,"Stornieren",f'Rechnung {inv.get("number","")} wirklich stornieren?')!=QMessageBox.Yes:return
+            inv["status"]="storniert"; inv["cancelled_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("storniert")
+        cancel.clicked.connect(cancel_invoice); h.addWidget(cancel)
+        openpdf=QPushButton("PDF öffnen"); openpdf.setMinimumHeight(50)
+        def open_pdf():
+            _,inv=selected_invoice()
+            if not inv:return
+            p=inv.get("pdf","")
+            if p and Path(p).exists(): QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
+            else: QMessageBox.information(self,"PDF","Für diese Rechnung ist kein PDF-Pfad gespeichert.")
+        openpdf.clicked.connect(open_pdf); h.addWidget(openpdf); v.addLayout(h)
+        backup=QPushButton("Datensicherung erstellen"); backup.setMinimumHeight(48)
         def do_backup():
             dest=ROOT/"Backups"/datetime.now().strftime("Backup_%Y-%m-%d_%H-%M-%S"); dest.mkdir(parents=True,exist_ok=True)
             if DATA.exists(): shutil.copy2(DATA,dest/DATA.name)
             if DBFILE.exists():
                 con=sqlite3.connect(DBFILE); out=sqlite3.connect(dest/DBFILE.name); con.backup(out); out.close(); con.close()
             for x in (ROOT/"Einnahmen").glob("*.xlsx"): shutil.copy2(x,dest/x.name)
-            docs=dest/"Klienten"; shutil.copytree(ROOT/"Klienten",docs,dirs_exist_ok=True)
-            QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
-        backup.clicked.connect(do_backup); h.addWidget(backup); v.addLayout(h); return w
+            shutil.copytree(ROOT/"Klienten",dest/"Klienten",dirs_exist_ok=True); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
+        backup.clicked.connect(do_backup); v.addWidget(backup); return w
     def dashboard_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(18)
         y=str(datetime.now().year); billed=sum(float(i.get("amount",0)) for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")!="storniert"); paid=sum(float(i.get("amount",0)) for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")=="bezahlt"); open_amt=billed-paid
