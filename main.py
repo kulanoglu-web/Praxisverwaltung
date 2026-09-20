@@ -231,11 +231,11 @@ class Main(QMainWindow):
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(14,20,14,20)
-        brand=QLabel("PRAXISPRO\nPsychologische Privatpraxis"); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
+        brand=QLabel("PRAXISPRO\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
         for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Benutzerhandbuch"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
-        foot=QLabel("Lokale Praxisverwaltung"); foot.setObjectName("sidefoot"); sv.addWidget(foot)
+        foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); sv.addWidget(foot)
         self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui())
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(self.pages,1); self.setCentralWidget(shell)
@@ -811,7 +811,35 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             r=rt.rowCount(); rt.insertRow(r)
             for j,val in enumerate([name,mins,amount,reduced if reduced is not None else ""]): rt.setItem(r,j,QTableWidgetItem(str(val)))
         v.addWidget(rt)
-        hint=QLabel("Die Honorarsätze liegen jetzt in der Datenbank und können im nächsten Schritt direkt über diese Tabelle bearbeitet und erweitert werden."); hint.setWordWrap(True); hint.setObjectName("pageSub"); v.addWidget(hint)
+        ratebuttons=QHBoxLayout(); saverates=QPushButton("Honorarsätze speichern"); addrate=QPushButton("Neue Leistung")
+        def save_rates():
+            con=sqlite3.connect(DBFILE)
+            for r in range(rt.rowCount()):
+                name=(rt.item(r,0).text() if rt.item(r,0) else "").strip()
+                if not name: continue
+                try: mins=int(rt.item(r,1).text()); amount=float(rt.item(r,2).text().replace(",", ".")); reduced=float(rt.item(r,3).text().replace(",", ".")) if rt.item(r,3) and rt.item(r,3).text().strip() else None
+                except: QMessageBox.warning(self,"Honorare",f"Bitte Werte in Zeile {r+1} prüfen."); con.close(); return
+                con.execute("INSERT INTO fee_rates(name,minutes,amount,reduced_amount,billing_mode,active) VALUES(?,?,?,?,?,1) ON CONFLICT(name) DO UPDATE SET minutes=excluded.minutes,amount=excluded.amount,reduced_amount=excluded.reduced_amount,active=1",(name,mins,amount,reduced,"proportional"))
+            con.commit(); con.close(); QMessageBox.information(self,"Honorare","Honorarsätze gespeichert.")
+        def add_rate():
+            r=rt.rowCount(); rt.insertRow(r)
+            for j,val in enumerate(["Neue Leistung","45","70","60"]):rt.setItem(r,j,QTableWidgetItem(val))
+            rt.setCurrentCell(r,0); rt.editItem(rt.item(r,0))
+        saverates.clicked.connect(save_rates); addrate.clicked.connect(add_rate); ratebuttons.addWidget(saverates); ratebuttons.addWidget(addrate); v.addLayout(ratebuttons)
+        hint=QLabel("Honorarsätze können hier bearbeitet und um eigene Leistungen erweitert werden."); hint.setWordWrap(True); hint.setObjectName("pageSub"); v.addWidget(hint)
+        users=QLabel("Benutzer / Therapeuten"); users.setObjectName("sectionTitle"); v.addWidget(users)
+        ub=QPushButton("Benutzer anlegen")
+        def add_user():
+            name,ok=QInputDialog.getText(self,"Benutzer","Benutzername:")
+            if not ok or not name.strip():return
+            display,ok=QInputDialog.getText(self,"Benutzer","Anzeigename:")
+            if not ok or not display.strip():return
+            pwd,ok=QInputDialog.getText(self,"Benutzer","Passwort:",QLineEdit.Password)
+            if not ok or len(pwd)<8:return QMessageBox.warning(self,"Passwort","Bitte mindestens 8 Zeichen verwenden.")
+            try:
+                con=sqlite3.connect(DBFILE); con.execute("INSERT INTO users(username,display_name,role,active,password_hash,created_at) VALUES(?,?,?,?,?,?)",(name.strip(),display.strip(),"Therapeut",1,password_hash(pwd),datetime.now().isoformat(timespec="seconds"))); con.commit(); con.close(); audit("USER_CREATED",display.strip()); QMessageBox.information(self,"Benutzer","Benutzer wurde angelegt.")
+            except sqlite3.IntegrityError: QMessageBox.warning(self,"Benutzer","Dieser Benutzername existiert bereits.")
+        ub.clicked.connect(add_user); v.addWidget(ub)
         return w
 
     def dashboard_ui(self):
