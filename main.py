@@ -104,6 +104,9 @@ def init_sqlite():
       minutes INTEGER NOT NULL DEFAULT 45, amount REAL NOT NULL DEFAULT 70,
       reduced_amount REAL, billing_mode TEXT DEFAULT 'proportional', active INTEGER DEFAULT 1);
     """)
+    cols=[r[1] for r in con.execute("PRAGMA table_info(clients)").fetchall()]
+    if "client_key" not in cols: con.execute("ALTER TABLE clients ADD COLUMN client_key TEXT")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_clients_client_key ON clients(client_key)")
     defaults={
       "practice_name":"Psychologische Privatpraxis","owner_name":"Erdoğan Kulanoğlu",
       "qualifications":"Psychologe M. Sc. · Sozialarbeiter B.A. · Heilpraktiker für Psychotherapie",
@@ -120,13 +123,14 @@ def init_sqlite():
 def sync_sqlite():
     init_sqlite(); con=sqlite3.connect(DBFILE); cur=con.cursor()
     for x in DB.get("clients",[]):
-        cur.execute("""INSERT INTO clients(first,last,dob,address,diagnosis,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?) ON CONFLICT(first,last,dob) DO UPDATE SET
-        address=excluded.address,diagnosis=excluded.diagnosis,updated_at=excluded.updated_at""",
-        (encrypt_text(x.get("first","")),encrypt_text(x.get("last","")),encrypt_text(x.get("dob","")),encrypt_text(x.get("address","")),encrypt_text(x.get("diagnosis","")),x.get("created_at",""),datetime.now().isoformat(timespec="seconds")))
+        ck=hashlib.sha256((x.get("first","").strip().lower()+"|"+x.get("last","").strip().lower()+"|"+x.get("dob","").strip()).encode("utf-8")).hexdigest()
+        row=cur.execute("SELECT id FROM clients WHERE client_key=? ORDER BY id DESC LIMIT 1",(ck,)).fetchone()
+        vals=(encrypt_text(x.get("first","")),encrypt_text(x.get("last","")),encrypt_text(x.get("dob","")),encrypt_text(x.get("address","")),encrypt_text(x.get("diagnosis","")),x.get("created_at",""),datetime.now().isoformat(timespec="seconds"),ck)
+        if row: cur.execute("UPDATE clients SET first=?,last=?,dob=?,address=?,diagnosis=?,created_at=?,updated_at=?,client_key=? WHERE id=?",vals+(row[0],))
+        else: cur.execute("INSERT INTO clients(first,last,dob,address,diagnosis,created_at,updated_at,client_key) VALUES(?,?,?,?,?,?,?,?)",vals)
     con.commit()
     for s in DB.get("sessions",[]):
-        cur.execute("SELECT id FROM clients WHERE first=? AND last=? ORDER BY id DESC LIMIT 1",(encrypt_text(s.get("first","")),encrypt_text(s.get("last","")))); row=cur.fetchone(); cid=row[0] if row else None
+        ck=hashlib.sha256((s.get("first","").strip().lower()+"|"+s.get("last","").strip().lower()+"|"+s.get("dob","").strip()).encode("utf-8")).hexdigest(); cur.execute("SELECT id FROM clients WHERE client_key=? ORDER BY id DESC LIMIT 1",(ck,)); row=cur.fetchone(); cid=row[0] if row else None
         cur.execute("""INSERT INTO sessions(id,client_id,date,start,end,minutes,type,reduced,notes,ink_file,billed,invoice_number,corrected_at)
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET client_id=excluded.client_id,date=excluded.date,start=excluded.start,end=excluded.end,minutes=excluded.minutes,type=excluded.type,reduced=excluded.reduced,notes=excluded.notes,ink_file=excluded.ink_file,billed=excluded.billed,invoice_number=excluded.invoice_number,corrected_at=excluded.corrected_at""",(s.get("id"),cid,s.get("date",""),s.get("start",""),s.get("end",""),s.get("minutes",0),s.get("type",""),1 if s.get("reduced") else 0,encrypt_text(s.get("notes","")),encrypt_text(s.get("ink_file","")),1 if s.get("billed") else 0,s.get("invoice_number",""),s.get("corrected_at","")))
     for i in DB.get("invoices",[]):
