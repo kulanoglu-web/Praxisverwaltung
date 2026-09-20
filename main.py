@@ -557,8 +557,10 @@ class Main(QMainWindow):
         if x:
             self.s_first.setText(x.get("first","")); self.s_last.setText(x.get("last","")); self.s_dob.setText(x.get("dob",""))
     def start_session(self):
+        if not self.require_edit(): return
         now=datetime.now(); self.s_date.setDate(QDate.currentDate()); self.started=now; self.acc=0; self.running=True; self.update_wallclock()
     def pause(self):
+        if not self.require_edit(): return
         if self.running and self.started: self.acc+=(datetime.now()-self.started).total_seconds(); self.running=False
         else:self.started=datetime.now(); self.running=True
     def elapsed(self):
@@ -568,6 +570,7 @@ class Main(QMainWindow):
     def tick(self):
         s=self.elapsed(); self.clock.setText(f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}")
     def end_session(self):
+        if not self.require_edit(): return
         if self.running and self.started:self.acc+=(datetime.now()-self.started).total_seconds()
         self.running=False
         # Endzeit wird beim Beenden mit der realen Uhrzeit vorbelegt, bleibt aber editierbar.
@@ -664,6 +667,7 @@ class Main(QMainWindow):
         total=sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows)
         QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\n\n{details}\n\nGesamt: {total:.2f} €\n\nBitte vor PDF-Erstellung kontrollieren.")
     def make_invoice(self):
+        if not self.require_edit(): return
         no=self.i_no.text().strip()
         if not no:return QMessageBox.warning(self,"Fehlt","Eine Rechnungsnummer ist erforderlich.")
         if not re.fullmatch(r"[A-Za-z0-9._-]+",no):return QMessageBox.warning(self,"Rechnungsnummer","Bitte nur Buchstaben, Zahlen, Punkt, Bindestrich oder Unterstrich verwenden.")
@@ -893,7 +897,7 @@ class Main(QMainWindow):
             for src in (ROOT/"Klienten").rglob("*.enc"):
                 rel=src.relative_to(ROOT/"Klienten"); target=dest/"Klienten"/rel; target.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(src,target)
             (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nDatenbank: "+str(DBFILE)+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[])))+"\nHinweis: Der lokale Entschlüsselungsschlüssel sowie offene PDF-/Excel-Exporte sind nicht Bestandteil dieser Sicherung.",encoding="utf-8"); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
-        backup.clicked.connect(do_backup); v.addWidget(backup); return w
+        backup.clicked.connect(lambda: do_backup() if self.require_edit() else None); v.addWidget(backup); return w
     def manual_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
         title=QLabel("Benutzerhandbuch"); title.setObjectName("pageTitle"); v.addWidget(title)
