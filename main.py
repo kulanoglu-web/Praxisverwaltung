@@ -1,4 +1,4 @@
-import sys, json, os, re, math, shutil
+import sys, json, os, re, math, shutil, sqlite3
 from pathlib import Path
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint
@@ -32,7 +32,51 @@ from openpyxl import Workbook, load_workbook
 
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DATA=ROOT/"praxisdaten.json"
-for p in [ROOT/"Klienten",ROOT/"Einnahmen",ROOT/"Backups"]: p.mkdir(parents=True,exist_ok=True)
+DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
+for p in [ROOT/"Klienten",ROOT/"Einnahmen",ROOT/"Backups",DBDIR]: p.mkdir(parents=True,exist_ok=True)
+
+def init_sqlite():
+    con=sqlite3.connect(DBFILE); con.execute("PRAGMA foreign_keys=ON")
+    con.executescript("""
+    CREATE TABLE IF NOT EXISTS clients(
+      id INTEGER PRIMARY KEY, first TEXT NOT NULL, last TEXT NOT NULL, dob TEXT,
+      address TEXT, diagnosis TEXT, created_at TEXT, updated_at TEXT,
+      UNIQUE(first,last,dob));
+    CREATE TABLE IF NOT EXISTS sessions(
+      id TEXT PRIMARY KEY, client_id INTEGER, date TEXT, start TEXT, end TEXT,
+      minutes INTEGER, type TEXT, reduced INTEGER DEFAULT 0, notes TEXT,
+      ink_file TEXT, billed INTEGER DEFAULT 0, invoice_number TEXT, corrected_at TEXT,
+      FOREIGN KEY(client_id) REFERENCES clients(id));
+    CREATE TABLE IF NOT EXISTS invoices(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, number TEXT UNIQUE NOT NULL, date TEXT,
+      client_id INTEGER, client TEXT, address TEXT, diagnosis TEXT, amount REAL,
+      status TEXT DEFAULT 'offen', paid_date TEXT, pdf TEXT,
+      FOREIGN KEY(client_id) REFERENCES clients(id));
+    CREATE TABLE IF NOT EXISTS invoice_items(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, invoice_id INTEGER NOT NULL,
+      session_id TEXT, service_date TEXT, start TEXT, end TEXT, minutes INTEGER,
+      type TEXT, reduced INTEGER DEFAULT 0, amount REAL,
+      FOREIGN KEY(invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
+      FOREIGN KEY(session_id) REFERENCES sessions(id));
+    CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
+    """); con.commit(); con.close()
+
+def sync_sqlite():
+    init_sqlite(); con=sqlite3.connect(DBFILE); cur=con.cursor()
+    for x in DB.get("clients",[]):
+        cur.execute("""INSERT INTO clients(first,last,dob,address,diagnosis,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?) ON CONFLICT(first,last,dob) DO UPDATE SET
+        address=excluded.address,diagnosis=excluded.diagnosis,updated_at=excluded.updated_at""",
+        (x.get("first",""),x.get("last",""),x.get("dob",""),x.get("address",""),x.get("diagnosis",""),x.get("created_at",""),datetime.now().isoformat(timespec="seconds")))
+    con.commit()
+    for s in DB.get("sessions",[]):
+        cur.execute("SELECT id FROM clients WHERE first=? AND last=? ORDER BY id DESC LIMIT 1",(s.get("first",""),s.get("last",""))); row=cur.fetchone(); cid=row[0] if row else None
+        cur.execute("""INSERT OR REPLACE INTO sessions(id,client_id,date,start,end,minutes,type,reduced,notes,ink_file,billed,invoice_number,corrected_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",(s.get("id"),cid,s.get("date",""),s.get("start",""),s.get("end",""),s.get("minutes",0),s.get("type",""),1 if s.get("reduced") else 0,s.get("notes",""),s.get("ink_file",""),1 if s.get("billed") else 0,s.get("invoice_number",""),s.get("corrected_at","")))
+    for i in DB.get("invoices",[]):
+        cur.execute("""INSERT OR REPLACE INTO invoices(number,date,client,address,diagnosis,amount,status,paid_date,pdf)
+        VALUES(?,?,?,?,?,?,?,?,?)""",(i.get("number",""),i.get("date",""),i.get("client",""),i.get("address",""),i.get("diagnosis",""),i.get("amount",0),i.get("status","offen"),i.get("paid_date",""),i.get("pdf","")))
+    con.commit(); con.close()
 
 def load_data():
     if DATA.exists():
@@ -40,9 +84,11 @@ def load_data():
         except:return {}
     return {}
 DB=load_data(); DB.setdefault("clients",[]); DB.setdefault("sessions",[]); DB.setdefault("invoices",[])
+init_sqlite(); sync_sqlite()
 
 def save_data():
     DATA.write_text(json.dumps(DB,ensure_ascii=False,indent=2),encoding="utf-8")
+    sync_sqlite()
 
 def safe(s): return re.sub(r'[<>:"/\\|?*]','_',s).strip()
 
