@@ -121,7 +121,7 @@ def init_sqlite():
       "address":"Schönwalder Str. 59, 13585 Berlin","phone":"0176 43605753","fax":"030 43205928",
       "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254",
       "iban":"DE13 5001 0517 5404 0811 30","bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com",
-      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","auto_lock_minutes":"15"
+      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","auto_lock_minutes":"15","travel_surcharge":"25"
     }
     for k,v in defaults.items(): con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",(k,v))
     for name,mins,amount,reduced,mode in [("Einzeltherapie",45,70,60,"proportional"),("Paargespräch",45,70,60,"proportional"),("Onlinegespräch",45,70,60,"proportional"),("Notfalltelefonat",30,45,45,"started_unit"),("Hausbesuch",45,70,60,"proportional_plus_travel")]:
@@ -215,9 +215,16 @@ def next_no():
     return y+f"{(max(nums,default=0)+1):04d}"
 
 def amount_for(minutes,typ,reduced):
+    rates={r[0]:r for r in get_fee_rates()}
+    row=rates.get(typ)
+    if row:
+        _,unit,regular,reduced_amount,mode=row
+        unit=max(1,int(unit)); rate=float(reduced_amount if reduced and reduced_amount is not None else regular)
+        if mode=="started_unit": return math.ceil(max(1,minutes)/unit)*rate
+        if mode=="proportional_plus_travel": return minutes/unit*rate+float(get_setting("travel_surcharge","25") or 25)
+        if mode=="fixed": return rate
+        return minutes/unit*rate
     rate=60 if reduced else 70
-    if typ=="Notfalltelefonat": return math.ceil(max(1,minutes)/30)*45
-    if typ=="Hausbesuch": return minutes/45*rate+25
     return minutes/45*rate
 
 def update_excel():
@@ -897,10 +904,10 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             QMessageBox.information(self,"Gespeichert","Die Praxisvorlage wurde gespeichert. Deine bisherigen Daten bleiben die Standardvorlage.")
         save.clicked.connect(save_settings); v.addWidget(save)
         rates=QLabel("Honorarsätze"); rates.setObjectName("sectionTitle"); v.addWidget(rates)
-        rt=QTableWidget(0,4); rt.setHorizontalHeaderLabels(["Leistung","Einheit Min.","Regulär €","Ermäßigt €"]); rt.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        rt=QTableWidget(0,5); rt.setHorizontalHeaderLabels(["Leistung","Einheit Min.","Regulär €","Ermäßigt €","Abrechnung"]); rt.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         for name,mins,amount,reduced,mode in get_fee_rates():
             r=rt.rowCount(); rt.insertRow(r)
-            for j,val in enumerate([name,mins,amount,reduced if reduced is not None else ""]): rt.setItem(r,j,QTableWidgetItem(str(val)))
+            for j,val in enumerate([name,mins,amount,reduced if reduced is not None else "",mode]): rt.setItem(r,j,QTableWidgetItem(str(val)))
         v.addWidget(rt)
         ratebuttons=QHBoxLayout(); saverates=QPushButton("Honorarsätze speichern"); addrate=QPushButton("Neue Leistung")
         def save_rates():
@@ -908,13 +915,13 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             for r in range(rt.rowCount()):
                 name=(rt.item(r,0).text() if rt.item(r,0) else "").strip()
                 if not name: continue
-                try: mins=int(rt.item(r,1).text()); amount=float(rt.item(r,2).text().replace(",", ".")); reduced=float(rt.item(r,3).text().replace(",", ".")) if rt.item(r,3) and rt.item(r,3).text().strip() else None
+                try: mins=int(rt.item(r,1).text()); amount=float(rt.item(r,2).text().replace(",", ".")); reduced=float(rt.item(r,3).text().replace(",", ".")) if rt.item(r,3) and rt.item(r,3).text().strip() else None; mode=(rt.item(r,4).text().strip() if rt.item(r,4) else "proportional") or "proportional"
                 except: QMessageBox.warning(self,"Honorare",f"Bitte Werte in Zeile {r+1} prüfen."); con.close(); return
-                con.execute("INSERT INTO fee_rates(name,minutes,amount,reduced_amount,billing_mode,active) VALUES(?,?,?,?,?,1) ON CONFLICT(name) DO UPDATE SET minutes=excluded.minutes,amount=excluded.amount,reduced_amount=excluded.reduced_amount,active=1",(name,mins,amount,reduced,"proportional"))
+                con.execute("INSERT INTO fee_rates(name,minutes,amount,reduced_amount,billing_mode,active) VALUES(?,?,?,?,?,1) ON CONFLICT(name) DO UPDATE SET minutes=excluded.minutes,amount=excluded.amount,reduced_amount=excluded.reduced_amount,active=1",(name,mins,amount,reduced,mode))
             con.commit(); con.close(); QMessageBox.information(self,"Honorare","Honorarsätze gespeichert.")
         def add_rate():
             r=rt.rowCount(); rt.insertRow(r)
-            for j,val in enumerate(["Neue Leistung","45","70","60"]):rt.setItem(r,j,QTableWidgetItem(val))
+            for j,val in enumerate(["Neue Leistung","45","70","60","proportional"]):rt.setItem(r,j,QTableWidgetItem(val))
             rt.setCurrentCell(r,0); rt.editItem(rt.item(r,0))
         saverates.clicked.connect(save_rates); addrate.clicked.connect(add_rate); ratebuttons.addWidget(saverates); ratebuttons.addWidget(addrate); v.addLayout(ratebuttons)
         hint=QLabel("Honorarsätze können hier bearbeitet und um eigene Leistungen erweitert werden."); hint.setWordWrap(True); hint.setObjectName("pageSub"); v.addWidget(hint)
