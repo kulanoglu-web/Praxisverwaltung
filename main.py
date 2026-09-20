@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBo
 from PySide6.QtCore import QDate,QTime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from reportlab.lib.colors import HexColor
 from openpyxl import Workbook, load_workbook
 
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
@@ -64,7 +65,12 @@ class Main(QMainWindow):
         tabs=QTabWidget(); self.setCentralWidget(tabs)
         tabs.addTab(self.session_ui(),"Sitzungsnotiz"); tabs.addTab(self.invoice_ui(),"Rechnung"); tabs.addTab(self.clients_ui(),"Klienten"); tabs.addTab(self.invoices_ui(),"Rechnungen"); tabs.addTab(self.dashboard_ui(),"Übersicht")
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
+        self.wallclock=QLabel()
+        self.statusBar().addPermanentWidget(self.wallclock)
+        self.walltimer=QTimer(self); self.walltimer.timeout.connect(self.update_wallclock); self.walltimer.start(1000); self.update_wallclock()
         self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(15000)
+    def update_wallclock(self):
+        self.wallclock.setText("Aktuelle Uhrzeit  "+datetime.now().strftime("%H:%M:%S"))
     def session_ui(self):
         w=QWidget(); v=QVBoxLayout(w); top=QHBoxLayout()
         title=QLabel("Sitzungsnotiz"); title.setStyleSheet("font-size:26px;font-weight:700")
@@ -125,6 +131,10 @@ class Main(QMainWindow):
         mins=self.i_min.value(); typ=self.i_type.currentText(); amt=round(amount_for(mins,typ,self.i_red.isChecked()),2)
         c={"last":last,"first":first}; d=client_dir(c)/"Rechnungen"; pdf=d/f"Rechnung_{no}.pdf"
         can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
+        # Praxis-Logo als druckfähige Wortmarke
+        can.setFillColor(HexColor("#17324d")); can.circle(W-92,H-63,31,stroke=1,fill=0)
+        can.setFont("Helvetica-Bold",12); can.drawCentredString(W-92,H-61,"EK")
+        can.setFillColor(HexColor("#000000"))
         can.setFont("Helvetica-Bold",13); can.drawString(50,H-55,"Erdoğan Kulanoğlu – Psychologische Privatpraxis")
         can.setFont("Helvetica",9); can.drawString(50,H-72,"Psychologe M. Sc. · Sozialarbeiter B.A. · Heilpraktiker für Psychotherapie")
         can.drawString(50,H-87,"Schönwalder Str. 59, 13585 Berlin · Steuernummer: 19/405/00254")
