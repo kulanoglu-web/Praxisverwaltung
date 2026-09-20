@@ -412,13 +412,25 @@ class Main(QMainWindow):
         eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width)
         clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear)
-        inkhead.addStretch(); inkhead.addWidget(QLabel("Stärke")); inkhead.addWidget(width); inkhead.addWidget(eraser); inkhead.addWidget(undo); inkhead.addWidget(clearink)
-        inkbox=QWidget(); inkv=QVBoxLayout(inkbox); inkv.setContentsMargins(0,0,0,0); inkv.addLayout(inkhead); inkv.addWidget(self.ink)
+        fullscreen=QPushButton("⛶ Vollbild schreiben"); fullscreen.clicked.connect(self.open_ink_fullscreen)
+        inkhead.addStretch(); inkhead.addWidget(QLabel("Stärke")); inkhead.addWidget(width); inkhead.addWidget(eraser); inkhead.addWidget(undo); inkhead.addWidget(clearink); inkhead.addWidget(fullscreen)
+        self.inkbox=QWidget(); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(0,0,0,0); self.inkv.addLayout(inkhead); self.inkv.addWidget(self.ink); inkbox=self.inkbox
         splitter=QSplitter(Qt.Vertical); splitter.addWidget(self.notes); splitter.addWidget(inkbox); splitter.setStretchFactor(0,1); splitter.setStretchFactor(1,3); splitter.setSizes([180,430]); v.addWidget(splitter,1)
         h=QHBoxLayout()
         for text,fn in [("▶ Sitzung starten",self.start_session),("⏸ Pause/Fortsetzen",self.pause),("■ Sitzung beenden",self.end_session),("💾 Speichern",self.save_session)]: 
             b=QPushButton(text); b.setMinimumHeight(55); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h); return w
+    def open_ink_fullscreen(self):
+        dlg=QDialog(self); dlg.setWindowTitle("Handschrift – Vollbild"); dlg.setWindowState(Qt.WindowFullScreen)
+        v=QVBoxLayout(dlg); bar=QHBoxLayout(); title=QLabel("Handschrift / Stift"); title.setStyleSheet("font-size:22px;font-weight:700"); bar.addWidget(title); bar.addStretch()
+        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); erase=QCheckBox("Radierer"); erase.setChecked(self.ink.eraser); erase.toggled.connect(self.ink.set_eraser)
+        width=QSpinBox(); width.setRange(1,10); width.setValue(self.ink.pen_width); width.valueChanged.connect(self.ink.set_width)
+        clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
+        for x in (undo,erase,QLabel("Stärke"),width,clear,close): bar.addWidget(x)
+        v.addLayout(bar); self.ink.setParent(dlg); v.addWidget(self.ink,1)
+        dlg.exec()
+        self.ink.setParent(self.inkbox); self.inkv.addWidget(self.ink); self.ink.show()
+
     def helper_ui(self):
         w=QWidget(); v=QVBoxLayout(w)
         title=QLabel("Sitzungsassistent – Fragen & Interventionen"); title.setStyleSheet("font-size:24px;font-weight:700"); v.addWidget(title)
