@@ -1,7 +1,7 @@
 import sys, json, os, re, math, shutil, sqlite3, base64, hashlib
 from pathlib import Path
 from datetime import datetime
-from PySide6.QtCore import Qt, QTimer, QPoint, QUrl
+from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap, QDesktopServices
@@ -116,7 +116,7 @@ def init_sqlite():
       "address":"Schönwalder Str. 59, 13585 Berlin","phone":"0176 43605753","fax":"030 43205928",
       "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254",
       "iban":"DE13 5001 0517 5404 0811 30","bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com",
-      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":""
+      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","auto_lock_minutes":"15"
     }
     for k,v in defaults.items(): con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",(k,v))
     for name,mins,amount,reduced,mode in [("Einzeltherapie",45,70,60,"proportional"),("Paargespräch",45,70,60,"proportional"),("Onlinegespräch",45,70,60,"proportional"),("Notfalltelefonat",30,45,45,"started_unit"),("Hausbesuch",45,70,60,"proportional_plus_travel")]:
@@ -304,13 +304,13 @@ class Main(QMainWindow):
         QTabBar::tab:selected { background:#17324d; color:white; font-weight:700; }
         QLabel { color:#1f2933; font-size:14px; }
         QLineEdit,QTextEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox {
-            background:white; border:1px solid #cbd5df; border-radius:8px; padding:8px; font-size:15px;
+            background:white; border:2px solid #b8c7d4; border-radius:9px; padding:10px; min-height:24px; font-size:15px;
             selection-background-color:#17324d;
         }
         QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QDateEdit:focus,QTimeEdit:focus,QSpinBox:focus {
             border:2px solid #356b92;
         }
-        QPushButton { background:#17324d; color:white; border:0; border-radius:9px; padding:10px 16px; font-size:14px; font-weight:600; }
+        QPushButton { background:#1f6fb2; color:white; border:0; border-radius:9px; padding:10px 16px; font-size:14px; font-weight:600; }
         QPushButton:hover { background:#244d70; }
         QPushButton:pressed { background:#10283d; }
         QCheckBox { spacing:8px; font-size:14px; }
@@ -325,7 +325,7 @@ class Main(QMainWindow):
     def update_wallclock(self):
         self.wallclock.setText("LIVE  "+QTime.currentTime().toString("HH:mm:ss"))
     def event(self,e):
-        if e.type() in (e.Type.MouseButtonPress,e.Type.KeyPress,e.Type.TouchBegin): self.last_activity=datetime.now()
+        if e.type() in (QEvent.MouseButtonPress,QEvent.KeyPress,QEvent.TouchBegin): self.last_activity=datetime.now()
         return super().event(e)
     def check_autolock(self):
         mins=int(get_setting("auto_lock_minutes","15") or 15)
@@ -845,10 +845,12 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             p,_=QFileDialog.getOpenFileName(self,"Praxislogo auswählen","","Bilder (*.png *.jpg *.jpeg)")
             if p: logo.setText(p)
         choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
+        lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(1,120); lock.setValue(int(get_setting("auto_lock_minutes","15"))); lock.setSuffix(" Minuten"); lockrow.addWidget(lock); lockrow.addStretch(); form.addRow("Automatische Sperre",lockrow)
         v.addLayout(form)
         save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(52)
         def save_settings():
             for k,ed in fields.items(): set_setting(k,ed.text().strip())
+            set_setting("auto_lock_minutes",lock.value())
             QMessageBox.information(self,"Gespeichert","Die Praxisvorlage wurde gespeichert. Deine bisherigen Daten bleiben die Standardvorlage.")
         save.clicked.connect(save_settings); v.addWidget(save)
         rates=QLabel("Honorarsätze"); rates.setObjectName("sectionTitle"); v.addWidget(rates)
