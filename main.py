@@ -35,6 +35,13 @@ def decrypt_text(value):
     try:return Fernet(encryption_key()).decrypt(s[4:].encode("ascii")).decode("utf-8")
     except (InvalidToken,ValueError):return "[Verschlüsselte Daten nicht lesbar]"
 
+def decrypt_file_bytes(path):
+    p=Path(path)
+    try:
+        data=p.read_bytes()
+        return Fernet(encryption_key()).decrypt(data) if p.suffix==".enc" else data
+    except Exception:return b""
+
 def encrypt_file(path):
     p=Path(path)
     if not p.exists(): return ""
@@ -63,7 +70,10 @@ class InkCanvas(QWidget):
     def set_width(self,w): self.pen_width=w
     def save_png(self,path): return self.image.save(str(path),"PNG")
     def load_png(self,path):
-        img=QImage(str(path))
+        p=Path(path); img=QImage()
+        if p.suffix==".enc":
+            raw=decrypt_file_bytes(p); img.loadFromData(raw,"PNG")
+        else: img=QImage(str(path))
         if not img.isNull(): self.image=img.convertToFormat(QImage.Format_ARGB32).scaled(1200,700,Qt.IgnoreAspectRatio,Qt.SmoothTransformation); self.history=[]; self.update(); return True
         return False
 from openpyxl import Workbook, load_workbook
