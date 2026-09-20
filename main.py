@@ -2,7 +2,7 @@ import sys, json, os, re, math, shutil, sqlite3
 from pathlib import Path
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame)
+from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap
 from reportlab.lib.pagesizes import A4
@@ -153,6 +153,12 @@ class Main(QMainWindow):
         #nav::item:selected { background:#ffffff; color:#17324d; font-weight:700; }
         #nav::item:hover:!selected { background:#244d70; color:white; }
         QStackedWidget { background:#f4f6f8; }
+        #pageTitle { font-size:30px; font-weight:800; color:#17324d; }
+        #pageSub { font-size:15px; color:#607080; padding-bottom:8px; }
+        #statCard { background:white; border:1px solid #dce3e9; border-radius:14px; min-height:115px; }
+        #cardCaption { color:#6b7b88; font-size:12px; font-weight:700; }
+        #cardValue { color:#17324d; font-size:27px; font-weight:800; }
+        #infoBox { background:white; border:1px solid #dce3e9; border-radius:10px; padding:14px; color:#607080; }
         QTabWidget::pane { border:0; background:white; border-radius:12px; }
         QTabBar::tab { background:#e9eef3; padding:12px 20px; margin:2px; border-radius:8px; font-size:14px; }
         QTabBar::tab:selected { background:#17324d; color:white; font-weight:700; }
@@ -495,10 +501,23 @@ class Main(QMainWindow):
         def do_backup():
             dest=ROOT/"Backups"/datetime.now().strftime("Backup_%Y-%m-%d_%H-%M-%S"); dest.mkdir(parents=True,exist_ok=True)
             if DATA.exists(): shutil.copy2(DATA,dest/DATA.name)
+            if DBFILE.exists():
+                con=sqlite3.connect(DBFILE); out=sqlite3.connect(dest/DBFILE.name); con.backup(out); out.close(); con.close()
             for x in (ROOT/"Einnahmen").glob("*.xlsx"): shutil.copy2(x,dest/x.name)
+            docs=dest/"Klienten"; shutil.copytree(ROOT/"Klienten",docs,dirs_exist_ok=True)
             QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
         backup.clicked.connect(do_backup); h.addWidget(backup); v.addLayout(h); return w
     def dashboard_ui(self):
-        w=QWidget(); v=QVBoxLayout(w); y=str(datetime.now().year); billed=sum(float(i["amount"]) for i in DB["invoices"] if str(i["number"]).startswith(y) and i.get("status")!="storniert"); paid=sum(float(i["amount"]) for i in DB["invoices"] if str(i["number"]).startswith(y) and i.get("status")=="bezahlt")
-        l=QLabel(f"Jahr {y}\n\nAbgerechnet: {billed:.2f} €\nBezahlt: {paid:.2f} €\nOffen: {billed-paid:.2f} €\n\nDatenordner:\n{ROOT}"); l.setStyleSheet("font-size:22px;padding:25px"); v.addWidget(l); return w
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(18)
+        y=str(datetime.now().year); billed=sum(float(i.get("amount",0)) for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")!="storniert"); paid=sum(float(i.get("amount",0)) for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")=="bezahlt"); open_amt=billed-paid
+        title=QLabel("Übersicht"); title.setObjectName("pageTitle"); sub=QLabel(f"Psychologische Privatpraxis · {y}"); sub.setObjectName("pageSub"); v.addWidget(title); v.addWidget(sub)
+        cards=QGridLayout(); cards.setSpacing(14)
+        def card(caption,value):
+            box=QFrame(); box.setObjectName("statCard"); q=QVBoxLayout(box); a=QLabel(caption); a.setObjectName("cardCaption"); b=QLabel(value); b.setObjectName("cardValue"); q.addWidget(a);q.addWidget(b);return box
+        cards.addWidget(card("ABGERECHNET",f"{billed:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,0)
+        cards.addWidget(card("BEZAHLT",f"{paid:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,1)
+        cards.addWidget(card("OFFEN",f"{open_amt:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,2)
+        cards.addWidget(card("KLIENTEN",str(len(DB["clients"]))),1,0); cards.addWidget(card("SITZUNGEN",str(len(DB["sessions"]))),1,1); cards.addWidget(card("OFFENE RECHNUNGEN",str(sum(1 for i in DB["invoices"] if i.get("status","offen")=="offen"))),1,2); v.addLayout(cards)
+        actions=QHBoxLayout(); new_session=QPushButton("Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(4)); clients=QPushButton("Klienten öffnen"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
+        info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch(); return w
 app=QApplication(sys.argv); app.setStyleSheet("QPushButton{font-size:16px;padding:8px} QLineEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox{font-size:16px;padding:7px}"); win=Main();win.show();sys.exit(app.exec())
