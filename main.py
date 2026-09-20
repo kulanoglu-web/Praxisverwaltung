@@ -2,7 +2,7 @@ import sys, json, os, re, math, shutil
 from pathlib import Path
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView)
+from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap
 from reportlab.lib.pagesizes import A4
@@ -245,6 +245,34 @@ class Main(QMainWindow):
         w=QWidget(); v=QVBoxLayout(w); t=QTableWidget(0,3); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         for c in DB["clients"]: r=t.rowCount();t.insertRow(r);[t.setItem(r,j,QTableWidgetItem(str(c.get(k,"")))) for j,k in enumerate(["last","first","dob"])]
         v.addWidget(t)
+        opensessions=QPushButton("Sitzungen des ausgewählten Klienten öffnen"); opensessions.setMinimumHeight(45)
+        def show_sessions():
+            r=t.currentRow()
+            if r<0:return
+            last=t.item(r,0).text(); first=t.item(r,1).text()
+            rows=[s for s in DB["sessions"] if s.get("last")==last and s.get("first")==first]
+            dlg=QDialog(self); dlg.setWindowTitle(f"Sitzungen – {first} {last}"); dlg.resize(900,600); lay=QVBoxLayout(dlg)
+            st=QTableWidget(0,6); st.setHorizontalHeaderLabels(["Datum","Beginn","Ende","Min.","Art","Abgerechnet"]); st.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            for s in sorted(rows,key=lambda x:x.get("date",""),reverse=True):
+                rr=st.rowCount(); st.insertRow(rr)
+                vals=[s.get("date",""),s.get("start",""),s.get("end",""),str(s.get("minutes","")),s.get("type",""),"Ja" if s.get("billed") else "Nein"]
+                for j,x in enumerate(vals):st.setItem(rr,j,QTableWidgetItem(x))
+            lay.addWidget(st)
+            view=QPushButton("Ausgewählte Sitzung / Notiz öffnen")
+            def open_selected():
+                rr=st.currentRow()
+                if rr<0:return
+                date=st.item(rr,0).text(); start=st.item(rr,1).text()
+                s=next((x for x in rows if x.get("date")==date and x.get("start")==start),None)
+                if not s:return
+                nd=QDialog(dlg); nd.setWindowTitle(f"Sitzungsnotiz {date}"); nd.resize(900,700); nv=QVBoxLayout(nd)
+                tx=QTextEdit(); tx.setReadOnly(True); tx.setPlainText(s.get("notes","")); nv.addWidget(tx)
+                ink=s.get("ink_file","")
+                if ink and Path(ink).exists():
+                    lab=QLabel(); pix=QPixmap(ink); lab.setPixmap(pix.scaled(820,380,Qt.KeepAspectRatio,Qt.SmoothTransformation)); lab.setAlignment(Qt.AlignCenter); nv.addWidget(lab)
+                buttons=QDialogButtonBox(QDialogButtonBox.Close); buttons.rejected.connect(nd.reject); nv.addWidget(buttons); nd.exec()
+            view.clicked.connect(open_selected); lay.addWidget(view); close=QDialogButtonBox(QDialogButtonBox.Close); close.rejected.connect(dlg.reject); lay.addWidget(close); dlg.exec()
+        opensessions.clicked.connect(show_sessions); v.addWidget(opensessions)
         openink=QPushButton("Letzte Handschrift des ausgewählten Klienten anzeigen"); openink.setMinimumHeight(45)
         def show_ink():
             r=t.currentRow()
