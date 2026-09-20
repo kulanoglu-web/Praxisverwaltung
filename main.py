@@ -10,6 +10,8 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
+ROOT=Path.home()/"Documents"/"Praxisverwaltung"
+DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
 
 def encryption_key():
@@ -66,9 +68,7 @@ class InkCanvas(QWidget):
         return False
 from openpyxl import Workbook, load_workbook
 
-ROOT=Path.home()/"Documents"/"Praxisverwaltung"
-DATA=ROOT/"praxisdaten.json"
-DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
+DATA=ROOT/"praxisdaten.json.enc"
 for p in [ROOT/"Klienten",ROOT/"Einnahmen",ROOT/"Backups",DBDIR]: p.mkdir(parents=True,exist_ok=True)
 
 def init_sqlite():
@@ -99,6 +99,9 @@ def init_sqlite():
       id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
       display_name TEXT NOT NULL, role TEXT DEFAULT 'Therapeut', active INTEGER DEFAULT 1,
       password_hash TEXT, created_at TEXT);
+    CREATE TABLE IF NOT EXISTS audit_log(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, username TEXT,
+      action TEXT NOT NULL, details TEXT);
     CREATE TABLE IF NOT EXISTS fee_rates(
       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
       minutes INTEGER NOT NULL DEFAULT 45, amount REAL NOT NULL DEFAULT 70,
@@ -151,20 +154,40 @@ def get_setting(key,default=""):
 def set_setting(key,value):
     con=sqlite3.connect(DBFILE); con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(key,str(value))); con.commit(); con.close()
 
+def password_hash(password,salt=None):
+    salt=salt or os.urandom(16); digest=hashlib.pbkdf2_hmac("sha256",password.encode("utf-8"),salt,310000)
+    return base64.b64encode(salt).decode()+":"+base64.b64encode(digest).decode()
+
+def verify_password(password,stored):
+    try:
+        a,b=stored.split(":",1); salt=base64.b64decode(a); expected=base64.b64decode(b)
+        got=hashlib.pbkdf2_hmac("sha256",password.encode("utf-8"),salt,310000)
+        import hmac; return hmac.compare_digest(got,expected)
+    except:return False
+
+def audit(action,details="",username=""):
+    con=sqlite3.connect(DBFILE); con.execute("INSERT INTO audit_log(created_at,username,action,details) VALUES(?,?,?,?)",(datetime.now().isoformat(timespec="seconds"),username,action,details)); con.commit(); con.close()
+
 def get_fee_rates():
     con=sqlite3.connect(DBFILE); rows=con.execute("SELECT name,minutes,amount,reduced_amount,billing_mode FROM fee_rates WHERE active=1 ORDER BY id").fetchall(); con.close()
     return rows
 
 def load_data():
+    legacy=ROOT/"praxisdaten.json"
     if DATA.exists():
-        try:return json.loads(DATA.read_text(encoding="utf-8"))
+        try:return json.loads(decrypt_text(DATA.read_text(encoding="utf-8")))
+        except:return {}
+    if legacy.exists():
+        try:
+            d=json.loads(legacy.read_text(encoding="utf-8")); DATA.write_text(encrypt_text(json.dumps(d,ensure_ascii=False)),encoding="utf-8")
+            legacy.unlink(); return d
         except:return {}
     return {}
 DB=load_data(); DB.setdefault("clients",[]); DB.setdefault("sessions",[]); DB.setdefault("invoices",[])
 init_sqlite(); sync_sqlite()
 
 def save_data():
-    DATA.write_text(json.dumps(DB,ensure_ascii=False,indent=2),encoding="utf-8")
+    DATA.write_text(encrypt_text(json.dumps(DB,ensure_ascii=False)),encoding="utf-8")
     sync_sqlite()
 
 def safe(s): return re.sub(r'[<>:"/\\|?*]','_',s).strip()
