@@ -899,7 +899,11 @@ class Main(QMainWindow):
             # Der lokale Hauptschlüssel wird niemals zusammen mit dem Backup kopiert.
             for src in (ROOT/"Klienten").rglob("*.enc"):
                 rel=src.relative_to(ROOT/"Klienten"); target=dest/"Klienten"/rel; target.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(src,target)
-            (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nDatenbank: "+str(DBFILE)+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[])))+"\nHinweis: Der lokale Entschlüsselungsschlüssel sowie offene PDF-/Excel-Exporte sind nicht Bestandteil dieser Sicherung.",encoding="utf-8"); QMessageBox.information(self,"Sicherung",f"Sicherung erstellt:\n{dest}")
+            # Separater Wiederherstellungsschlüssel: bewusst nicht im Backup-Ordner.
+            key_export=ROOT/"Backups"/("Wiederherstellungsschluessel_"+datetime.now().strftime("%Y-%m-%d_%H-%M-%S")+".key")
+            if KEYFILE.exists(): shutil.copy2(KEYFILE,key_export)
+            (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[])))+"\nDer Wiederherstellungsschlüssel wurde separat erstellt und darf nicht zusammen mit dem Backup aufbewahrt werden.",encoding="utf-8")
+            QMessageBox.information(self,"Sicherung","Sicherung erstellt:\n"+str(dest)+"\n\nWiederherstellungsschlüssel separat erstellt:\n"+str(key_export)+"\n\nBitte Schlüssel und Backup getrennt aufbewahren.")
         backup.clicked.connect(lambda: do_backup() if self.require_edit() else None); v.addWidget(backup); return w
     def manual_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
