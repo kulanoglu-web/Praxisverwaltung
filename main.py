@@ -368,8 +368,8 @@ class Main(QMainWindow):
         #clientHeader { background:white; border:1px solid #dce3e9; border-radius:14px; padding:12px; }
         #clientName { color:#17324d; font-size:24px; font-weight:800; }
         #clientBadge { background:#e8f0f6; color:#17324d; border-radius:10px; padding:8px 14px; font-weight:700; }
-        #sectionTitle { color:#17324d; font-size:18px; font-weight:700; padding-top:8px; }
-        #formCard { background:white; border:1px solid #dce3e9; border-radius:14px; padding:18px; }
+        #sectionTitle { color:#17324d; font-size:16px; font-weight:800; padding-top:2px; }
+        #formCard { background:white; border:1px solid #d4e0ea; border-radius:12px; padding:12px; }
         QTabWidget::pane { border:0; background:white; border-radius:12px; }
         QTabBar::tab { background:#e9eef3; padding:12px 20px; margin:2px; border-radius:8px; font-size:14px; }
         QTabBar::tab:selected { background:#17324d; color:white; font-weight:700; }
@@ -383,8 +383,10 @@ class Main(QMainWindow):
         }
         QPushButton { background:#1f6fb2; color:white; border:0; border-radius:9px; padding:10px 16px; font-size:14px; font-weight:600; }
         QPushButton:hover { background:#244d70; }
+        QPushButton:disabled { background:#c8d2dc; color:#71808c; }
         QPushButton:pressed { background:#10283d; }
-        QCheckBox { spacing:8px; font-size:14px; min-height:30px; }
+        QCheckBox { spacing:8px; font-size:14px; min-height:28px; }
+        QLineEdit[readOnly="true"] { background:#f4f7f9; color:#607080; }
         QTableWidget { background:white; alternate-background-color:#f6f8fa; border:1px solid #d8e0e7; border-radius:8px; gridline-color:#e6ebef; font-size:14px; }
         QHeaderView::section { background:#edf2f6; color:#243746; padding:9px; border:0; border-bottom:1px solid #ccd6df; font-weight:700; }
         QSplitter::handle { background:#d5dde5; height:7px; margin:3px 0; border-radius:3px; }
@@ -432,7 +434,7 @@ class Main(QMainWindow):
         row=QHBoxLayout(); row.setSpacing(10)
         session=QFrame(); session.setObjectName("formCard"); sg=QGridLayout(session); sg.setContentsMargins(14,8,14,10); sg.setHorizontalSpacing(10); sg.setVerticalSpacing(6)
         st=QLabel("▤  Sitzungsdaten"); st.setObjectName("sectionTitle"); sg.addWidget(st,0,0,1,3)
-        self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("")
+        self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("Klient auswählen …")
         for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.client_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
         newclient=QPushButton("＋ Neuer Klient"); newclient.clicked.connect(self.open_new_client_dialog)
         self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
@@ -465,7 +467,7 @@ class Main(QMainWindow):
             if not qlast.text().strip() or not qfirst.text().strip(): return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
             cc={"last":qlast.text().strip(),"first":qfirst.text().strip(),"dob":qdob.text().strip(),"phone":qphone.text().strip(),"email":qmail.text().strip(),"address":"","diagnosis":""}
             if any(x.get("last","").lower()==cc["last"].lower() and x.get("first","").lower()==cc["first"].lower() and x.get("dob","")==cc["dob"] for x in DB["clients"]): return QMessageBox.warning(self,"Klient","Dieser Klient ist bereits vorhanden.")
-            DB["clients"].append(cc); save_data(); self.client_pick.addItem(f"{cc['last']}, {cc['first']}",cc); self.client_pick.setCurrentIndex(self.client_pick.count()-1); qlast.clear(); qfirst.clear(); qdob.clear(); qphone.clear(); qmail.clear()
+            DB["clients"].append(cc); save_data(); audit("CLIENT_CREATED","Klient schnell angelegt",self.current_user.get("username","") if self.current_user else ""); self.client_pick.addItem(f"{cc['last']}, {cc['first']}",cc); self.client_pick.setCurrentIndex(self.client_pick.count()-1); qlast.clear(); qfirst.clear(); qdob.clear(); qphone.clear(); qmail.clear()
         qsave.clicked.connect(add_quick)
         def picked(_):
             cc=self.client_pick.currentData()
