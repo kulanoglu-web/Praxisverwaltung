@@ -334,7 +334,7 @@ class Main(QMainWindow):
         super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle("Praxisverwaltung"); self.resize(1280,820); self.setMinimumSize(1050,700)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
-        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(14,20,14,20)
+        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(245); sv=QVBoxLayout(sidebar); sv.setContentsMargins(14,20,14,20)
         brand=QLabel("PRAXISPRO\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
         for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Benutzerhandbuch"]: self.nav.addItem(x)
@@ -354,7 +354,7 @@ class Main(QMainWindow):
         #brand { color:white; font-size:20px; font-weight:800; padding:8px 10px 24px 10px; letter-spacing:.5px; }
         #sidefoot { color:#b9c8d5; font-size:12px; padding:10px; }
         #nav { background:transparent; border:0; outline:0; color:#dce7ef; font-size:15px; }
-        #nav::item { padding:14px 12px; margin:3px 0; border-radius:8px; }
+        #nav::item { padding:12px 12px; margin:2px 0; border-radius:8px; min-height:24px; }
         #nav::item:selected { background:#2f7de1; color:white; font-weight:700; }
         #nav::item:hover:!selected { background:#244d70; color:white; }
         QStackedWidget { background:#f4f6f8; }
@@ -374,7 +374,7 @@ class Main(QMainWindow):
         QTabBar::tab:selected { background:#17324d; color:white; font-weight:700; }
         QLabel { color:#1f2933; font-size:14px; }
         QLineEdit,QTextEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox {
-            background:white; border:2px solid #b8c7d4; border-radius:9px; padding:10px; min-height:24px; font-size:15px;
+            background:white; border:2px solid #b8c7d4; border-radius:9px; padding:8px 10px; min-height:26px; font-size:15px;
             selection-background-color:#17324d;
         }
         QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QDateEdit:focus,QTimeEdit:focus,QSpinBox:focus {
@@ -383,7 +383,7 @@ class Main(QMainWindow):
         QPushButton { background:#1f6fb2; color:white; border:0; border-radius:9px; padding:10px 16px; font-size:14px; font-weight:600; }
         QPushButton:hover { background:#244d70; }
         QPushButton:pressed { background:#10283d; }
-        QCheckBox { spacing:8px; font-size:14px; }
+        QCheckBox { spacing:8px; font-size:14px; min-height:30px; }
         QTableWidget { background:white; alternate-background-color:#f6f8fa; border:1px solid #d8e0e7; border-radius:8px; gridline-color:#e6ebef; font-size:14px; }
         QHeaderView::section { background:#edf2f6; color:#243746; padding:9px; border:0; border-bottom:1px solid #ccd6df; font-weight:700; }
         QSplitter::handle { background:#d5dde5; height:7px; margin:3px 0; border-radius:3px; }
@@ -428,7 +428,7 @@ class Main(QMainWindow):
         timerbtn=QPushButton("▶  Timer starten"); timerbtn.setMinimumHeight(54); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:16px"); timerbtn.clicked.connect(self.start_session)
         top.addWidget(title); top.addStretch(); top.addWidget(self.clock); top.addWidget(timerbtn); v.addLayout(top)
 
-        card=QFrame(); card.setObjectName("formCard"); grid=QGridLayout(card); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(10)
+        card=QFrame(); card.setObjectName("formCard"); grid=QGridLayout(card); grid.setContentsMargins(16,12,16,12); grid.setHorizontalSpacing(14); grid.setVerticalSpacing(12); grid.setColumnStretch(1,2); grid.setColumnStretch(2,1); grid.setColumnStretch(4,2)
         sec=QLabel("Sitzungsdaten"); sec.setObjectName("sectionTitle"); grid.addWidget(sec,0,0,1,4)
         self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …")
         self.client_pick.addItem("")
@@ -450,7 +450,7 @@ class Main(QMainWindow):
             if isinstance(cc,dict): self.s_last.setText(cc.get("last","")); self.s_first.setText(cc.get("first","")); self.s_dob.setText(cc.get("dob",""))
         self.client_pick.currentIndexChanged.connect(picked); self.s_last.editingFinished.connect(self.fill_session_client); self.s_first.editingFinished.connect(self.fill_session_client)
 
-        self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …"); self.notes.setMinimumHeight(120); self.notes.setStyleSheet("font-size:17px;padding:10px")
+        self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …"); self.notes.setMinimumHeight(110); self.notes.setMaximumHeight(170); self.notes.setStyleSheet("font-size:17px;padding:10px")
         notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nh=QLabel("Therapienotizen"); nh.setObjectName("sectionTitle"); nv.addWidget(nh); nv.addWidget(self.notes); v.addWidget(notesbox)
 
         inkhead=QHBoxLayout(); inkhead.addWidget(QLabel("Handschrift / Touch / Stift")); self.ink=InkCanvas()
@@ -458,7 +458,7 @@ class Main(QMainWindow):
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width)
         clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); fullscreen=QPushButton("⛶ Vollbild schreiben"); fullscreen.clicked.connect(self.open_ink_fullscreen)
         inkhead.addStretch(); inkhead.addWidget(QLabel("Stärke")); inkhead.addWidget(width); inkhead.addWidget(eraser); inkhead.addWidget(undo); inkhead.addWidget(clearink); inkhead.addWidget(fullscreen)
-        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.addLayout(inkhead); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
+        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(12,10,12,12); self.inkv.setSpacing(8); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(230); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
         h=QHBoxLayout()
         for text,fn in [("▶ Sitzung starten",self.start_session),("⏸ Pause/Fortsetzen",self.pause),("■ Sitzung beenden",self.end_session),("💾 Speichern",self.save_session)]:
             b=QPushButton(text); b.setMinimumHeight(55); b.clicked.connect(fn); h.addWidget(b)
