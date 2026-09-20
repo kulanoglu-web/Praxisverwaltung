@@ -110,6 +110,8 @@ def init_sqlite():
     ucols=[r[1] for r in con.execute("PRAGMA table_info(users)").fetchall()]
     if "recovery_question" not in ucols: con.execute("ALTER TABLE users ADD COLUMN recovery_question TEXT")
     if "recovery_answer_hash" not in ucols: con.execute("ALTER TABLE users ADD COLUMN recovery_answer_hash TEXT")
+    if "failed_attempts" not in ucols: con.execute("ALTER TABLE users ADD COLUMN failed_attempts INTEGER DEFAULT 0")
+    if "locked_until" not in ucols: con.execute("ALTER TABLE users ADD COLUMN locked_until TEXT")
     cols=[r[1] for r in con.execute("PRAGMA table_info(clients)").fetchall()]
     if "client_key" not in cols: con.execute("ALTER TABLE clients ADD COLUMN client_key TEXT")
     con.execute("CREATE INDEX IF NOT EXISTS idx_clients_client_key ON clients(client_key)")
@@ -267,11 +269,20 @@ class LoginDialog(QDialog):
         forgot=QPushButton("Passwort vergessen?"); forgot.setFlat(True); forgot.clicked.connect(lambda:PasswordResetDialog().exec()); v.addWidget(forgot)
         self.password.returnPressed.connect(self.try_login)
     def try_login(self):
-        con=sqlite3.connect(DBFILE); row=con.execute("SELECT username,display_name,role,password_hash FROM users WHERE username=? AND active=1",(self.username.text().strip(),)).fetchone(); con.close()
+        username=self.username.text().strip(); con=sqlite3.connect(DBFILE); row=con.execute("SELECT username,display_name,role,password_hash,COALESCE(failed_attempts,0),locked_until FROM users WHERE username=? AND active=1",(username,)).fetchone()
+        if row and row[5]:
+            try:
+                until=datetime.fromisoformat(row[5])
+                if datetime.now()<until: con.close(); self.info.setText("Anmeldung vorübergehend gesperrt. Bitte später erneut versuchen."); audit("LOGIN_BLOCKED","Temporäre Anmeldesperre",username); return
+            except ValueError: pass
         if row and verify_password(self.password.text(),row[3]):
+            con.execute("UPDATE users SET failed_attempts=0,locked_until=NULL WHERE username=?",(username,)); con.commit(); con.close()
             self.user={"username":row[0],"display_name":row[1],"role":row[2]}; audit("LOGIN","Erfolgreiche Anmeldung",row[0]); self.accept()
         else:
-            audit("LOGIN_FAILED","Fehlgeschlagene Anmeldung",self.username.text().strip()); self.info.setText("Benutzername oder Passwort ist nicht korrekt."); self.password.clear()
+            if row:
+                attempts=row[4]+1; locked=(datetime.now()+timedelta(minutes=5)).isoformat(timespec="seconds") if attempts>=5 else None
+                con.execute("UPDATE users SET failed_attempts=?,locked_until=? WHERE username=?",(0 if locked else attempts,locked,username)); con.commit()
+            con.close(); audit("LOGIN_FAILED","Fehlgeschlagene Anmeldung",username); self.info.setText("Benutzername oder Passwort ist nicht korrekt. Nach 5 Fehlversuchen erfolgt eine 5-Minuten-Sperre."); self.password.clear()
 
 def ensure_first_user():
     con=sqlite3.connect(DBFILE); count=con.execute("SELECT COUNT(*) FROM users").fetchone()[0]; con.close()
