@@ -2,7 +2,7 @@ import sys, json, os, re, math, shutil
 from pathlib import Path
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog)
+from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap
 from reportlab.lib.pagesizes import A4
@@ -11,7 +11,7 @@ from reportlab.lib.colors import HexColor
 
 class InkCanvas(QWidget):
     def __init__(self):
-        super().__init__(); self.setMinimumHeight(300); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False; self.pen_width=3; self.eraser=False; self.history=[]
+        super().__init__(); self.setMinimumHeight(220); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False; self.pen_width=3; self.eraser=False; self.history=[]
     def paintEvent(self,e): QPainter(self).drawImage(self.rect(),self.image)
     def pointer(self,e):
         return QPoint(int(e.position().x()*self.image.width()/max(1,self.width())),int(e.position().y()*self.image.height()/max(1,self.height())))
@@ -98,22 +98,25 @@ class Main(QMainWindow):
         title=QLabel("Sitzungsnotiz"); title.setStyleSheet("font-size:26px;font-weight:700")
         self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setStyleSheet("font-size:32px;font-weight:800;padding:12px;border:2px solid #777;border-radius:10px")
         top.addWidget(title); top.addStretch(); top.addWidget(self.clock); v.addLayout(top)
-        f=QFormLayout(); self.s_last=QLineEdit(); self.s_first=QLineEdit(); self.s_dob=QLineEdit()
+        f=QFormLayout(); f.setLabelAlignment(Qt.AlignRight); f.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.s_last=QLineEdit(); self.s_first=QLineEdit(); self.s_dob=QLineEdit()
+        for field in (self.s_last,self.s_first,self.s_dob): field.setMinimumWidth(420); field.setMinimumHeight(38)
         self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_start=QTimeEdit(); self.s_end=QTimeEdit()
         self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"])
         self.s_red=QCheckBox("Ermäßigter Satz")
         for a,b in [("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Datum",self.s_date),("Beginn",self.s_start),("Ende",self.s_end),("Art",self.s_type)]:f.addRow(a,b)
         self.s_last.editingFinished.connect(self.fill_session_client); self.s_first.editingFinished.connect(self.fill_session_client)
         f.addRow("",self.s_red); v.addLayout(f)
-        self.notes=QTextEdit(); self.notes.setPlaceholderText("Therapienotizen per Tastatur …"); self.notes.setMinimumHeight(180); self.notes.setStyleSheet("font-size:18px;padding:10px"); v.addWidget(self.notes)
+        self.notes=QTextEdit(); self.notes.setPlaceholderText("Therapienotizen per Tastatur …"); self.notes.setMinimumHeight(100); self.notes.setStyleSheet("font-size:18px;padding:10px")
         inkhead=QHBoxLayout(); inkhead.addWidget(QLabel("Handschrift / Touch / Stift"))
         self.ink=InkCanvas()
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo)
         eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width)
         clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear)
-        inkhead.addStretch(); inkhead.addWidget(QLabel("Stärke")); inkhead.addWidget(width); inkhead.addWidget(eraser); inkhead.addWidget(undo); inkhead.addWidget(clearink); v.addLayout(inkhead)
-        v.addWidget(self.ink)
+        inkhead.addStretch(); inkhead.addWidget(QLabel("Stärke")); inkhead.addWidget(width); inkhead.addWidget(eraser); inkhead.addWidget(undo); inkhead.addWidget(clearink)
+        inkbox=QWidget(); inkv=QVBoxLayout(inkbox); inkv.setContentsMargins(0,0,0,0); inkv.addLayout(inkhead); inkv.addWidget(self.ink)
+        splitter=QSplitter(Qt.Vertical); splitter.addWidget(self.notes); splitter.addWidget(inkbox); splitter.setStretchFactor(0,1); splitter.setStretchFactor(1,3); splitter.setSizes([180,430]); v.addWidget(splitter,1)
         h=QHBoxLayout()
         for text,fn in [("▶ Sitzung starten",self.start_session),("⏸ Pause/Fortsetzen",self.pause),("■ Sitzung beenden",self.end_session),("💾 Speichern",self.save_session)]: 
             b=QPushButton(text); b.setMinimumHeight(55); b.clicked.connect(fn); h.addWidget(b)
