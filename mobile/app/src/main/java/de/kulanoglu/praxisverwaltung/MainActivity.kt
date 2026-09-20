@@ -60,10 +60,11 @@ class MainActivity: Activity() {
   val last=EditText(this).apply{hint="Nachname"}; val first=EditText(this).apply{hint="Vorname"}
   names.addView(last,LinearLayout.LayoutParams(0,-2,1f));names.addView(first,LinearLayout.LayoutParams(0,-2,1f));root.addView(names)
   val clientActions=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-  val choose=Button(this).apply{text="Klient auswählen";setOnClickListener{showClients(last,first)}}
+  val activity=this
+  val choose=Button(this).apply{text="Klient auswählen";setOnClickListener{activity.showClients(last,first)}}
   val history=Button(this).apply{text="Sitzungsverlauf";setOnClickListener{
-    if(last.text.isBlank()&&first.text.isBlank())Toast.makeText(this@MainActivity,"Bitte zuerst Klient auswählen",Toast.LENGTH_SHORT).show()
-    else showHistory(last.text.toString().trim(),first.text.toString().trim())
+    if(last.text.isBlank()&&first.text.isBlank()) Toast.makeText(activity,"Bitte zuerst Klient auswählen",Toast.LENGTH_SHORT).show()
+    else activity.showHistory(last.text.toString().trim(),first.text.toString().trim())
   }}
   clientActions.addView(choose,LinearLayout.LayoutParams(0,-2,1f));clientActions.addView(history,LinearLayout.LayoutParams(0,-2,1f));root.addView(clientActions)
   val date=EditText(this).apply{hint="Datum";setText(SimpleDateFormat("dd.MM.yyyy",Locale.GERMANY).format(Date()))}
