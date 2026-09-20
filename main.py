@@ -4,25 +4,29 @@ from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView)
 from PySide6.QtCore import QDate,QTime
-from PySide6.QtGui import QImage, QPainter, QPen
+from PySide6.QtGui import QImage, QPainter, QPen, QPixmap
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 
 class InkCanvas(QWidget):
     def __init__(self):
-        super().__init__(); self.setMinimumHeight(300); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False
+        super().__init__(); self.setMinimumHeight(300); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False; self.pen_width=3; self.eraser=False; self.history=[]
     def paintEvent(self,e): QPainter(self).drawImage(self.rect(),self.image)
     def pointer(self,e):
         return QPoint(int(e.position().x()*self.image.width()/max(1,self.width())),int(e.position().y()*self.image.height()/max(1,self.height())))
     def mousePressEvent(self,e):
-        if e.button()==Qt.LeftButton:self.last=self.pointer(e);self.drawing=True
+        if e.button()==Qt.LeftButton:self.history.append(self.image.copy()); self.history=self.history[-30:]; self.last=self.pointer(e);self.drawing=True
     def mouseMoveEvent(self,e):
         if self.drawing:
-            p=self.pointer(e); q=QPainter(self.image); q.setRenderHint(QPainter.Antialiasing); q.setPen(QPen(Qt.black,3,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin)); q.drawLine(self.last,p); q.end(); self.last=p; self.update()
+            p=self.pointer(e); q=QPainter(self.image); q.setRenderHint(QPainter.Antialiasing); q.setPen(QPen(Qt.white if self.eraser else Qt.black,self.pen_width if not self.eraser else max(12,self.pen_width*4),Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin)); q.drawLine(self.last,p); q.end(); self.last=p; self.update()
     def mouseReleaseEvent(self,e):
         if e.button()==Qt.LeftButton:self.drawing=False
-    def clear(self): self.image.fill(Qt.white); self.update()
+    def clear(self): self.history.append(self.image.copy()); self.image.fill(Qt.white); self.update()
+    def undo(self):
+        if self.history: self.image=self.history.pop(); self.update()
+    def set_eraser(self,on): self.eraser=on
+    def set_width(self,w): self.pen_width=w
     def save_png(self,path): return self.image.save(str(path),"PNG")
 from openpyxl import Workbook, load_workbook
 
@@ -103,8 +107,13 @@ class Main(QMainWindow):
         f.addRow("",self.s_red); v.addLayout(f)
         self.notes=QTextEdit(); self.notes.setPlaceholderText("Therapienotizen per Tastatur …"); self.notes.setMinimumHeight(180); self.notes.setStyleSheet("font-size:18px;padding:10px"); v.addWidget(self.notes)
         inkhead=QHBoxLayout(); inkhead.addWidget(QLabel("Handschrift / Touch / Stift"))
-        clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(lambda:self.ink.clear()); inkhead.addStretch(); inkhead.addWidget(clearink); v.addLayout(inkhead)
-        self.ink=InkCanvas(); v.addWidget(self.ink)
+        self.ink=InkCanvas()
+        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo)
+        eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
+        width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width)
+        clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear)
+        inkhead.addStretch(); inkhead.addWidget(QLabel("Stärke")); inkhead.addWidget(width); inkhead.addWidget(eraser); inkhead.addWidget(undo); inkhead.addWidget(clearink); v.addLayout(inkhead)
+        v.addWidget(self.ink)
         h=QHBoxLayout()
         for text,fn in [("▶ Sitzung starten",self.start_session),("⏸ Pause/Fortsetzen",self.pause),("■ Sitzung beenden",self.end_session),("💾 Speichern",self.save_session)]: 
             b=QPushButton(text); b.setMinimumHeight(55); b.clicked.connect(fn); h.addWidget(b)
@@ -236,6 +245,14 @@ class Main(QMainWindow):
         w=QWidget(); v=QVBoxLayout(w); t=QTableWidget(0,3); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         for c in DB["clients"]: r=t.rowCount();t.insertRow(r);[t.setItem(r,j,QTableWidgetItem(str(c.get(k,"")))) for j,k in enumerate(["last","first","dob"])]
         v.addWidget(t)
+        openink=QPushButton("Letzte Handschrift des ausgewählten Klienten anzeigen"); openink.setMinimumHeight(45)
+        def show_ink():
+            r=t.currentRow()
+            if r<0:return
+            last=t.item(r,0).text(); first=t.item(r,1).text(); d=client_dir({"last":last,"first":first})/"Sitzungen"; files=sorted(d.glob("*_Handschrift.png"),reverse=True)
+            if not files:return QMessageBox.information(self,"Handschrift","Keine handschriftliche Notiz gefunden.")
+            dlg=QMessageBox(self); dlg.setWindowTitle("Handschriftliche Notiz"); pix=QPixmap(str(files[0])); dlg.setIconPixmap(pix.scaled(900,550,Qt.KeepAspectRatio,Qt.SmoothTransformation)); dlg.exec()
+        openink.clicked.connect(show_ink); v.addWidget(openink)
         b=QPushButton("Klientenliste aktualisieren"); b.setMinimumHeight(45)
         def refresh():
             t.setRowCount(0)
