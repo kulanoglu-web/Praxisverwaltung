@@ -36,7 +36,7 @@ DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 for p in [ROOT/"Klienten",ROOT/"Einnahmen",ROOT/"Backups",DBDIR]: p.mkdir(parents=True,exist_ok=True)
 
 def init_sqlite():
-    con=sqlite3.connect(DBFILE); con.execute("PRAGMA foreign_keys=ON")
+    con=sqlite3.connect(DBFILE); con.execute("PRAGMA foreign_keys=ON"); con.execute("PRAGMA journal_mode=WAL"); con.execute("PRAGMA synchronous=NORMAL")
     con.executescript("""
     CREATE TABLE IF NOT EXISTS clients(
       id INTEGER PRIMARY KEY, first TEXT NOT NULL, last TEXT NOT NULL, dob TEXT,
@@ -71,11 +71,11 @@ def sync_sqlite():
     con.commit()
     for s in DB.get("sessions",[]):
         cur.execute("SELECT id FROM clients WHERE first=? AND last=? ORDER BY id DESC LIMIT 1",(s.get("first",""),s.get("last",""))); row=cur.fetchone(); cid=row[0] if row else None
-        cur.execute("""INSERT OR REPLACE INTO sessions(id,client_id,date,start,end,minutes,type,reduced,notes,ink_file,billed,invoice_number,corrected_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",(s.get("id"),cid,s.get("date",""),s.get("start",""),s.get("end",""),s.get("minutes",0),s.get("type",""),1 if s.get("reduced") else 0,s.get("notes",""),s.get("ink_file",""),1 if s.get("billed") else 0,s.get("invoice_number",""),s.get("corrected_at","")))
+        cur.execute("""INSERT INTO sessions(id,client_id,date,start,end,minutes,type,reduced,notes,ink_file,billed,invoice_number,corrected_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET client_id=excluded.client_id,date=excluded.date,start=excluded.start,end=excluded.end,minutes=excluded.minutes,type=excluded.type,reduced=excluded.reduced,notes=excluded.notes,ink_file=excluded.ink_file,billed=excluded.billed,invoice_number=excluded.invoice_number,corrected_at=excluded.corrected_at""",(s.get("id"),cid,s.get("date",""),s.get("start",""),s.get("end",""),s.get("minutes",0),s.get("type",""),1 if s.get("reduced") else 0,s.get("notes",""),s.get("ink_file",""),1 if s.get("billed") else 0,s.get("invoice_number",""),s.get("corrected_at","")))
     for i in DB.get("invoices",[]):
-        cur.execute("""INSERT OR REPLACE INTO invoices(number,date,client,address,diagnosis,amount,status,paid_date,pdf)
-        VALUES(?,?,?,?,?,?,?,?,?)""",(i.get("number",""),i.get("date",""),i.get("client",""),i.get("address",""),i.get("diagnosis",""),i.get("amount",0),i.get("status","offen"),i.get("paid_date",""),i.get("pdf","")))
+        cur.execute("""INSERT INTO invoices(number,date,client,address,diagnosis,amount,status,paid_date,pdf)
+        VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(number) DO UPDATE SET date=excluded.date,client=excluded.client,address=excluded.address,diagnosis=excluded.diagnosis,amount=excluded.amount,status=excluded.status,paid_date=excluded.paid_date,pdf=excluded.pdf""",(i.get("number",""),i.get("date",""),i.get("client",""),i.get("address",""),i.get("diagnosis",""),i.get("amount",0),i.get("status","offen"),i.get("paid_date",""),i.get("pdf","")))
     con.commit(); con.close()
 
 def load_data():
@@ -302,6 +302,7 @@ class Main(QMainWindow):
     def autosave_session(self):
         if not self.running and not self.notes.toPlainText().strip(): return
         draft={"last":self.s_last.text(),"first":self.s_first.text(),"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"seconds":self.elapsed(),"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"running":self.running}
+        inkdraft=ROOT/"Sitzung_Autosave_Handschrift.png"; self.ink.save_png(inkdraft); draft["ink_file"]=str(inkdraft)
         (ROOT/"Sitzung_Autosave.json").write_text(json.dumps(draft,ensure_ascii=False,indent=2),encoding="utf-8")
     def fill_session_client(self):
         last,first=self.s_last.text().strip().lower(),self.s_first.text().strip().lower()
@@ -336,8 +337,8 @@ class Main(QMainWindow):
         mins=start_t.secsTo(end_t)//60 if start_t.isValid() and end_t.isValid() else 0
         if mins <= 0: mins=max(1,round(self.elapsed()/60))
         rec={"id":datetime.now().strftime("%Y%m%d%H%M%S"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
-        DB["sessions"].append(rec); save_data(); d=client_dir(c)/"Sitzungen"; (d/f"{rec['date']}_Sitzung.json").write_text(json.dumps(rec,ensure_ascii=False,indent=2),encoding="utf-8")
-        inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=str(inkfile); save_data()
+        d=client_dir(c)/"Sitzungen"; inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=str(inkfile)
+        DB["sessions"].append(rec); save_data(); (d/f"{rec['date']}_Sitzung.json").write_text(json.dumps(rec,ensure_ascii=False,indent=2),encoding="utf-8")
         auto=ROOT/"Sitzung_Autosave.json"
         if auto.exists(): auto.unlink()
         QMessageBox.information(self,"Gespeichert",f"Sitzung gespeichert: {mins} Minuten.")
