@@ -1,12 +1,29 @@
 import sys, json, os, re, math, shutil
 from pathlib import Path
 from datetime import datetime
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView)
 from PySide6.QtCore import QDate,QTime
+from PySide6.QtGui import QImage, QPainter, QPen
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
+
+class InkCanvas(QWidget):
+    def __init__(self):
+        super().__init__(); self.setMinimumHeight(300); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False
+    def paintEvent(self,e): QPainter(self).drawImage(self.rect(),self.image)
+    def pointer(self,e):
+        return QPoint(int(e.position().x()*self.image.width()/max(1,self.width())),int(e.position().y()*self.image.height()/max(1,self.height())))
+    def mousePressEvent(self,e):
+        if e.button()==Qt.LeftButton:self.last=self.pointer(e);self.drawing=True
+    def mouseMoveEvent(self,e):
+        if self.drawing:
+            p=self.pointer(e); q=QPainter(self.image); q.setRenderHint(QPainter.Antialiasing); q.setPen(QPen(Qt.black,3,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin)); q.drawLine(self.last,p); q.end(); self.last=p; self.update()
+    def mouseReleaseEvent(self,e):
+        if e.button()==Qt.LeftButton:self.drawing=False
+    def clear(self): self.image.fill(Qt.white); self.update()
+    def save_png(self,path): return self.image.save(str(path),"PNG")
 from openpyxl import Workbook, load_workbook
 
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
@@ -84,7 +101,10 @@ class Main(QMainWindow):
         for a,b in [("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Datum",self.s_date),("Beginn",self.s_start),("Ende",self.s_end),("Art",self.s_type)]:f.addRow(a,b)
         self.s_last.editingFinished.connect(self.fill_session_client); self.s_first.editingFinished.connect(self.fill_session_client)
         f.addRow("",self.s_red); v.addLayout(f)
-        self.notes=QTextEdit(); self.notes.setPlaceholderText("Therapienotizen …"); self.notes.setMinimumHeight(280); self.notes.setStyleSheet("font-size:18px;padding:10px"); v.addWidget(self.notes)
+        self.notes=QTextEdit(); self.notes.setPlaceholderText("Therapienotizen per Tastatur …"); self.notes.setMinimumHeight(180); self.notes.setStyleSheet("font-size:18px;padding:10px"); v.addWidget(self.notes)
+        inkhead=QHBoxLayout(); inkhead.addWidget(QLabel("Handschrift / Touch / Stift"))
+        clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(lambda:self.ink.clear()); inkhead.addStretch(); inkhead.addWidget(clearink); v.addLayout(inkhead)
+        self.ink=InkCanvas(); v.addWidget(self.ink)
         h=QHBoxLayout()
         for text,fn in [("▶ Sitzung starten",self.start_session),("⏸ Pause/Fortsetzen",self.pause),("■ Sitzung beenden",self.end_session),("💾 Speichern",self.save_session)]: 
             b=QPushButton(text); b.setMinimumHeight(55); b.clicked.connect(fn); h.addWidget(b)
@@ -137,6 +157,7 @@ class Main(QMainWindow):
         mins=max(1,round(self.elapsed()/60))
         rec={"id":datetime.now().strftime("%Y%m%d%H%M%S"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
         DB["sessions"].append(rec); save_data(); d=client_dir(c)/"Sitzungen"; (d/f"{rec['date']}_Sitzung.json").write_text(json.dumps(rec,ensure_ascii=False,indent=2),encoding="utf-8")
+        inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=str(inkfile); save_data()
         auto=ROOT/"Sitzung_Autosave.json"
         if auto.exists(): auto.unlink()
         QMessageBox.information(self,"Gespeichert",f"Sitzung gespeichert: {mins} Minuten.")
