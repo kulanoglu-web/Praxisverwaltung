@@ -337,10 +337,10 @@ class Main(QMainWindow):
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(14,20,14,20)
         brand=QLabel("PRAXISPRO\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
-        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Benutzerhandbuch"]: self.nav.addItem(x)
+        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Benutzerhandbuch"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
         foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); sv.addWidget(foot)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui())
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui())
         self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(self.pages,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -412,7 +412,7 @@ class Main(QMainWindow):
     def is_admin(self): return self.role()=="Administrator"
     def navigate(self,index):
         # Einstellungen mit Benutzer-/Sicherheitsverwaltung nur für Administratoren.
-        if index==6 and not self.is_admin():
+        if index==7 and not self.is_admin():
             QMessageBox.warning(self,"Keine Berechtigung","Praxiseinstellungen und Benutzerverwaltung sind Administratoren vorbehalten.")
             self.nav.blockSignals(True); self.nav.setCurrentRow(self.pages.currentIndex()); self.nav.blockSignals(False); return
         self.pages.setCurrentIndex(index)
@@ -771,6 +771,28 @@ class Main(QMainWindow):
         if hasattr(self,"itemtable"): self.itemtable.setRowCount(0)
         save_data(); update_excel(); self.i_no.setText(next_no())
         QMessageBox.information(self,"Fertig",f"PDF gespeichert:\n{pdf}")
+    def new_client_page(self):
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(16)
+        title=QLabel("Neuen Klienten anlegen"); title.setObjectName("pageTitle"); v.addWidget(title)
+        sub=QLabel("Stammdaten einmal erfassen und anschließend direkt für Sitzungen und Rechnungen verwenden."); sub.setObjectName("pageSub"); v.addWidget(sub)
+        card=QFrame(); card.setObjectName("formCard"); form=QFormLayout(card); form.setSpacing(14)
+        last=QLineEdit(); first=QLineEdit(); dob=QLineEdit(); dob.setPlaceholderText("TT.MM.JJJJ"); address=QLineEdit(); diagnosis=QLineEdit()
+        for x in (last,first,dob,address,diagnosis): x.setMinimumHeight(44)
+        form.addRow("Nachname *",last); form.addRow("Vorname *",first); form.addRow("Geburtsdatum",dob); form.addRow("Adresse",address); form.addRow("Diagnose (optional)",diagnosis); v.addWidget(card)
+        row=QHBoxLayout(); save=QPushButton("💾 Klient anlegen"); save.setMinimumHeight(52); session=QPushButton("＋ Anlegen und Sitzung öffnen"); session.setMinimumHeight(52)
+        def create(go_session=False):
+            if not self.require_edit():return
+            if not last.text().strip() or not first.text().strip():return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
+            cc={"last":last.text().strip(),"first":first.text().strip(),"dob":dob.text().strip(),"address":address.text().strip(),"diagnosis":diagnosis.text().strip()}
+            if any(x.get("last","").lower()==cc["last"].lower() and x.get("first","").lower()==cc["first"].lower() and x.get("dob","")==cc["dob"] for x in DB["clients"]):return QMessageBox.warning(self,"Klient","Dieser Klient ist bereits vorhanden.")
+            DB["clients"].append(cc); save_data(); audit("CLIENT_CREATED","Klient angelegt",self.current_user.get("username","") if self.current_user else "")
+            if hasattr(self,"client_pick"): self.client_pick.addItem(f"{cc['last']}, {cc['first']}",cc)
+            if go_session:
+                self.s_last.setText(cc["last"]); self.s_first.setText(cc["first"]); self.s_dob.setText(cc["dob"]); self.nav.setCurrentRow(1)
+            else:
+                QMessageBox.information(self,"Klient","Klient wurde angelegt."); last.clear(); first.clear(); dob.clear(); address.clear(); diagnosis.clear()
+        save.clicked.connect(lambda:create(False)); session.clicked.connect(lambda:create(True)); row.addWidget(save); row.addWidget(session); v.addLayout(row); v.addStretch(); return w
+
     def clients_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
         title=QLabel("Klienten"); title.setObjectName("pageTitle"); v.addWidget(title)
@@ -846,7 +868,7 @@ class Main(QMainWindow):
         def client_to_invoice():
             x=selected_client()
             if not x:return
-            self.i_last.setText(x.get("last","")); self.i_first.setText(x.get("first","")); self.i_addr.setText(x.get("address","")); self.i_diag.setText(x.get("diagnosis","")); self.nav.setCurrentRow(4)
+            self.i_last.setText(x.get("last","")); self.i_first.setText(x.get("first","")); self.i_addr.setText(x.get("address","")); self.i_diag.setText(x.get("diagnosis","")); self.nav.setCurrentRow(5)
         tosession.clicked.connect(client_to_session); toinvoice.clicked.connect(client_to_invoice); clientactions.addWidget(tosession); clientactions.addWidget(toinvoice); v.addLayout(clientactions)
         openink=QPushButton("Letzte Handschrift des ausgewählten Klienten anzeigen"); openink.setMinimumHeight(45)
         def show_ink():
