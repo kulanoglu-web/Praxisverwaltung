@@ -44,6 +44,7 @@ class MainActivity: Activity() {
   val p=value.split(".");val cipher=Cipher.getInstance("AES/GCM/NoPadding");val spec=javax.crypto.spec.GCMParameterSpec(128,Base64.getDecoder().decode(p[0]));cipher.init(Cipher.DECRYPT_MODE,secretKey(),spec);String(cipher.doFinal(Base64.getDecoder().decode(p[1])),Charsets.UTF_8)
  }catch(e:Exception){value}
  private fun secureWrite(file:File,text:String){file.writeText(encryptString(text))}
+ private fun secureFile(file:File):File{val out=File(file.parentFile,file.name+".enc");secureWrite(out,Base64.getEncoder().encodeToString(file.readBytes()));file.delete();return out}
  private fun secureRead(file:File):String=if(file.exists()) decryptString(file.readText()) else ""
 
  private fun clientFile()=File(filesDir,"clients.json")
@@ -106,7 +107,7 @@ class MainActivity: Activity() {
   val save=Button(this).apply{text="Sitzung lokal speichern";setOnClickListener{
     val o=JSONObject();o.put("last",last.text.toString());o.put("first",first.text.toString());o.put("date",date.text.toString());o.put("begin",begin.text.toString());o.put("end",end.text.toString());o.put("seconds",elapsed/1000);o.put("notes",note.text.toString())
     rememberClient(last.text.toString().trim(),first.text.toString().trim())
-    val dir=File(filesDir,"sessions");dir.mkdirs();val stamp=System.currentTimeMillis();val inkFile=File(dir,"handwriting_"+stamp+".png");ink.savePng(inkFile);o.put("ink_file",inkFile.absolutePath);secureWrite(File(dir,"session_"+stamp+".json.enc"),o.toString(2))
+    val dir=File(filesDir,"sessions");dir.mkdirs();val stamp=System.currentTimeMillis();val inkFile=File(dir,"handwriting_"+stamp+".png");ink.savePng(inkFile);val protectedInk=secureFile(inkFile);o.put("ink_file",protectedInk.absolutePath);secureWrite(File(dir,"session_"+stamp+".json.enc"),o.toString(2))
     Toast.makeText(activity,"Sitzung + Handschrift lokal gespeichert",Toast.LENGTH_SHORT).show()
   }};root.addView(save)
   setContentView(root);h.post(tick)
