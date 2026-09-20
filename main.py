@@ -981,6 +981,28 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
                 con=sqlite3.connect(DBFILE); con.execute("INSERT INTO users(username,display_name,role,active,password_hash,created_at,recovery_question,recovery_answer_hash) VALUES(?,?,?,?,?,?,?,?)",(name.strip(),display.strip(),"Therapeut",1,password_hash(pwd),datetime.now().isoformat(timespec="seconds"),rq.strip(),password_hash(normalize_recovery_answer(ra)))); con.commit(); con.close(); audit("USER_CREATED",display.strip()); QMessageBox.information(self,"Benutzer","Benutzer wurde angelegt.")
             except sqlite3.IntegrityError: QMessageBox.warning(self,"Benutzer","Dieser Benutzername existiert bereits.")
         ub.clicked.connect(add_user); v.addWidget(ub)
+        ut=QTableWidget(0,4); ut.setHorizontalHeaderLabels(["Benutzername","Anzeigename","Rolle","Aktiv"]); ut.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        def refresh_users():
+            ut.setRowCount(0); con=sqlite3.connect(DBFILE); rows=con.execute("SELECT username,display_name,role,active FROM users ORDER BY display_name").fetchall(); con.close()
+            for row in rows:
+                r=ut.rowCount(); ut.insertRow(r)
+                for j,val in enumerate([row[0],row[1],row[2],"Ja" if row[3] else "Nein"]): ut.setItem(r,j,QTableWidgetItem(str(val)))
+        def toggle_user():
+            r=ut.currentRow()
+            if r<0:return
+            username=ut.item(r,0).text()
+            if self.current_user and username==self.current_user.get("username"): return QMessageBox.warning(self,"Benutzer","Der aktuell angemeldete Benutzer kann nicht deaktiviert werden.")
+            con=sqlite3.connect(DBFILE); row=con.execute("SELECT active FROM users WHERE username=?",(username,)).fetchone()
+            if row: con.execute("UPDATE users SET active=? WHERE username=?",(0 if row[0] else 1,username)); con.commit()
+            con.close(); audit("USER_STATUS","Benutzerstatus geändert: "+username,self.current_user.get("username","") if self.current_user else ""); refresh_users()
+        def change_role():
+            r=ut.currentRow()
+            if r<0:return
+            username=ut.item(r,0).text(); role,ok=QInputDialog.getItem(self,"Rolle ändern","Rolle:",["Administrator","Therapeut","Lesen"],0,False)
+            if not ok:return
+            con=sqlite3.connect(DBFILE); con.execute("UPDATE users SET role=? WHERE username=?",(role,username)); con.commit(); con.close(); audit("USER_ROLE","Rolle geändert: "+username+" -> "+role,self.current_user.get("username","") if self.current_user else ""); refresh_users()
+        ur=QHBoxLayout(); toggle=QPushButton("Aktivieren / Deaktivieren"); rolebtn=QPushButton("Rolle ändern"); toggle.clicked.connect(toggle_user); rolebtn.clicked.connect(change_role); ur.addWidget(toggle); ur.addWidget(rolebtn); ur.addStretch()
+        v.addWidget(ut); v.addLayout(ur); refresh_users()
         return w
 
     def dashboard_ui(self):
