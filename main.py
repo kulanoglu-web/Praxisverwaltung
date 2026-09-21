@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.3"
+APP_VERSION = "0.11.4"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1217,11 +1217,13 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
         return w
 
     def settings_ui(self):
-        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,24,28,24); v.setSpacing(10)
         title=QLabel("Praxiseinstellungen"); title.setObjectName("pageTitle"); v.addWidget(title)
-        sub=QLabel("Vorlage anpassen – Praxisdaten, Bankverbindung, Herstellerangaben und Logo."); sub.setObjectName("pageSub"); v.addWidget(sub)
-        form=QFormLayout(); fields={}
-        labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("address","Anschrift"),("phone","Telefon"),("fax","Fax"),("email","E-Mail"),("website","Website"),("tax_number","Steuernummer"),("iban","IBAN"),("bic","BIC"),("paypal","PayPal"),("manufacturer","Herstellername"),("copyright","Copyright")]
+        sub=QLabel("Praxisdaten, Abrechnung, Honorare und Benutzer übersichtlich verwalten."); sub.setObjectName("pageSub"); v.addWidget(sub)
+        tabs=QTabWidget(); tabs.setDocumentMode(True); v.addWidget(tabs,1)
+        general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(16,16,16,16); gv.setSpacing(12)
+        form=QFormLayout(); form.setHorizontalSpacing(18); form.setVerticalSpacing(9); fields={}
+        labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("address","Anschrift"),("phone","Telefon"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
         for key,label in labels:
             ed=QLineEdit(get_setting(key)); fields[key]=ed; form.addRow(label,ed)
         logo=QLineEdit(get_setting("logo_path")); fields["logo_path"]=logo; choose=QPushButton("Logo auswählen …")
@@ -1229,21 +1231,27 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             p,_=QFileDialog.getOpenFileName(self,"Praxislogo auswählen","","Bilder (*.png *.jpg *.jpeg)")
             if p: logo.setText(p)
         choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
-        lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(1,120); lock.setValue(int(get_setting("auto_lock_minutes","15"))); lock.setSuffix(" Minuten"); lockrow.addWidget(lock); lockrow.addStretch(); form.addRow("Automatische Sperre",lockrow)
-        travel=QDoubleSpinBox(); travel.setRange(0,500); travel.setDecimals(2); travel.setValue(float(get_setting("travel_surcharge","25"))); travel.setSuffix(" €"); form.addRow("Hausbesuch Anfahrt",travel)
-        v.addLayout(form)
+        gv.addLayout(form)
         save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(52)
         def save_settings():
             for k,ed in fields.items(): set_setting(k,ed.text().strip())
             set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value())
             QMessageBox.information(self,"Gespeichert","Die Praxisvorlage wurde gespeichert. Deine bisherigen Daten bleiben die Standardvorlage.")
-        save.clicked.connect(save_settings); v.addWidget(save)
-        rates=QLabel("Honorarsätze"); rates.setObjectName("sectionTitle"); v.addWidget(rates)
+        save.clicked.connect(save_settings); gv.addWidget(save); gv.addStretch(); tabs.addTab(general,"Praxisdaten")
+        billing=QWidget(); bv=QVBoxLayout(billing); bv.setContentsMargins(16,16,16,16); bv.setSpacing(12)
+        bf=QFormLayout(); bf.setHorizontalSpacing(18); bf.setVerticalSpacing(10)
+        for key,label in [("tax_number","Steuernummer"),("iban","IBAN"),("bic","BIC"),("paypal","PayPal")]:
+            ed=QLineEdit(get_setting(key)); fields[key]=ed; bf.addRow(label,ed)
+        lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(1,120); lock.setValue(int(get_setting("auto_lock_minutes","15"))); lock.setSuffix(" Minuten"); lockrow.addWidget(lock); lockrow.addStretch(); bf.addRow("Automatische Sperre",lockrow)
+        travel=QDoubleSpinBox(); travel.setRange(0,500); travel.setDecimals(2); travel.setValue(float(get_setting("travel_surcharge","25"))); travel.setSuffix(" €"); bf.addRow("Hausbesuch Anfahrt",travel)
+        bv.addLayout(bf); save2=QPushButton("Abrechnung & Sicherheit speichern"); save2.setMinimumHeight(48); save2.clicked.connect(save_settings); bv.addWidget(save2); bv.addStretch(); tabs.addTab(billing,"Abrechnung & Bank")
+        ratespage=QWidget(); rv=QVBoxLayout(ratespage); rv.setContentsMargins(16,16,16,16); rv.setSpacing(10)
+        rates=QLabel("Honorarsätze"); rates.setObjectName("sectionTitle"); rv.addWidget(rates)
         rt=QTableWidget(0,5); rt.setHorizontalHeaderLabels(["Leistung","Einheit Min.","Regulär €","Ermäßigt €","Abrechnung"]); rt.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         for name,mins,amount,reduced,mode in get_fee_rates():
             r=rt.rowCount(); rt.insertRow(r)
             for j,val in enumerate([name,mins,amount,reduced if reduced is not None else "",mode]): rt.setItem(r,j,QTableWidgetItem(str(val)))
-        v.addWidget(rt)
+        rv.addWidget(rt,1)
         ratebuttons=QHBoxLayout(); saverates=QPushButton("Honorarsätze speichern"); addrate=QPushButton("Neue Leistung")
         def save_rates():
             con=sqlite3.connect(DBFILE)
@@ -1258,9 +1266,10 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             r=rt.rowCount(); rt.insertRow(r)
             for j,val in enumerate(["Neue Leistung","45","70","60","proportional"]):rt.setItem(r,j,QTableWidgetItem(val))
             rt.setCurrentCell(r,0); rt.editItem(rt.item(r,0))
-        saverates.clicked.connect(save_rates); addrate.clicked.connect(add_rate); ratebuttons.addWidget(saverates); ratebuttons.addWidget(addrate); v.addLayout(ratebuttons)
-        hint=QLabel("Honorarsätze können hier bearbeitet und um eigene Leistungen erweitert werden."); hint.setWordWrap(True); hint.setObjectName("pageSub"); v.addWidget(hint)
-        users=QLabel("Benutzer / Therapeuten"); users.setObjectName("sectionTitle"); v.addWidget(users)
+        saverates.clicked.connect(save_rates); addrate.clicked.connect(add_rate); ratebuttons.addWidget(saverates); ratebuttons.addWidget(addrate); ratebuttons.addStretch(); rv.addLayout(ratebuttons)
+        hint=QLabel("Honorarsätze können hier bearbeitet und um eigene Leistungen erweitert werden."); hint.setWordWrap(True); hint.setObjectName("pageSub"); rv.addWidget(hint); tabs.addTab(ratespage,"Honorare")
+        userspage=QWidget(); uv=QVBoxLayout(userspage); uv.setContentsMargins(16,16,16,16); uv.setSpacing(10)
+        users=QLabel("Benutzer / Therapeuten"); users.setObjectName("sectionTitle"); uv.addWidget(users)
         ub=QPushButton("Benutzer anlegen")
         def add_user():
             name,ok=QInputDialog.getText(self,"Benutzer","Benutzername:")
@@ -1276,7 +1285,7 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             try:
                 con=sqlite3.connect(DBFILE); con.execute("INSERT INTO users(username,display_name,role,active,password_hash,created_at,recovery_question,recovery_answer_hash) VALUES(?,?,?,?,?,?,?,?)",(name.strip(),display.strip(),"Therapeut",1,password_hash(pwd),datetime.now().isoformat(timespec="seconds"),rq.strip(),password_hash(normalize_recovery_answer(ra)))); con.commit(); con.close(); audit("USER_CREATED",display.strip()); QMessageBox.information(self,"Benutzer","Benutzer wurde angelegt.")
             except sqlite3.IntegrityError: QMessageBox.warning(self,"Benutzer","Dieser Benutzername existiert bereits.")
-        ub.clicked.connect(add_user); v.addWidget(ub)
+        ub.clicked.connect(add_user); uv.addWidget(ub)
         ut=QTableWidget(0,4); ut.setHorizontalHeaderLabels(["Benutzername","Anzeigename","Rolle","Aktiv"]); ut.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         def refresh_users():
             ut.setRowCount(0); con=sqlite3.connect(DBFILE); rows=con.execute("SELECT username,display_name,role,active FROM users ORDER BY display_name").fetchall(); con.close()
@@ -1319,7 +1328,7 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
         toggle.clicked.connect(toggle_user); rolebtn.clicked.connect(change_role); recoverybtn.clicked.connect(recovery_for_user); resetbtn.clicked.connect(admin_password_reset)
         for b in (toggle,rolebtn,recoverybtn,resetbtn): ur.addWidget(b)
         ur.addStretch()
-        v.addWidget(ut); v.addLayout(ur); refresh_users()
+        uv.addWidget(ut,1); uv.addLayout(ur); refresh_users(); tabs.addTab(userspage,"Benutzer & Sicherheit")
         return w
 
     def dashboard_ui(self):
