@@ -20,8 +20,14 @@ jobs:
           path: test-artifacts/PraxisPro-Sitzung-1600x900.png
           retention-days: 30
       - run: pyinstaller --noconfirm --clean --onefile --windowed --name Praxisverwaltung main.py
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build installer
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" PraxisPro.iss'
       - uses: actions/upload-artifact@v4
         with:
-          name: Praxisverwaltung-Windows
-          path: dist/Praxisverwaltung.exe
+          name: PraxisPro-Windows-v0.9.4
+          path: |
+            dist/Praxisverwaltung.exe
+            installer/PraxisPro_Setup_v0.9.4.exe
           retention-days: 30
