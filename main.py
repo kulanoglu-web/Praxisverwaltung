@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.10.6"
+APP_VERSION = "0.10.7"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1022,15 +1022,26 @@ class Main(QMainWindow):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
         title=QLabel("Rechnungen"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Offene, bezahlte und stornierte Rechnungen verwalten"); sub.setObjectName("pageSub"); v.addWidget(sub)
-        search=QLineEdit(); search.setPlaceholderText("Rechnung oder Klient suchen …"); search.setClearButtonEnabled(True); v.addWidget(search)
+        filters=QHBoxLayout(); search=QLineEdit(); search.setPlaceholderText("Rechnung oder Klient suchen …"); search.setClearButtonEnabled(True)
+        statusfilter=QComboBox(); statusfilter.addItems(["Alle Status","offen","bezahlt","storniert"]); statusfilter.setMinimumWidth(150)
+        filters.addWidget(search,1); filters.addWidget(statusfilter); v.addLayout(filters)
         t=QTableWidget(0,5); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True)
         for i in reversed(DB["invoices"]):
             r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),f'{float(i.get("amount",0)):.2f} €']
             for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
-        def filt(q):
-            q=q.lower().strip()
-            for r in range(t.rowCount()): t.setRowHidden(r,q not in " ".join(t.item(r,j).text().lower() for j in range(t.columnCount()) if t.item(r,j)))
-        search.textChanged.connect(filt); v.addWidget(t)
+        def filt(_=None):
+            q=search.text().lower().strip(); sf=statusfilter.currentText()
+            for r in range(t.rowCount()):
+                hay=" ".join(t.item(r,j).text().lower() for j in range(t.columnCount()) if t.item(r,j))
+                status=t.item(r,3).text() if t.item(r,3) else ""
+                t.setRowHidden(r,(q not in hay) or (sf!="Alle Status" and status!=sf))
+        search.textChanged.connect(filt); statusfilter.currentTextChanged.connect(filt); v.addWidget(t)
+        summary=QHBoxLayout()
+        open_total=sum(float(x.get("amount",0)) for x in DB["invoices"] if x.get("status","offen")=="offen")
+        paid_total=sum(float(x.get("amount",0)) for x in DB["invoices"] if x.get("status")=="bezahlt")
+        for txt in (f"Offen: {open_total:.2f} €",f"Bezahlt: {paid_total:.2f} €",f"Rechnungen: {len(DB['invoices'])}"):
+            lab=QLabel(txt); lab.setObjectName("clientBadge"); lab.setAlignment(Qt.AlignCenter); lab.setMinimumHeight(40); summary.addWidget(lab)
+        v.addLayout(summary)
         h=QHBoxLayout()
         paid=QPushButton("✓ Als bezahlt markieren"); paid.setMinimumHeight(50)
         def selected_invoice():
@@ -1106,6 +1117,7 @@ class Main(QMainWindow):
             stamp=datetime.now().strftime("%Y%m%d_%H%M%S"); safety=ROOT/"Backups"/("Vor_Wiederherstellung_"+stamp); safety.mkdir(parents=True,exist_ok=True)
             if DATA.exists():shutil.copy2(DATA,safety/DATA.name)
             if DBFILE.exists():shutil.copy2(DBFILE,safety/DBFILE.name)
+            if KEYFILE.exists():shutil.copy2(KEYFILE,safety/KEYFILE.name)
             shutil.copy2(key,KEYFILE); shutil.copy2(src/DATA.name,DATA); shutil.copy2(src/DBFILE.name,DBFILE)
             if (src/"Klienten").exists(): shutil.copytree(src/"Klienten",ROOT/"Klienten",dirs_exist_ok=True)
             audit("BACKUP_RESTORE","Datensicherung wiederhergestellt",self.current_user.get("username","") if self.current_user else "")
