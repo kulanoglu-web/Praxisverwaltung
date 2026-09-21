@@ -1,4 +1,5 @@
-import sys, json, os, re, math, shutil, sqlite3, base64, hashlib
+import sys
+import subprocess, json, os, re, math, shutil, sqlite3, base64, hashlib
 from pathlib import Path
 from datetime import datetime, date
 from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent
@@ -10,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.17"
+APP_VERSION = "0.11.18"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -352,7 +353,7 @@ class Main(QMainWindow):
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
         brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
-        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Benutzerhandbuch"]: self.nav.addItem(x)
+        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Hilfe · FAQ · Info"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
         foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); sv.addWidget(foot)
         content=QWidget(); contentv=QVBoxLayout(content); contentv.setContentsMargins(0,0,0,0); contentv.setSpacing(0)
@@ -1288,53 +1289,58 @@ class Main(QMainWindow):
             QMessageBox.information(self,"Wiederherstellung","Wiederherstellung abgeschlossen. PraxisPro wird jetzt beendet. Bitte anschließend neu starten."); QApplication.quit()
         restore.clicked.connect(do_restore); v.addWidget(restore); return w
     def manual_ui(self):
-        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
-        title=QLabel("Benutzerhandbuch"); title.setObjectName("pageTitle"); v.addWidget(title)
-        sub=QLabel("PraxisPro – Kurzanleitung und wichtige Hinweise"); sub.setObjectName("pageSub"); v.addWidget(sub)
-        text=QTextEdit(); text.setReadOnly(True); text.setStyleSheet("font-size:15px;padding:14px;line-height:1.4;")
-        text.setPlainText("""PRAXISPRO – BENUTZERHANDBUCH
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,24,28,28); v.setSpacing(12)
+        title=QLabel("Hilfe · FAQ · Info"); title.setObjectName("pageTitle"); v.addWidget(title)
+        tabs=QTabWidget(); tabs.setDocumentMode(True); v.addWidget(tabs,1)
+        manual=QTextEdit(); manual.setReadOnly(True); manual.setPlainText("""PRAXISPRO – BENUTZERHANDBUCH
 
-1. ZWECK DER SOFTWARE
-PraxisPro unterstützt die lokale Organisation einer psychologischen bzw. therapeutischen Privatpraxis. Dazu gehören Klientenverwaltung, Sitzungsdokumentation, handschriftliche Notizen, Rechnungen, Einnahmenübersicht und Datensicherung.
+PraxisPro unterstützt die lokale Organisation einer psychologischen bzw. therapeutischen Privatpraxis: Klienten, Sitzungen, Tastatur- und Stiftnotizen, Rechnungen, Einnahmen und Sicherungen.
 
-2. WICHTIGER HINWEIS ZUR ABRECHNUNG
-PraxisPro verfügt derzeit über KEINE Schnittstelle zur direkten Abrechnung mit gesetzlichen oder privaten Krankenkassen, Kassenärztlichen Vereinigungen, Abrechnungsstellen oder vergleichbaren externen Abrechnungssystemen.
+SITZUNGEN
+Beginn und Ende bleiben manuell veränderbar. Der Timer ist eine zusätzliche Hilfe. Therapienotizen und Freihandnotizen gehören zur Sitzungsdokumentation und werden nicht automatisch auf Rechnungen übernommen.
 
-Die Rechnungsfunktion dient der Erstellung und Verwaltung eigener Rechnungen. Eine elektronische Übermittlung oder automatische Erstattung durch eine Krankenkasse erfolgt nicht. Ob und in welcher Höhe Kosten von einer privaten Krankenversicherung, Beihilfe oder einem anderen Kostenträger übernommen werden, muss außerhalb der Software geklärt werden.
+RECHNUNGEN
+Mehrere Leistungen können gesammelt abgerechnet werden. Rechnungsnummern werden vorgeschlagen und vor Erstellung geprüft. Rechnungen können bezahlt, erinnert oder storniert werden.
 
-3. KLIENTEN
-Unter „Klienten“ können Stammdaten und vorhandene Sitzungen eingesehen werden. Von dort kann direkt eine neue Sitzung oder Rechnung für den ausgewählten Klienten begonnen werden.
+SITZUNGSASSISTENT / F-CODES
+Fragen, Interventionen und F-Codes sind fachliche Arbeitshilfen. Sie ersetzen keine Diagnostik, Indikationsstellung oder therapeutische Entscheidung.
 
-4. SITZUNGEN
-Beginn und Ende bleiben manuell veränderbar. Zusätzlich steht ein Sitzungstimer zur Verfügung. Therapienotizen können per Tastatur und über die Handschrift-/Stiftfläche dokumentiert werden. Notizen werden nicht automatisch auf Rechnungen übernommen.
+DATENSICHERUNG
+Regelmäßige Sicherungen sind wichtig. Testversionen sollten nicht ohne eigene Prüfung der Schutzmaßnahmen für echte Patientendaten eingesetzt werden."""); tabs.addTab(manual,"Handbuch")
+        faq=QTextEdit(); faq.setReadOnly(True); faq.setPlainText("""HÄUFIGE FRAGEN
 
-5. SITZUNGSASSISTENT
-Der Sitzungsassistent stellt Fragen und therapeutische Anregungen als Arbeitshilfe bereit. Diese Inhalte ersetzen keine fachliche Diagnostik, Indikationsstellung oder therapeutische Entscheidung.
+Wo werden meine Daten gespeichert?
+Lokal im Ordner Dokumente/Praxisverwaltung.
 
-6. RECHNUNGEN
-Mehrere Leistungen können zu einer Rechnung zusammengefasst werden. Rechnungsnummern werden fortlaufend vorgeschlagen und können kontrolliert werden. Rechnungen können als bezahlt oder storniert gekennzeichnet werden. Bei einer Stornierung werden verknüpfte Sitzungen wieder zur Abrechnung freigegeben.
+Kann ich Beginn und Ende einer Sitzung selbst ändern?
+Ja. Beide Zeiten bleiben manuell editierbar.
 
-7. HONORARE UND PRAXISDATEN
-Praxisname, Anschrift, Kontaktdaten, Bankverbindung, Logo und weitere Angaben sind als Praxisvorlage konfigurierbar. Die mitgelieferte Vorlage enthält die Daten der Praxis Erdoğan Kulanoğlu. Honorarsätze werden ebenfalls als konfigurierbare Praxisdaten geführt.
+Kann ich das Notebook mit Stift verwenden?
+Ja. Die Freihandfläche unterstützt Schreiben, Radierer, Rückgängig, Zoom, Fenster-/Vollbildmodus und verschlüsseltes Speichern.
 
-8. MEHRERE BENUTZER
-Die Software wird für eine spätere Nutzung durch mehrere Therapeutinnen und Therapeuten vorbereitet. Benutzerkonten, Rollen und passwortgeschützter Zugang werden schrittweise integriert.
+Werden Therapienotizen auf die Rechnung übernommen?
+Nein. Nur ausdrücklich als Rechnungsleistung erfasste Angaben erscheinen dort.
 
-9. DATENSICHERUNG
-Sicherungen sollten regelmäßig erstellt und zusätzlich auf einem geeigneten geschützten Datenträger aufbewahrt werden. Besonders Sitzungsnotizen und Gesundheitsdaten sind vertrauliche Daten.
+Kann ich das Aussehen ändern?
+Ja. In Praxiseinstellungen stehen Farbschema, Schriftgröße und Darstellungsdichte zur Verfügung.
 
-10. DATENSCHUTZ / AKTUELLER ENTWICKLUNGSSTAND
-Die Anwendung befindet sich noch in Entwicklung. Solange lokale Datenbank, Notizen, Handschriftdateien und Sicherungen nicht vollständig verschlüsselt und die vorgesehenen Zugriffsschutzfunktionen fertiggestellt sind, sollte die Testversion nicht für echte Patientendaten eingesetzt werden.
+Kann PraxisPro direkt mit Krankenkassen abrechnen?
+Nein. Es gibt derzeit keine direkte Schnittstelle zu Krankenkassen, KVen oder Abrechnungsstellen.
 
-11. HERSTELLER
-PraxisPro
-Hersteller: Erdoğan Kulanoğlu
-© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.
-
-Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Herstellerangaben angepasst werden.
-""")
-        v.addWidget(text,1)
-        note=QLabel("Hinweis: Das Handbuch wird mit der weiteren Entwicklung der Software ergänzt."); note.setObjectName("pageSub"); v.addWidget(note)
+Wie deinstalliere ich PraxisPro?
+Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden. Vorher sollte eine aktuelle Datensicherung erstellt werden. Persönliche Praxisdaten werden aus Sicherheitsgründen nicht ungefragt gelöscht."""); tabs.addTab(faq,"FAQ")
+        info=QWidget(); iv=QVBoxLayout(info); card=QFrame(); card.setObjectName("formCard"); f=QFormLayout(card)
+        f.addRow("Programm",QLabel("PraxisPro")); f.addRow("Version",QLabel(APP_VERSION)); f.addRow("Hersteller",QLabel(get_setting("manufacturer","Erdoğan Kulanoğlu"))); f.addRow("Praxis",QLabel(get_setting("practice_name","Psychologische Privatpraxis"))); f.addRow("Copyright",QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten."))); iv.addWidget(card)
+        warn=QLabel("Vor einer Deinstallation bitte eine aktuelle Datensicherung erstellen. Die Deinstallation entfernt das Programm; Praxisdaten werden nicht automatisch gelöscht."); warn.setWordWrap(True); warn.setObjectName("infoBox"); iv.addWidget(warn)
+        uninstall=QPushButton("PraxisPro deinstallieren …"); uninstall.setMinimumHeight(48)
+        def run_uninstall():
+            if QMessageBox.question(self,"PraxisPro deinstallieren","Windows-Deinstallation starten?\n\nBitte vorher eine Datensicherung erstellen. Praxisdaten werden nicht automatisch gelöscht.",QMessageBox.Yes|QMessageBox.No)!=QMessageBox.Yes:return
+            candidates=[Path(os.environ.get("LOCALAPPDATA",""))/"Programs"/"PraxisPro"/"unins000.exe",Path(os.environ.get("ProgramFiles","C:/Program Files"))/"PraxisPro"/"unins000.exe",Path(sys.executable).resolve().parent/"unins000.exe"]
+            exe=next((p for p in candidates if p.exists()),None)
+            if not exe:return QMessageBox.information(self,"Deinstallation","Der Windows-Deinstaller wurde nicht gefunden. Bitte PraxisPro über Windows Einstellungen → Apps → Installierte Apps deinstallieren.")
+            try: subprocess.Popen([str(exe)]); QApplication.quit()
+            except Exception as e: QMessageBox.warning(self,"Deinstallation","Deinstaller konnte nicht gestartet werden:\n"+str(e))
+        uninstall.clicked.connect(run_uninstall); iv.addWidget(uninstall); iv.addStretch(); tabs.addTab(info,"Info & Programmverwaltung")
         return w
 
     def settings_ui(self):
