@@ -2,7 +2,7 @@ import sys, json, os, re, math, shutil, sqlite3, base64, hashlib
 from pathlib import Path
 from datetime import datetime, date
 from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent
-from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea)
+from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap, QDesktopServices
 from reportlab.lib.pagesizes import A4
@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.8"
+APP_VERSION = "0.11.9"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -337,7 +337,11 @@ class Main(QMainWindow):
         super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle(f"Praxisverwaltung v{APP_VERSION}"); self.resize(1280,820); self.setMinimumSize(1050,700)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
-        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(245); sv=QVBoxLayout(sidebar); sv.setContentsMargins(14,20,14,20)
+        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
+        logo_path=get_setting("logo_path","")
+        if logo_path and Path(logo_path).exists():
+            side_logo=QLabel(); side_pix=QPixmap(logo_path)
+            if not side_pix.isNull(): side_logo.setPixmap(side_pix.scaled(190,72,Qt.KeepAspectRatio,Qt.SmoothTransformation)); side_logo.setAlignment(Qt.AlignCenter); sv.addWidget(side_logo)
         brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
         for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Benutzerhandbuch"]: self.nav.addItem(x)
@@ -354,10 +358,10 @@ class Main(QMainWindow):
         self.setStyleSheet("""
         QMainWindow { background:#f4f6f8; }
         #sidebar { background:#132f47; border:0; }
-        #brand { color:white; font-size:20px; font-weight:800; padding:8px 10px 24px 10px; letter-spacing:.5px; }
+        #brand { color:white; font-size:17px; font-weight:800; padding:5px 8px 12px 8px; letter-spacing:.3px; }
         #sidefoot { color:#b9c8d5; font-size:12px; padding:10px; }
-        #nav { background:transparent; border:0; outline:0; color:#dce7ef; font-size:15px; }
-        #nav::item { padding:12px 12px; margin:2px 0; border-radius:8px; min-height:24px; }
+        #nav { background:transparent; border:0; outline:0; color:#dce7ef; font-size:14px; }
+        #nav::item { padding:9px 10px; margin:1px 0; border-radius:8px; min-height:21px; }
         #nav::item:selected { background:#2f7de1; color:white; font-weight:700; }
         #nav::item:hover:!selected { background:#244d70; color:white; }
         QStackedWidget { background:#f4f6f8; }
@@ -406,7 +410,8 @@ class Main(QMainWindow):
     def update_user_badge(self):
         u=self.current_user or {}; self.userbadge.setText("Angemeldet: "+u.get("display_name",u.get("username",""))+" · "+u.get("role",""))
     def update_wallclock(self):
-        self.wallclock.setText("LIVE  "+QTime.currentTime().toString("HH:mm:ss"))
+        now=QTime.currentTime(); self.wallclock.setText("● LIVE  "+now.toString("HH:mm:ss"))
+        if hasattr(self,"session_live_clock"): self.session_live_clock.setText(now.toString("HH:mm:ss"))
     def event(self,e):
         if e.type() in (QEvent.MouseButtonPress,QEvent.KeyPress,QEvent.TouchBegin): self.last_activity=datetime.now()
         return super().event(e)
@@ -435,9 +440,10 @@ class Main(QMainWindow):
     def session_ui(self):
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(22,16,22,14); v.setSpacing(14)
         top=QHBoxLayout(); head=QVBoxLayout(); title=QLabel("▣  Sitzungsnotiz"); title.setObjectName("pageTitle"); subtitle=QLabel("Sitzung dokumentieren · Klientendaten · Notizen · Handschrift · Speichern"); subtitle.setObjectName("pageSub"); head.addWidget(title); head.addWidget(subtitle)
-        self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setFixedSize(175,54); self.clock.setStyleSheet("font-size:29px;font-weight:800;border:2px solid #8091a1;border-radius:12px;background:white")
-        timerbtn=QPushButton("▶  Timer starten"); timerbtn.setFixedHeight(54); timerbtn.setMinimumWidth(175); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:16px"); timerbtn.clicked.connect(self.start_session)
-        top.addLayout(head); top.addStretch(); top.addWidget(self.clock); top.addWidget(timerbtn); v.addLayout(top)
+        self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setFixedSize(155,48); self.clock.setStyleSheet("font-size:24px;font-weight:800;border:2px solid #8091a1;border-radius:10px;background:white")
+        timerbtn=QPushButton("▶  Timer starten"); timerbtn.setFixedHeight(48); timerbtn.setMinimumWidth(155); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:14px"); timerbtn.clicked.connect(self.start_session)
+        self.session_live_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.session_live_clock.setAlignment(Qt.AlignCenter); self.session_live_clock.setFixedSize(120,48); self.session_live_clock.setToolTip("Aktuelle Uhrzeit – live"); self.session_live_clock.setStyleSheet("font-size:19px;font-weight:800;color:#17324d;background:#e8f0f6;border-radius:10px")
+        top.addLayout(head); top.addStretch(); top.addWidget(self.session_live_clock); top.addWidget(self.clock); top.addWidget(timerbtn); v.addLayout(top)
 
         row=QHBoxLayout(); row.setSpacing(14)
         session=QFrame(); session.setObjectName("formCard"); sg=QGridLayout(session); sg.setContentsMargins(16,12,16,14); sg.setHorizontalSpacing(10); sg.setVerticalSpacing(9)
@@ -502,7 +508,7 @@ class Main(QMainWindow):
             if text in note_templates and (not self.notes.toPlainText().strip() or QMessageBox.question(self,"Vorlage einsetzen","Vorhandene Notiz durch die gewählte Vorlage ersetzen?")==QMessageBox.Yes): self.notes.setPlainText(note_templates[text])
             template.setCurrentIndex(0)
         template.currentTextChanged.connect(apply_note_template)
-        self.notes.setMinimumHeight(210); self.notes.setMaximumHeight(300); nv.addWidget(self.notes); v.addWidget(notesbox)
+        self.notes.setMinimumHeight(145); self.notes.setMaximumHeight(220); self.notes.setStyleSheet("font-size:13px"); nv.addWidget(self.notes); v.addWidget(notesbox)
 
         self.ink=InkCanvas(); inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
@@ -510,11 +516,11 @@ class Main(QMainWindow):
         for x in (QLabel("Stärke:"),width,eraser,undo,clearink,fullscreen):
             if hasattr(x,"setMinimumHeight"): x.setMinimumHeight(40)
             inkhead.addWidget(x)
-        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(330); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
+        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(235); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
         h=QHBoxLayout()
         buttons=[("▶ Sitzung starten",self.start_session,"background:#16a34a"),("⏸ Pause/Fortsetzen",self.pause,"background:#1683d8"),("■ Sitzung beenden",self.end_session,"background:#e11d48"),("💾 Speichern",self.save_session,"background:#f8fafc;color:#1261a0;border:1px solid #9bb7cf")]
         for text_,fn,style in buttons:
-            b=QPushButton(text_); b.setMinimumHeight(58); b.setStyleSheet(style+";font-weight:800;font-size:15px"); b.clicked.connect(fn); h.addWidget(b)
+            b=QPushButton(text_); b.setMinimumHeight(48); b.setStyleSheet(style+";font-weight:800;font-size:13px"); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h)
         scroll=QScrollArea(); scroll.setObjectName("sessionScroll"); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setWidget(page); return scroll
 
@@ -553,9 +559,14 @@ class Main(QMainWindow):
         v=QVBoxLayout(dlg); bar=QHBoxLayout(); title=QLabel("Handschrift / Stift"); title.setStyleSheet("font-size:22px;font-weight:700"); bar.addWidget(title); bar.addStretch()
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); erase=QCheckBox("Radierer"); erase.setChecked(self.ink.eraser); erase.toggled.connect(self.ink.set_eraser)
         width=QSpinBox(); width.setRange(1,10); width.setValue(self.ink.pen_width); width.valueChanged.connect(self.ink.set_width)
+        zoom=QSlider(Qt.Horizontal); zoom.setRange(60,180); zoom.setValue(100); zoom.setFixedWidth(170); zoomlabel=QLabel("100 %")
         clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
-        for x in (undo,erase,QLabel("Stärke"),width,clear,close): bar.addWidget(x)
-        v.addLayout(bar); self.ink.setParent(dlg); v.addWidget(self.ink,1)
+        for x in (undo,erase,QLabel("Stärke"),width,QLabel("Ansicht"),zoom,zoomlabel,clear,close): bar.addWidget(x)
+        v.addLayout(bar); holder=QScrollArea(); holder.setWidgetResizable(False); holder.setAlignment(Qt.AlignCenter); self.ink.setParent(holder); holder.setWidget(self.ink)
+        basew,baseh=1200,700
+        def scale_ink(value):
+            zoomlabel.setText(f"{value} %"); self.ink.resize(int(basew*value/100),int(baseh*value/100))
+        zoom.valueChanged.connect(scale_ink); scale_ink(100); v.addWidget(holder,1)
         dlg.exec()
         self.ink.setParent(self.inkbox); self.inkv.addWidget(self.ink); self.ink.show()
 
