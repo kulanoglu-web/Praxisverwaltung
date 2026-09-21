@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.32"
+APP_VERSION = "0.11.33"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -350,14 +350,14 @@ class Main(QMainWindow):
         super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle(f"PraxisPro v{APP_VERSION} – Erdoğan Kulanoğlu"); self.resize(1280,820); self.setMinimumSize(1050,700)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
-        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(205); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
+        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(195); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
         brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
         for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Hilfe · FAQ · Info"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
         foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); sv.addWidget(foot)
         content=QWidget(); contentv=QVBoxLayout(content); contentv.setContentsMargins(0,0,0,0); contentv.setSpacing(0)
-        topbar=QFrame(); topbar.setObjectName("topBrandBar"); topbar.setFixedHeight(68); tb=QHBoxLayout(topbar); tb.setContentsMargins(16,5,18,5); tb.addStretch()
+        topbar=QFrame(); topbar.setObjectName("topBrandBar"); topbar.setFixedHeight(62); tb=QHBoxLayout(topbar); tb.setContentsMargins(16,5,18,5); tb.addStretch()
         self.top_logo=QLabel(); self.top_logo.setAlignment(Qt.AlignRight|Qt.AlignVCenter); self.top_logo.setMinimumWidth(220)
         logo_path=practice_logo_path()
         if logo_path:
@@ -377,13 +377,13 @@ class Main(QMainWindow):
         #sidebar { background:#132f47; border:0; }
         #brand { color:white; font-size:17px; font-weight:800; padding:5px 8px 12px 8px; letter-spacing:.3px; }
         #sidefoot { color:#b9c8d5; font-size:12px; padding:10px; }
-        #nav { background:transparent; border:0; outline:0; color:#dce7ef; font-size:13px; }
-        #nav::item { padding:7px 9px; margin:1px 0; border-radius:8px; min-height:21px; }
+        #nav { background:transparent; border:0; outline:0; color:#dce7ef; font-size:12px; }
+        #nav::item { padding:6px 8px; margin:1px 0; border-radius:8px; min-height:21px; }
         #nav::item:selected { background:#2f7de1; color:white; font-weight:700; }
         #nav::item:hover:!selected { background:#244d70; color:white; }
         QStackedWidget { background:#f4f6f8; }\n        #topBrandBar { background:white; border-bottom:1px solid #dce3e9; }
-        #pageTitle { font-size:25px; font-weight:800; color:#17324d; }
-        #pageSub { font-size:13px; color:#607080; padding-bottom:8px; }
+        #pageTitle { font-size:23px; font-weight:800; color:#17324d; }
+        #pageSub { font-size:12px; color:#607080; padding-bottom:8px; }
         #statCard { background:white; border:1px solid #dce3e9; border-radius:14px; min-height:115px; }
         #cardCaption { color:#6b7b88; font-size:12px; font-weight:700; }
         #cardValue { color:#17324d; font-size:27px; font-weight:800; }
@@ -391,8 +391,8 @@ class Main(QMainWindow):
         #clientHeader { background:white; border:1px solid #dce3e9; border-radius:14px; padding:12px; }
         #clientName { color:#17324d; font-size:24px; font-weight:800; }
         #clientBadge { background:#e8f0f6; color:#17324d; border-radius:10px; padding:8px 14px; font-weight:700; }
-        #sectionTitle { color:#17324d; font-size:14px; font-weight:800; padding-top:2px; }
-        #formCard { background:white; border:1px solid #d4e0ea; border-radius:10px; padding:7px; }
+        #sectionTitle { color:#17324d; font-size:13px; font-weight:800; padding-top:2px; }
+        #formCard { background:white; border:1px solid #d4e0ea; border-radius:9px; padding:6px; }
         #sessionScroll { background:#f4f6f8; border:0; }
         #sessionScroll > QWidget > QWidget { background:#f4f6f8; }
         QScrollBar:vertical { background:#eef2f5; width:12px; margin:2px; border-radius:6px; }
@@ -402,19 +402,19 @@ class Main(QMainWindow):
         QTabWidget::pane { border:0; background:white; border-radius:12px; }
         QTabBar::tab { background:#e9eef3; padding:12px 20px; margin:2px; border-radius:8px; font-size:14px; }
         QTabBar::tab:selected { background:#17324d; color:white; font-weight:700; }
-        QLabel { color:#1f2933; font-size:12px; }
+        QLabel { color:#1f2933; font-size:11px; }
         QLineEdit,QTextEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox {
-            background:white; border:2px solid #b8c7d4; border-radius:9px; padding:5px 8px; min-height:20px; font-size:12px;
+            background:white; border:2px solid #b8c7d4; border-radius:9px; padding:4px 7px; min-height:18px; font-size:11px;
             selection-background-color:#17324d;
         }
         QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QDateEdit:focus,QTimeEdit:focus,QSpinBox:focus {
             border:2px solid #356b92;
         }
-        QPushButton { background:#1f6fb2; color:white; border:0; border-radius:9px; padding:7px 11px; font-size:12px; font-weight:600; }
+        QPushButton { background:#1f6fb2; color:white; border:0; border-radius:9px; padding:6px 10px; font-size:11px; font-weight:600; }
         QPushButton:hover { background:#244d70; }
         QPushButton:disabled { background:#c8d2dc; color:#71808c; }
         QPushButton:pressed { background:#10283d; }
-        QCheckBox { spacing:6px; font-size:12px; min-height:22px; }
+        QCheckBox { spacing:5px; font-size:11px; min-height:20px; }
         QLineEdit[readOnly="true"] { background:#f4f7f9; color:#607080; }
         QTableWidget { background:white; alternate-background-color:#f6f8fa; border:1px solid #d8e0e7; border-radius:8px; gridline-color:#e6ebef; font-size:12px; }
         QHeaderView::section { background:#edf2f6; color:#243746; padding:6px; border:0; border-bottom:1px solid #ccd6df; font-weight:700; }
@@ -462,9 +462,9 @@ class Main(QMainWindow):
         scroll=QScrollArea(); scroll.setObjectName("sessionScroll"); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         body=QWidget(); body.setMinimumWidth(0); v=QVBoxLayout(body); v.setContentsMargins(16,10,16,12); v.setSpacing(8)
         top=QHBoxLayout(); head=QVBoxLayout(); title=QLabel("▣  Sitzungsnotiz"); title.setObjectName("pageTitle"); subtitle=QLabel("Sitzung dokumentieren · Klientendaten · Notizen · Handschrift · Speichern"); subtitle.setObjectName("pageSub"); head.addWidget(title); head.addWidget(subtitle)
-        self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setFixedSize(130,40); self.clock.setStyleSheet("font-size:20px;font-weight:800;border:2px solid #8091a1;border-radius:10px;background:white")
-        timerbtn=QPushButton("▶  Timer starten"); timerbtn.setFixedHeight(40); timerbtn.setMinimumWidth(130); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:14px"); timerbtn.clicked.connect(self.start_session)
-        self.session_live_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.session_live_clock.setAlignment(Qt.AlignCenter); self.session_live_clock.setFixedSize(105,40); self.session_live_clock.setToolTip("Aktuelle Uhrzeit – live"); self.session_live_clock.setStyleSheet("font-size:16px;font-weight:800;color:#17324d;background:#e8f0f6;border-radius:10px")
+        self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setFixedSize(118,36); self.clock.setStyleSheet("font-size:20px;font-weight:800;border:2px solid #8091a1;border-radius:10px;background:white")
+        timerbtn=QPushButton("▶  Timer starten"); timerbtn.setFixedHeight(36); timerbtn.setMinimumWidth(118); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:14px"); timerbtn.clicked.connect(self.start_session)
+        self.session_live_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.session_live_clock.setAlignment(Qt.AlignCenter); self.session_live_clock.setFixedSize(94,36); self.session_live_clock.setToolTip("Aktuelle Uhrzeit – live"); self.session_live_clock.setStyleSheet("font-size:16px;font-weight:800;color:#17324d;background:#e8f0f6;border-radius:10px")
         top.addLayout(head); top.addStretch(); top.addWidget(self.session_live_clock); top.addWidget(self.clock); top.addWidget(timerbtn); v.addLayout(top)
 
         row=QHBoxLayout(); row.setSpacing(8)
@@ -472,11 +472,11 @@ class Main(QMainWindow):
         st=QLabel("▤  Sitzungsdaten"); st.setObjectName("sectionTitle"); sg.addWidget(st,0,0,1,3)
         self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("Klient auswählen …")
         for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.client_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
-        newclient=QPushButton("＋ Neuer Klient"); newclient.setMinimumHeight(34); newclient.clicked.connect(self.open_new_client_dialog)
+        newclient=QPushButton("＋ Neuer Klient"); newclient.setMinimumHeight(30); newclient.clicked.connect(self.open_new_client_dialog)
         self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
         self.s_start=QTimeEdit(); self.s_end=QTimeEdit(); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
         self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); self.s_red=QCheckBox("Ermäßigter Satz")
-        for x in (self.client_pick,self.s_date,self.s_start,self.s_end,self.s_type): x.setMinimumHeight(34)
+        for x in (self.client_pick,self.s_date,self.s_start,self.s_end,self.s_type): x.setMinimumHeight(30)
         sg.addWidget(QLabel("Klient *"),1,0); sg.addWidget(self.client_pick,1,1); sg.addWidget(newclient,1,2)
         for rr,(lab,field) in enumerate([("Datum *",self.s_date),("Beginn *",self.s_start),("Ende *",self.s_end),("Art *",self.s_type)],2): sg.addWidget(QLabel(lab),rr,0); sg.addWidget(field,rr,1,1,2)
         sg.addWidget(self.s_red,6,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(0); session.setMinimumHeight(285); row.addWidget(session,4)
@@ -488,7 +488,7 @@ class Main(QMainWindow):
         self.s_phone=QLineEdit(); self.s_email=QLineEdit()
         for x in (self.s_phone,self.s_email): x.setMinimumHeight(34); x.setReadOnly(True); x.setPlaceholderText("–")
         for rr,(lab,field) in enumerate([("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Telefon",self.s_phone),("E-Mail",self.s_email)],1): dg.addWidget(QLabel(lab),rr,0); dg.addWidget(field,rr,1)
-        details.setMinimumWidth(0); details.setMinimumHeight(285); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(32); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
+        details.setMinimumWidth(0); details.setMinimumHeight(285); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(30); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
 
         quick=QFrame(); quick.setObjectName("formCard"); qg=QGridLayout(quick); qg.setContentsMargins(10,8,10,10); qg.setHorizontalSpacing(7); qg.setVerticalSpacing(6)
         qt=QLabel("♙＋  Klient schnell anlegen"); qt.setObjectName("sectionTitle"); qg.addWidget(qt,0,0,1,2)
@@ -496,7 +496,7 @@ class Main(QMainWindow):
         for x in (qlast,qfirst,qdob,qphone,qmail): x.setMinimumHeight(34)
         qg.addWidget(QLabel("Nachname *"),1,0); qg.addWidget(QLabel("Vorname *"),1,1); qg.addWidget(qlast,2,0); qg.addWidget(qfirst,2,1)
         qg.addWidget(QLabel("Geburtsdatum"),3,0,1,2); qg.addWidget(qdob,4,0,1,2); qg.addWidget(QLabel("Telefon"),5,0); qg.addWidget(QLabel("E-Mail"),5,1); qg.addWidget(qphone,6,0); qg.addWidget(qmail,6,1)
-        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(32); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(0); quick.setMinimumHeight(285); row.addWidget(quick,3); v.addLayout(row)
+        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(30); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(0); quick.setMinimumHeight(285); row.addWidget(quick,3); v.addLayout(row)
 
         def add_quick():
             if not self.require_edit(): return
@@ -1492,10 +1492,10 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         return w
 
     def settings_ui(self):
-        w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); body=QWidget(); v=QVBoxLayout(body); v.setContentsMargins(18,12,18,18); v.setSpacing(9)
+        w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); body=QWidget(); body.setMinimumWidth(0); v=QVBoxLayout(body); v.setContentsMargins(18,12,18,18); v.setSpacing(9)
         title=QLabel("Praxiseinstellungen"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Praxisdaten, Abrechnung, Honorare und Benutzer übersichtlich verwalten."); sub.setObjectName("pageSub"); v.addWidget(sub)
-        tabs=QTabWidget(); tabs.setDocumentMode(True); tabs.setMinimumHeight(520); v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
+        tabs=QTabWidget(); tabs.setDocumentMode(True); tabs.setMinimumHeight(440); v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
         general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(16,14,16,20); gv.setSpacing(10)
         form=QFormLayout(); form.setHorizontalSpacing(18); form.setVerticalSpacing(8); form.setLabelAlignment(Qt.AlignLeft|Qt.AlignVCenter); fields={}
         labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("address","Anschrift"),("phone","Telefon"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
@@ -1518,16 +1518,16 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value()); set_setting("ui_theme",theme.currentText()); set_setting("ui_font_size",fontsize.value()); set_setting("ui_density",density.currentText())
             QMessageBox.information(self,"Gespeichert","Die Praxisvorlage wurde gespeichert. Deine bisherigen Daten bleiben die Standardvorlage.")
         save.clicked.connect(save_settings); gv.addSpacing(8); gv.addWidget(save); gv.addStretch(); tabs.addTab(general,"Praxisdaten")
-        billing=QWidget(); bv=QVBoxLayout(billing); bv.setContentsMargins(20,22,20,28); bv.setSpacing(18)
-        bf=QFormLayout(); bf.setHorizontalSpacing(28); bf.setVerticalSpacing(14)
+        billing=QWidget(); bv=QVBoxLayout(billing); bv.setContentsMargins(16,14,16,18); bv.setSpacing(10)
+        bf=QFormLayout(); bf.setHorizontalSpacing(18); bf.setVerticalSpacing(8)
         for key,label in [("tax_number","Steuernummer"),("iban","IBAN"),("bic","BIC"),("paypal","PayPal")]:
-            ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(42); fields[key]=ed; bf.addRow(label,ed)
+            ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(32); fields[key]=ed; bf.addRow(label,ed)
         lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(1,120); lock.setValue(int(get_setting("auto_lock_minutes","15"))); lock.setSuffix(" Minuten"); lockrow.addWidget(lock); lockrow.addStretch(); bf.addRow("Automatische Sperre",lockrow)
         travel=QDoubleSpinBox(); travel.setRange(0,500); travel.setDecimals(2); travel.setValue(float(get_setting("travel_surcharge","25"))); travel.setSuffix(" €"); bf.addRow("Hausbesuch Anfahrt",travel)
-        bv.addLayout(bf); save2=QPushButton("Abrechnung & Sicherheit speichern"); save2.setMinimumHeight(48); save2.clicked.connect(save_settings); bv.addWidget(save2); bv.addStretch(); tabs.addTab(billing,"Abrechnung & Bank")
-        ratespage=QWidget(); rv=QVBoxLayout(ratespage); rv.setContentsMargins(16,16,16,16); rv.setSpacing(10)
+        bv.addLayout(bf); save2=QPushButton("Abrechnung & Sicherheit speichern"); save2.setMinimumHeight(38); save2.clicked.connect(save_settings); bv.addWidget(save2); bv.addStretch(); tabs.addTab(billing,"Abrechnung & Bank")
+        ratespage=QWidget(); rv=QVBoxLayout(ratespage); rv.setContentsMargins(12,10,12,12); rv.setSpacing(7)
         rates=QLabel("Honorarsätze"); rates.setObjectName("sectionTitle"); rv.addWidget(rates)
-        rt=QTableWidget(0,5); rt.setHorizontalHeaderLabels(["Leistung","Einheit Min.","Regulär €","Ermäßigt €","Abrechnung"]); rt.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        rt=QTableWidget(0,5); rt.setHorizontalHeaderLabels(["Leistung","Min.","Regulär €","Ermäßigt €","Abrechnung"]); rt.verticalHeader().setDefaultSectionSize(28); rt.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         for name,mins,amount,reduced,mode in get_fee_rates():
             r=rt.rowCount(); rt.insertRow(r)
             for j,val in enumerate([name,mins,amount,reduced if reduced is not None else "",mode]): rt.setItem(r,j,QTableWidgetItem(str(val)))
@@ -1548,7 +1548,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             rt.setCurrentCell(r,0); rt.editItem(rt.item(r,0))
         saverates.clicked.connect(save_rates); addrate.clicked.connect(add_rate); ratebuttons.addWidget(saverates); ratebuttons.addWidget(addrate); ratebuttons.addStretch(); rv.addLayout(ratebuttons)
         hint=QLabel("Honorarsätze können hier bearbeitet und um eigene Leistungen erweitert werden."); hint.setWordWrap(True); hint.setObjectName("pageSub"); rv.addWidget(hint); tabs.addTab(ratespage,"Honorare")
-        userspage=QWidget(); uv=QVBoxLayout(userspage); uv.setContentsMargins(16,16,16,16); uv.setSpacing(10)
+        userspage=QWidget(); uv=QVBoxLayout(userspage); uv.setContentsMargins(12,10,12,12); uv.setSpacing(7)
         users=QLabel("Benutzer / Therapeuten"); users.setObjectName("sectionTitle"); uv.addWidget(users)
         ub=QPushButton("Benutzer anlegen")
         def add_user():
@@ -1566,7 +1566,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
                 con=sqlite3.connect(DBFILE); con.execute("INSERT INTO users(username,display_name,role,active,password_hash,created_at,recovery_question,recovery_answer_hash) VALUES(?,?,?,?,?,?,?,?)",(name.strip(),display.strip(),"Therapeut",1,password_hash(pwd),datetime.now().isoformat(timespec="seconds"),rq.strip(),password_hash(normalize_recovery_answer(ra)))); con.commit(); con.close(); audit("USER_CREATED",display.strip()); QMessageBox.information(self,"Benutzer","Benutzer wurde angelegt.")
             except sqlite3.IntegrityError: QMessageBox.warning(self,"Benutzer","Dieser Benutzername existiert bereits.")
         ub.clicked.connect(add_user); uv.addWidget(ub)
-        ut=QTableWidget(0,4); ut.setHorizontalHeaderLabels(["Benutzername","Anzeigename","Rolle","Aktiv"]); ut.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        ut=QTableWidget(0,4); ut.setHorizontalHeaderLabels(["Benutzername","Anzeigename","Rolle","Aktiv"]); ut.verticalHeader().setDefaultSectionSize(28); ut.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         def refresh_users():
             ut.setRowCount(0); con=sqlite3.connect(DBFILE); rows=con.execute("SELECT username,display_name,role,active FROM users ORDER BY display_name").fetchall(); con.close()
             for row in rows:
