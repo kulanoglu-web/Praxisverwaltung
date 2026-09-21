@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.12"
+APP_VERSION = "0.11.13"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -526,8 +526,8 @@ class Main(QMainWindow):
 
         self.ink=InkCanvas(); inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
-        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); fullscreen=QPushButton("⛶ Vollbild schreiben"); fullscreen.clicked.connect(self.open_ink_fullscreen)
-        for x in (QLabel("Stärke:"),width,eraser,undo,clearink,fullscreen):
+        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
+        for x in (QLabel("Stärke:"),width,eraser,undo,saveink,clearink,fullscreen):
             if hasattr(x,"setMinimumHeight"): x.setMinimumHeight(40)
             inkhead.addWidget(x)
         self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(235); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
@@ -568,14 +568,24 @@ class Main(QMainWindow):
             idx=self.client_pick.currentIndex(); self.client_pick.setItemText(idx,f'{cc.get("last","")}, {cc.get("first","")}'); audit("CLIENT_UPDATED","Klientendaten bearbeitet",self.current_user.get("username","") if self.current_user else ""); dlg.accept()
         buttons.accepted.connect(save_edit); buttons.rejected.connect(dlg.reject); dlg.exec()
 
+    def save_ink_note(self):
+        last=self.s_last.text().strip() if hasattr(self,"s_last") else ""
+        first=self.s_first.text().strip() if hasattr(self,"s_first") else ""
+        if not last or not first: return QMessageBox.warning(self,"Freihand-Notiz","Bitte zuerst einen Klienten auswählen.")
+        folder=client_folder(last,first)/"Sitzungen"; folder.mkdir(parents=True,exist_ok=True)
+        stamp=datetime.now().strftime("%Y%m%d_%H%M%S"); tmp=folder/f"Freihand_{stamp}.png"
+        if not self.ink.save_png(tmp): return QMessageBox.warning(self,"Freihand-Notiz","Die Notiz konnte nicht gespeichert werden.")
+        enc=encrypt_file(tmp); self.current_ink_file=enc; audit("INK_NOTE_SAVED",f"Freihand-Notiz gespeichert: {last}, {first}",self.current_user.get("username","") if self.current_user else "")
+        QMessageBox.information(self,"Freihand-Notiz","Die Freihand-Notiz wurde verschlüsselt beim Klienten gespeichert.")
+
     def open_ink_fullscreen(self):
-        dlg=QDialog(self); dlg.setWindowTitle("Handschrift – Vollbild"); dlg.setWindowState(Qt.WindowFullScreen)
+        dlg=QDialog(self); dlg.setWindowTitle("Freihand-Notizbuch"); dlg.resize(1280,800); dlg.setMinimumSize(760,520); dlg.setWindowFlag(Qt.WindowMaximizeButtonHint,True)
         v=QVBoxLayout(dlg); bar=QHBoxLayout(); title=QLabel("Handschrift / Stift"); title.setStyleSheet("font-size:22px;font-weight:700"); bar.addWidget(title); bar.addStretch()
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); erase=QCheckBox("Radierer"); erase.setChecked(self.ink.eraser); erase.toggled.connect(self.ink.set_eraser)
         width=QSpinBox(); width.setRange(1,10); width.setValue(self.ink.pen_width); width.valueChanged.connect(self.ink.set_width)
         zoom=QSlider(Qt.Horizontal); zoom.setRange(60,180); zoom.setValue(100); zoom.setFixedWidth(170); zoomlabel=QLabel("100 %")
-        clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
-        for x in (undo,erase,QLabel("Stärke"),width,QLabel("Ansicht"),zoom,zoomlabel,clear,close): bar.addWidget(x)
+        save=QPushButton("💾 Notiz speichern"); save.clicked.connect(self.save_ink_note); clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); full=QPushButton("⛶ Vollbild"); full.setCheckable(True); full.toggled.connect(lambda on: dlg.showFullScreen() if on else dlg.showNormal()); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
+        for x in (undo,erase,QLabel("Stärke"),width,QLabel("Ansicht"),zoom,zoomlabel,save,clear,full,close): bar.addWidget(x)
         v.addLayout(bar); holder=QScrollArea(); holder.setWidgetResizable(False); holder.setAlignment(Qt.AlignCenter); self.ink.setParent(holder); holder.setWidget(self.ink)
         basew,baseh=1200,700
         def scale_ink(value):
@@ -751,7 +761,7 @@ class Main(QMainWindow):
             self.manual_items.append({"date":self.i_date.date().toString("yyyy-MM-dd"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amount})
             self.pending_sessions=None; self.iteminfo.setText(f"{len(self.manual_items)} Leistungen · {sum(x['amount'] for x in self.manual_items):.2f} €")
         additem.clicked.connect(add_manual_item); itemrow.addWidget(additem); itemrow.addWidget(self.iteminfo,1); v.addLayout(itemrow)
-        self.itemtable=QTableWidget(0,6); self.itemtable.setHorizontalHeaderLabels(["Datum","Zeit","Min.","Leistung","Satz","Betrag"]); self.itemtable.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.itemtable.setSelectionBehavior(QTableWidget.SelectRows); self.itemtable.setEditTriggers(QTableWidget.NoEditTriggers); self.itemtable.setMaximumHeight(190); v.addWidget(self.itemtable)
+        self.itemtable=QTableWidget(0,6); self.itemtable.setHorizontalHeaderLabels(["Datum","Zeit","Min.","Leistung","Satz","Betrag"]); self.itemtable.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.itemtable.setSelectionBehavior(QTableWidget.SelectRows); self.itemtable.setEditTriggers(QTableWidget.NoEditTriggers); self.itemtable.setMinimumHeight(170); self.itemtable.setMaximumHeight(260); v.addWidget(self.itemtable)
         def refresh_items():
             self.itemtable.setRowCount(0)
             for it in self.manual_items:
@@ -780,7 +790,7 @@ class Main(QMainWindow):
                 total=amount_for(self.i_min.value(),self.i_type.currentText(),self.i_red.isChecked()); lines=f'{self.i_date.date().toString("dd.MM.yyyy")}  {self.i_min.value()} Min.  {self.i_type.currentText()}  {total:.2f} €'
             QMessageBox.information(self,"Rechnung prüfen",f"Rechnung {no}\n{first} {last}\n\n{lines}\n\nGesamt: {total:.2f} €")
         preview.clicked.connect(preview_invoice); v.addWidget(preview)
-        b=QPushButton("PDF-Rechnung erstellen"); b.setMinimumHeight(60); b.clicked.connect(self.make_invoice); v.addWidget(b); return w
+        b=QPushButton("PDF-Rechnung erstellen"); b.setMinimumHeight(60); b.clicked.connect(self.make_invoice); v.addWidget(b); v.addSpacing(20); scroll.setWidget(page); outer.addWidget(scroll); return w
     def fill_invoice_client(self):
         last,first=self.i_last.text().strip().lower(),self.i_first.text().strip().lower()
         x=next((c for c in DB["clients"] if c.get("last","").lower()==last and (not first or c.get("first","").lower()==first)),None)
