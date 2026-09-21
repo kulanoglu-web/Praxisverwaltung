@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.4"
+APP_VERSION = "0.11.5"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -921,7 +921,11 @@ class Main(QMainWindow):
             count=QLabel(f"{len(rows)} Sitzungen"); count.setObjectName("clientBadge");hv.addWidget(count);lay.addWidget(head)
             stats=QHBoxLayout()
             total_minutes=sum(int(s.get("minutes",0) or 0) for s in rows); unbilled=sum(1 for s in rows if not s.get("billed"))
-            for txt in (f"Gesamt: {len(rows)} Sitzungen",f"Therapiezeit: {total_minutes} Min.",f"Nicht abgerechnet: {unbilled}"):
+            client_invoice_keys={f"{last}, {first}",f"{first} {last}"}
+            client_invoices=[i for i in DB["invoices"] if str(i.get("client","")).strip() in client_invoice_keys]
+            open_invoices=[i for i in client_invoices if i.get("status","offen")=="offen"]
+            open_amount=sum(float(i.get("amount",0) or 0) for i in open_invoices)
+            for txt in (f"Gesamt: {len(rows)} Sitzungen",f"Therapiezeit: {total_minutes} Min.",f"Nicht abgerechnet: {unbilled}",f"Offene Rechnungen: {len(open_invoices)} · {open_amount:.2f} €"):
                 badge=QLabel(txt); badge.setObjectName("clientBadge"); badge.setAlignment(Qt.AlignCenter); badge.setMinimumHeight(38); stats.addWidget(badge)
             lay.addLayout(stats)
             section=QLabel("Sitzungsverlauf"); section.setObjectName("sectionTitle"); lay.addWidget(section)
@@ -931,6 +935,12 @@ class Main(QMainWindow):
                 vals=[s.get("date",""),s.get("start",""),s.get("end",""),str(s.get("minutes","")),s.get("type",""),"Ja" if s.get("billed") else "Nein"]
                 for j,x in enumerate(vals):st.setItem(rr,j,QTableWidgetItem(x))
             lay.addWidget(st)
+            invsection=QLabel("Rechnungen des Klienten"); invsection.setObjectName("sectionTitle"); lay.addWidget(invsection)
+            it=QTableWidget(0,5); it.setHorizontalHeaderLabels(["Nr.","Datum","Status","Betrag","Zahlungsdatum"]); it.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); it.setSelectionBehavior(QTableWidget.SelectRows); it.setEditTriggers(QTableWidget.NoEditTriggers); it.setMaximumHeight(180)
+            for inv in reversed(client_invoices):
+                ir=it.rowCount(); it.insertRow(ir); vals=[inv.get("number",""),inv.get("date",""),inv.get("status","offen"),f'{float(inv.get("amount",0) or 0):.2f} €',inv.get("paid_date","")]
+                for j,val in enumerate(vals): it.setItem(ir,j,QTableWidgetItem(str(val)))
+            lay.addWidget(it)
             edit=QPushButton("Ausgewählte Sitzung korrigieren")
             def edit_selected():
                 rr=st.currentRow()
@@ -958,14 +968,24 @@ class Main(QMainWindow):
                 tx=QTextEdit(); tx.setReadOnly(True); tx.setPlainText(s.get("notes","")); nv.addWidget(tx)
                 ink=s.get("ink_file","")
                 if ink and Path(ink).exists():
-                    lab=QLabel(); pix=QPixmap(ink); lab.setPixmap(pix.scaled(820,380,Qt.KeepAspectRatio,Qt.SmoothTransformation)); lab.setAlignment(Qt.AlignCenter); nv.addWidget(lab)
+                    lab=QLabel(); pix=QPixmap(); pix.loadFromData(decrypt_file_bytes(ink)); lab.setPixmap(pix.scaled(820,380,Qt.KeepAspectRatio,Qt.SmoothTransformation)); lab.setAlignment(Qt.AlignCenter); nv.addWidget(lab)
                 buttons=QDialogButtonBox(QDialogButtonBox.Close); buttons.rejected.connect(nd.reject); nv.addWidget(buttons); nd.exec()
             view.clicked.connect(open_selected)
             invoice=QPushButton("Neue Rechnung für diesen Klienten")
             def invoice_from_record():
                 self.i_last.setText(last); self.i_first.setText(first); self.i_addr.setText(cc.get("address","")); self.i_diag.setText(cc.get("diagnosis","")); dlg.accept(); self.nav.setCurrentRow(5)
             invoice.clicked.connect(invoice_from_record)
-            actionrow=QHBoxLayout(); actionrow.addWidget(view); actionrow.addWidget(edit); actionrow.addWidget(invoice); lay.addLayout(actionrow)
+            open_invoice=QPushButton("Ausgewählte Rechnung öffnen")
+            def open_client_invoice():
+                rr=it.currentRow()
+                if rr<0:return QMessageBox.information(dlg,"Rechnung","Bitte zuerst eine Rechnung auswählen.")
+                no=it.item(rr,0).text(); inv=next((x for x in client_invoices if x.get("number")==no),None)
+                if not inv:return
+                p=inv.get("pdf","")
+                if p and Path(p).exists(): QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
+                else: QMessageBox.information(dlg,"PDF","Das Rechnungs-PDF konnte nicht gefunden werden.")
+            open_invoice.clicked.connect(open_client_invoice); it.cellDoubleClicked.connect(lambda *_: open_client_invoice())
+            actionrow=QHBoxLayout(); actionrow.addWidget(view); actionrow.addWidget(edit); actionrow.addWidget(invoice); actionrow.addWidget(open_invoice); lay.addLayout(actionrow)
             close=QDialogButtonBox(QDialogButtonBox.Close); close.rejected.connect(dlg.reject); lay.addWidget(close); dlg.exec()
         opensessions.clicked.connect(show_sessions); t.cellDoubleClicked.connect(lambda *_: show_sessions())
         def edit_client_master():
