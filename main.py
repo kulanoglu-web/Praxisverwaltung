@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.18"
+APP_VERSION = "0.11.19"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -504,8 +504,19 @@ class Main(QMainWindow):
             cc=self.client_pick.currentData()
             if isinstance(cc,dict):
                 self.s_last.setText(cc.get("last","")); self.s_first.setText(cc.get("first","")); self.s_dob.setText(cc.get("dob","")); self.s_phone.setText(cc.get("phone","")); self.s_email.setText(cc.get("email",""))
+                if hasattr(self,"session_diag"): self.session_diag.setText(cc.get("diagnosis",""))
         self.client_pick.currentIndexChanged.connect(picked)
         editclient.clicked.connect(self.edit_session_client)
+
+        clinical=QFrame(); clinical.setObjectName("formCard"); cg=QGridLayout(clinical); cg.setContentsMargins(16,12,16,14); cg.setHorizontalSpacing(10); cg.setVerticalSpacing(8)
+        ct=QLabel("◉  Leistung & Diagnose"); ct.setObjectName("sectionTitle"); cg.addWidget(ct,0,0,1,4)
+        self.session_diag=QLineEdit(); self.session_diag.setPlaceholderText("F-Code oder Diagnose, z. B. F32.1"); self.session_diag.setMinimumHeight(38)
+        fquick=QComboBox(); fquick.setEditable(True); fquick.addItems(["F-Code auswählen …","F32.0 – Leichte depressive Episode","F32.1 – Mittelgradige depressive Episode","F32.2 – Schwere depressive Episode ohne psychotische Symptome","F33.0 – Rezidivierende depressive Störung, gegenwärtig leichte Episode","F33.1 – Rezidivierende depressive Störung, gegenwärtig mittelgradige Episode","F40.0 – Agoraphobie","F40.1 – Soziale Phobien","F41.0 – Panikstörung","F41.1 – Generalisierte Angststörung","F43.0 – Akute Belastungsreaktion","F43.1 – Posttraumatische Belastungsstörung","F43.2 – Anpassungsstörungen","F51.0 – Nichtorganische Insomnie"])
+        def use_fcode(text):
+            if " – " in text: self.session_diag.setText(text)
+        fquick.currentTextChanged.connect(use_fcode)
+        cg.addWidget(QLabel("Diagnose / F-Code"),1,0); cg.addWidget(self.session_diag,1,1,1,2); cg.addWidget(fquick,1,3)
+        tip=QLabel("Diagnose/F-Code ist optional und wird nicht automatisch aus Notizen abgeleitet."); tip.setObjectName("pageSub"); tip.setWordWrap(True); cg.addWidget(tip,2,1,1,3); v.addWidget(clinical)
 
         notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(16,12,16,14); nv.setSpacing(10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setMinimumWidth(175); template.setMinimumHeight(40); nhead.addWidget(template); nv.addLayout(nhead)
         self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …");
