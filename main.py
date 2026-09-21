@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.11"
+APP_VERSION = "0.11.12"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1281,31 +1281,31 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
         return w
 
     def settings_ui(self):
-        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,24,28,24); v.setSpacing(10)
+        w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); body=QWidget(); v=QVBoxLayout(body); v.setContentsMargins(32,26,32,36); v.setSpacing(16)
         title=QLabel("Praxiseinstellungen"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Praxisdaten, Abrechnung, Honorare und Benutzer übersichtlich verwalten."); sub.setObjectName("pageSub"); v.addWidget(sub)
-        tabs=QTabWidget(); tabs.setDocumentMode(True); v.addWidget(tabs,1)
-        general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(16,16,16,16); gv.setSpacing(12)
-        form=QFormLayout(); form.setHorizontalSpacing(18); form.setVerticalSpacing(9); fields={}
+        tabs=QTabWidget(); tabs.setDocumentMode(True); tabs.setMinimumHeight(650); v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
+        general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(20,22,20,28); gv.setSpacing(18)
+        form=QFormLayout(); form.setHorizontalSpacing(28); form.setVerticalSpacing(14); form.setLabelAlignment(Qt.AlignLeft|Qt.AlignVCenter); fields={}
         labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("address","Anschrift"),("phone","Telefon"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
         for key,label in labels:
-            ed=QLineEdit(get_setting(key)); fields[key]=ed; form.addRow(label,ed)
-        logo=QLineEdit(get_setting("logo_path")); fields["logo_path"]=logo; choose=QPushButton("Logo auswählen …")
+            ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(42); fields[key]=ed; form.addRow(label,ed)
+        logo=QLineEdit(get_setting("logo_path")); logo.setMinimumHeight(42); fields["logo_path"]=logo; choose=QPushButton("Logo auswählen …"); choose.setMinimumHeight(42)
         def pick_logo():
             p,_=QFileDialog.getOpenFileName(self,"Praxislogo auswählen","","Bilder (*.png *.jpg *.jpeg)")
             if p: logo.setText(p)
         choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
         gv.addLayout(form)
-        save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(52)
+        save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(54)
         def save_settings():
             for k,ed in fields.items(): set_setting(k,ed.text().strip())
             set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value())
             QMessageBox.information(self,"Gespeichert","Die Praxisvorlage wurde gespeichert. Deine bisherigen Daten bleiben die Standardvorlage.")
-        save.clicked.connect(save_settings); gv.addWidget(save); gv.addStretch(); tabs.addTab(general,"Praxisdaten")
-        billing=QWidget(); bv=QVBoxLayout(billing); bv.setContentsMargins(16,16,16,16); bv.setSpacing(12)
-        bf=QFormLayout(); bf.setHorizontalSpacing(18); bf.setVerticalSpacing(10)
+        save.clicked.connect(save_settings); gv.addSpacing(8); gv.addWidget(save); gv.addStretch(); tabs.addTab(general,"Praxisdaten")
+        billing=QWidget(); bv=QVBoxLayout(billing); bv.setContentsMargins(20,22,20,28); bv.setSpacing(18)
+        bf=QFormLayout(); bf.setHorizontalSpacing(28); bf.setVerticalSpacing(14)
         for key,label in [("tax_number","Steuernummer"),("iban","IBAN"),("bic","BIC"),("paypal","PayPal")]:
-            ed=QLineEdit(get_setting(key)); fields[key]=ed; bf.addRow(label,ed)
+            ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(42); fields[key]=ed; bf.addRow(label,ed)
         lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(1,120); lock.setValue(int(get_setting("auto_lock_minutes","15"))); lock.setSuffix(" Minuten"); lockrow.addWidget(lock); lockrow.addStretch(); bf.addRow("Automatische Sperre",lockrow)
         travel=QDoubleSpinBox(); travel.setRange(0,500); travel.setDecimals(2); travel.setValue(float(get_setting("travel_surcharge","25"))); travel.setSuffix(" €"); bf.addRow("Hausbesuch Anfahrt",travel)
         bv.addLayout(bf); save2=QPushButton("Abrechnung & Sicherheit speichern"); save2.setMinimumHeight(48); save2.clicked.connect(save_settings); bv.addWidget(save2); bv.addStretch(); tabs.addTab(billing,"Abrechnung & Bank")
