@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.6"
+APP_VERSION = "0.11.7"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1019,12 +1019,14 @@ class Main(QMainWindow):
                 audit("CLIENT_UPDATED",("Klientenname und Verknüpfungen aktualisiert" if name_changed else "Klientenstammdaten bearbeitet"),self.current_user.get("username","") if self.current_user else ""); dlg.accept()
             buttons.accepted.connect(save_master); buttons.rejected.connect(dlg.reject); dlg.exec()
         editclient.clicked.connect(edit_client_master)
-        mainactions=QHBoxLayout(); mainactions.addWidget(opensessions); mainactions.addWidget(editclient); v.addLayout(mainactions)
+        newclientbtn=QPushButton("＋ Neuen Klienten anlegen"); newclientbtn.setMinimumHeight(48); newclientbtn.clicked.connect(lambda:self.nav.setCurrentRow(4))
+        mainactions=QHBoxLayout(); mainactions.addWidget(opensessions); mainactions.addWidget(editclient); mainactions.addWidget(newclientbtn); v.addLayout(mainactions)
         clientactions=QHBoxLayout()
-        tosession=QPushButton("Neue Sitzung für Klient"); toinvoice=QPushButton("Neue Rechnung für Klient")
+        tosession=QPushButton("＋ Neue Sitzung für Klient"); toinvoice=QPushButton("▤ Neue Rechnung für Klient")
         def selected_client():
             r=t.currentRow()
-            if r<0:return None
+            if r<0:
+                QMessageBox.information(self,"Klient","Bitte zuerst einen Klienten auswählen."); return None
             last=t.item(r,0).text(); first=t.item(r,1).text()
             return next((x for x in DB["clients"] if x.get("last")==last and x.get("first")==first),None)
         def client_to_session():
