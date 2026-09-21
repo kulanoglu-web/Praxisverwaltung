@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.9.3"
+APP_VERSION = "0.9.4"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1174,8 +1174,9 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
         quick=QLabel("Schnellzugriff"); quick.setObjectName("sectionTitle"); v.addWidget(quick)
         actions=QHBoxLayout(); new_session=QPushButton("＋  Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("▤  Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(5)); clients=QPushButton("♙  Klienten verwalten"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
         info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch(); return w
-app=QApplication(sys.argv); app.setStyleSheet("QPushButton{font-size:16px;padding:8px} QLineEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox{font-size:16px;padding:7px}")
-if not ensure_first_user(): sys.exit(0)
-login=LoginDialog()
-if login.exec()!=QDialog.Accepted: sys.exit(0)
-win=Main(); win.current_user=login.user; win.setWindowTitle("PraxisPro – "+login.user.get("display_name","")); win.show(); sys.exit(app.exec())
+if __name__ == "__main__":
+    app=QApplication(sys.argv); app.setStyleSheet("QPushButton{font-size:16px;padding:8px} QLineEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox{font-size:16px;padding:7px}")
+    if not ensure_first_user(): sys.exit(0)
+    login=LoginDialog()
+    if login.exec()!=QDialog.Accepted: sys.exit(0)
+    win=Main(); win.current_user=login.user; win.setWindowTitle("PraxisPro – "+login.user.get("display_name","")); win.show(); sys.exit(app.exec())
