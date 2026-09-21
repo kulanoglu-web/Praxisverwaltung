@@ -2,7 +2,7 @@ import sys, json, os, re, math, shutil, sqlite3, base64, hashlib
 from pathlib import Path
 from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent
-from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog)
+from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap, QDesktopServices
 from reportlab.lib.pagesizes import A4
@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.9.4"
+APP_VERSION = "0.9.5"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -425,7 +425,7 @@ class Main(QMainWindow):
         return False
 
     def session_ui(self):
-        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(16,10,16,8); v.setSpacing(7)
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(16,10,16,8); v.setSpacing(9)
         top=QHBoxLayout(); head=QVBoxLayout(); title=QLabel("▣  Sitzungsnotiz"); title.setObjectName("pageTitle"); subtitle=QLabel("Sitzung dokumentieren · Klientendaten · Notizen · Handschrift · Speichern"); subtitle.setObjectName("pageSub"); head.addWidget(title); head.addWidget(subtitle)
         self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setFixedSize(175,54); self.clock.setStyleSheet("font-size:29px;font-weight:800;border:2px solid #8091a1;border-radius:12px;background:white")
         timerbtn=QPushButton("▶  Timer starten"); timerbtn.setFixedHeight(54); timerbtn.setMinimumWidth(175); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:16px"); timerbtn.clicked.connect(self.start_session)
@@ -440,7 +440,7 @@ class Main(QMainWindow):
         self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
         self.s_start=QTimeEdit(); self.s_end=QTimeEdit(); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
         self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); self.s_red=QCheckBox("Ermäßigter Satz")
-        for x in (self.client_pick,self.s_date,self.s_start,self.s_end,self.s_type): x.setFixedHeight(36)
+        for x in (self.client_pick,self.s_date,self.s_start,self.s_end,self.s_type): x.setMinimumHeight(38)
         sg.addWidget(QLabel("Klient *"),1,0); sg.addWidget(self.client_pick,1,1); sg.addWidget(newclient,1,2)
         for rr,(lab,field) in enumerate([("Datum *",self.s_date),("Beginn *",self.s_start),("Ende *",self.s_end),("Art *",self.s_type)],2): sg.addWidget(QLabel(lab),rr,0); sg.addWidget(field,rr,1,1,2)
         sg.addWidget(self.s_red,6,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(480); row.addWidget(session,5)
@@ -448,16 +448,16 @@ class Main(QMainWindow):
         details=QFrame(); details.setObjectName("formCard"); dg=QGridLayout(details); dg.setContentsMargins(14,8,14,10); dg.setHorizontalSpacing(8); dg.setVerticalSpacing(6)
         dt=QLabel("●  Klientendaten"); dt.setObjectName("sectionTitle"); dg.addWidget(dt,0,0,1,2)
         self.s_last=QLineEdit(); self.s_first=QLineEdit(); self.s_dob=QLineEdit()
-        for x in (self.s_last,self.s_first,self.s_dob): x.setFixedHeight(36); x.setReadOnly(True); x.setPlaceholderText("–")
+        for x in (self.s_last,self.s_first,self.s_dob): x.setMinimumHeight(38); x.setReadOnly(True); x.setPlaceholderText("–")
         self.s_phone=QLineEdit(); self.s_email=QLineEdit()
-        for x in (self.s_phone,self.s_email): x.setFixedHeight(36); x.setReadOnly(True); x.setPlaceholderText("–")
+        for x in (self.s_phone,self.s_email): x.setMinimumHeight(38); x.setReadOnly(True); x.setPlaceholderText("–")
         for rr,(lab,field) in enumerate([("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Telefon",self.s_phone),("E-Mail",self.s_email)],1): dg.addWidget(QLabel(lab),rr,0); dg.addWidget(field,rr,1)
         details.setMinimumWidth(300); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(38); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
 
         quick=QFrame(); quick.setObjectName("formCard"); qg=QGridLayout(quick); qg.setContentsMargins(14,8,14,10); qg.setHorizontalSpacing(8); qg.setVerticalSpacing(6)
         qt=QLabel("♙＋  Klient schnell anlegen"); qt.setObjectName("sectionTitle"); qg.addWidget(qt,0,0,1,2)
         qlast=QLineEdit(); qfirst=QLineEdit(); qdob=QLineEdit(); qdob.setPlaceholderText("TT.MM.JJJJ"); qphone=QLineEdit(); qmail=QLineEdit()
-        for x in (qlast,qfirst,qdob,qphone,qmail): x.setFixedHeight(36)
+        for x in (qlast,qfirst,qdob,qphone,qmail): x.setMinimumHeight(38)
         qg.addWidget(QLabel("Nachname *"),1,0); qg.addWidget(QLabel("Vorname *"),1,1); qg.addWidget(qlast,2,0); qg.addWidget(qfirst,2,1)
         qg.addWidget(QLabel("Geburtsdatum"),3,0,1,2); qg.addWidget(qdob,4,0,1,2); qg.addWidget(QLabel("Telefon"),5,0); qg.addWidget(QLabel("E-Mail"),5,1); qg.addWidget(qphone,6,0); qg.addWidget(qmail,6,1)
         qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(38); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(360); row.addWidget(quick,4); v.addLayout(row)
@@ -488,7 +488,8 @@ class Main(QMainWindow):
         buttons=[("▶ Sitzung starten",self.start_session,"background:#16a34a"),("⏸ Pause/Fortsetzen",self.pause,"background:#1683d8"),("■ Sitzung beenden",self.end_session,"background:#e11d48"),("💾 Speichern",self.save_session,"background:#f8fafc;color:#1261a0;border:1px solid #9bb7cf")]
         for text_,fn,style in buttons:
             b=QPushButton(text_); b.setMinimumHeight(54); b.setStyleSheet(style+";font-weight:800;font-size:15px"); b.clicked.connect(fn); h.addWidget(b)
-        v.addLayout(h); return w
+        v.addLayout(h)
+        scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setWidget(page); return scroll
 
     def open_new_client_dialog(self):
         if not self.require_edit(): return
