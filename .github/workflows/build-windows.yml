@@ -28,7 +28,7 @@ jobs:
           name: PraxisPro-UI-Screenshots
           path: test-artifacts/*.png
           retention-days: 30
-      - run: pyinstaller --noconfirm --clean --onefile --windowed --name Praxisverwaltung main.py
+      - run: pyinstaller --noconfirm --clean --onefile --windowed --add-data "assets/logo.jpg;assets" --name Praxisverwaltung main.py
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Build installer
