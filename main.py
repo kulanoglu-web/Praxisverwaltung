@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.10.5"
+APP_VERSION = "0.10.6"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -741,7 +741,9 @@ class Main(QMainWindow):
             if 0<=r<len(self.manual_items): self.manual_items.pop(r); refresh_items()
         def clear_manual_items(): self.manual_items.clear(); refresh_items()
         removeitem.clicked.connect(remove_manual_item); clearitems.clicked.connect(clear_manual_items); itembuttons.addWidget(removeitem); itembuttons.addWidget(clearitems); v.addLayout(itembuttons)
-        q=QPushButton("Unberechnete Sitzungen laden / Sammelrechnung"); q.setMinimumHeight(50); q.clicked.connect(self.load_unbilled_sessions); v.addWidget(q)
+        qrow=QHBoxLayout(); q=QPushButton("Unberechnete Sitzungen laden / Sammelrechnung"); q.setMinimumHeight(50); q.clicked.connect(self.load_unbilled_sessions)
+        quarter=QComboBox(); quarter.setMinimumHeight(50); quarter.addItems(["Alle offenen Sitzungen","1. Quartal","2. Quartal","3. Quartal","4. Quartal"]); quarter.setMinimumWidth(180); self.invoice_quarter=quarter
+        qrow.addWidget(q,1); qrow.addWidget(quarter); v.addLayout(qrow)
         preview=QPushButton("Rechnung vor Erstellung prüfen"); preview.setMinimumHeight(50)
         def preview_invoice():
             no=self.i_no.text().strip(); last=self.i_last.text().strip(); first=self.i_first.text().strip()
@@ -762,6 +764,13 @@ class Main(QMainWindow):
     def load_unbilled_sessions(self):
         last,first=self.i_last.text().strip().lower(),self.i_first.text().strip().lower()
         rows=sorted([s for s in DB["sessions"] if not s.get("billed") and s.get("last","").lower()==last and s.get("first","").lower()==first],key=lambda s:(s.get("date",""),s.get("start","")))
+        qidx=self.invoice_quarter.currentIndex() if hasattr(self,"invoice_quarter") else 0
+        if qidx:
+            def in_quarter(s):
+                try:
+                    m=int(str(s.get("date","")).split("-")[1]); return ((m-1)//3)+1==qidx
+                except Exception:return False
+            rows=[s for s in rows if in_quarter(s)]
         if not rows: return QMessageBox.information(self,"Sitzungen","Keine unberechneten Sitzungen für diesen Klienten gefunden.")
         dlg=QDialog(self); dlg.setWindowTitle("Unberechnete Sitzungen auswählen"); dlg.resize(920,560); lay=QVBoxLayout(dlg)
         info=QLabel(f"{len(rows)} unberechnete Sitzungen gefunden. Bitte die Leistungen für diese Rechnung auswählen."); info.setWordWrap(True); lay.addWidget(info)
