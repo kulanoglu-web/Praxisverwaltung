@@ -31,9 +31,45 @@ jobs:
       - run: pyinstaller --noconfirm --clean --onefile --windowed --add-data "assets/logo.jpg;assets" --name Praxisverwaltung main.py
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
+      - name: Sign application executable
+        if: ${{ secrets.WINDOWS_SIGNING_PFX != '' }}
+        shell: pwsh
+        env:
+          SIGNING_PFX_B64: ${{ secrets.WINDOWS_SIGNING_PFX }}
+          SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "praxispro-signing.pfx"
+          [IO.File]::WriteAllBytes($pfx,[Convert]::FromBase64String($env:SIGNING_PFX_B64))
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Filter signtool.exe -Recurse | Where-Object FullName -Match 'x64' | Select-Object -Last 1).FullName
+          if (-not $signtool) { throw "signtool.exe not found" }
+          & $signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $pfx /p $env:SIGNING_PASSWORD dist\Praxisverwaltung.exe
+          & $signtool verify /pa /v dist\Praxisverwaltung.exe
+          Remove-Item $pfx -Force
       - name: Build installer
         shell: pwsh
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:APP_VERSION" PraxisPro.iss'
+      - name: Sign installer
+        if: ${{ secrets.WINDOWS_SIGNING_PFX != '' }}
+        shell: pwsh
+        env:
+          SIGNING_PFX_B64: ${{ secrets.WINDOWS_SIGNING_PFX }}
+          SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "praxispro-signing.pfx"
+          [IO.File]::WriteAllBytes($pfx,[Convert]::FromBase64String($env:SIGNING_PFX_B64))
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Filter signtool.exe -Recurse | Where-Object FullName -Match 'x64' | Select-Object -Last 1).FullName
+          if (-not $signtool) { throw "signtool.exe not found" }
+          & $signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $pfx /p $env:SIGNING_PASSWORD "installer\PraxisPro_Setup_v$env:APP_VERSION.exe"
+          & $signtool verify /pa /v "installer\PraxisPro_Setup_v$env:APP_VERSION.exe"
+          Remove-Item $pfx -Force
+      - name: Signing status
+        shell: pwsh
+        run: |
+          if ("${{ secrets.WINDOWS_SIGNING_PFX }}" -eq "") {
+            Write-Warning "No trusted code-signing certificate configured. Build is unsigned."
+          } else {
+            Write-Host "PraxisPro EXE and installer are Authenticode-signed and verified."
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: PraxisPro-Windows-v${{ env.APP_VERSION }}
