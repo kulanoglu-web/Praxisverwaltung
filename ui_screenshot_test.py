@@ -13,16 +13,36 @@ win.update_user_badge()
 win.setWindowTitle(f"PraxisPro v{main.APP_VERSION} – UI-Test")
 win.setMinimumSize(800,600)
 win.resize(1600,900)
-win.nav.setCurrentRow(1)
 win.show()
 app.processEvents()
-QTimer.singleShot(1200, app.quit)
-app.exec()
-app.processEvents()
+
 out=Path("test-artifacts"); out.mkdir(exist_ok=True)
-shot=win.grab()
-if shot.isNull(): raise SystemExit("Screenshot konnte nicht erstellt werden")
-if not shot.save(str(out/"PraxisPro-Sitzung-1600x900.png")): raise SystemExit("Screenshot konnte nicht gespeichert werden")
-if win.pages.currentIndex()!=1: raise SystemExit(f"UI-Test falsche Seite: {win.pages.currentIndex()}")
-if shot.width() < 1000 or shot.height() < 700: raise SystemExit(f"UI-Test Screenshot zu klein: {shot.width()}x{shot.height()}")
-print("UI screenshot OK", shot.width(), shot.height())
+pages=[
+    (0,"Dashboard"),
+    (1,"Sitzung"),
+    (2,"Klienten"),
+    (3,"Rechnung"),
+    (4,"Rechnungsverwaltung"),
+    (5,"Einstellungen"),
+]
+saved=0
+for index, name in pages:
+    if index >= win.nav.count():
+        continue
+    win.nav.setCurrentRow(index)
+    app.processEvents()
+    shot=win.grab()
+    if shot.isNull():
+        raise SystemExit(f"Screenshot {name} konnte nicht erstellt werden")
+    path=out/f"PraxisPro-{name}-1600x900.png"
+    if not shot.save(str(path)):
+        raise SystemExit(f"Screenshot {name} konnte nicht gespeichert werden")
+    if shot.width() < 1000 or shot.height() < 700:
+        raise SystemExit(f"UI-Test Screenshot zu klein: {shot.width()}x{shot.height()}")
+    print("UI screenshot OK", name, shot.width(), shot.height())
+    saved += 1
+
+if saved < 5:
+    raise SystemExit(f"Zu wenige Seiten-Screenshots erstellt: {saved}")
+QTimer.singleShot(100, app.quit)
+app.exec()
