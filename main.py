@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.2"
+APP_VERSION = "0.11.3"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1023,9 +1023,9 @@ class Main(QMainWindow):
         title=QLabel("Rechnungen"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Offene, bezahlte und stornierte Rechnungen verwalten"); sub.setObjectName("pageSub"); v.addWidget(sub)
         filters=QHBoxLayout(); search=QLineEdit(); search.setPlaceholderText("Rechnung oder Klient suchen …"); search.setClearButtonEnabled(True)
-        statusfilter=QComboBox(); statusfilter.addItems(["Alle Status","offen","bezahlt","storniert"]); statusfilter.setMinimumWidth(150)
+        statusfilter=QComboBox(); statusfilter.addItems(["Alle Status","offen","überfällig","bezahlt","storniert"]); statusfilter.setMinimumWidth(150)
         filters.addWidget(search,1); filters.addWidget(statusfilter); v.addLayout(filters)
-        t=QTableWidget(0,8); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Zahlungsdatum","Mahnstufe","Letzte Erinnerung","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True)
+        t=QTableWidget(0,8); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Zahlungsdatum","Mahnstufe","Letzte Erinnerung","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True); t.setToolTip("Doppelklick öffnet die Rechnungsdetails")
         for i in reversed(DB["invoices"]):
             r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),str(i.get("reminder_count",0)),i.get("reminder_date",""),f'{float(i.get("amount",0)):.2f} €']
             for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
@@ -1034,7 +1034,12 @@ class Main(QMainWindow):
             for r in range(t.rowCount()):
                 hay=" ".join(t.item(r,j).text().lower() for j in range(t.columnCount()) if t.item(r,j))
                 status=t.item(r,3).text() if t.item(r,3) else ""
-                t.setRowHidden(r,(q not in hay) or (sf!="Alle Status" and status!=sf))
+                overdue=False
+                if status=="offen":
+                    try: overdue=(date.today()-datetime.strptime(t.item(r,1).text(),"%Y-%m-%d").date()).days>14
+                    except Exception: pass
+                status_miss=(sf=="überfällig" and not overdue) or (sf not in ("Alle Status","überfällig") and status!=sf)
+                t.setRowHidden(r,(q not in hay) or status_miss)
                 if status=="offen":
                     try:
                         inv_date=datetime.strptime(t.item(r,1).text(),"%Y-%m-%d").date()
@@ -1069,7 +1074,7 @@ class Main(QMainWindow):
                 if inv.get("status")=="storniert": return QMessageBox.warning(self,"Status","Eine stornierte Rechnung kann nicht als bezahlt markiert werden.")
                 if inv.get("status")=="bezahlt": return QMessageBox.information(self,"Status","Diese Rechnung ist bereits als bezahlt markiert.")
                 if QMessageBox.question(self,"Zahlung","Rechnung "+str(inv.get("number",""))+" als bezahlt markieren?")!=QMessageBox.Yes:return
-                inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("bezahlt"); t.item(r,4).setText(inv["paid_date"]); t.item(r,5).setText(str(inv.get("reminder_count",0))); t.item(r,6).setText(inv.get("reminder_date",""))
+                inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); inv["reminder_closed"]=True; save_data(); update_excel(); audit("INVOICE_PAID","Rechnung "+str(inv.get("number",""))+" als bezahlt markiert",self.current_user.get("username","") if self.current_user else ""); t.item(r,3).setText("bezahlt"); t.item(r,4).setText(inv["paid_date"]); t.item(r,5).setText(str(inv.get("reminder_count",0))); t.item(r,6).setText(inv.get("reminder_date",""))
         paid.clicked.connect(mark_paid); h.addWidget(paid)
         cancel=QPushButton("Rechnung stornieren"); cancel.setMinimumHeight(50)
         def cancel_invoice():
@@ -1079,13 +1084,13 @@ class Main(QMainWindow):
             msg=f'Rechnung {inv.get("number","")} wirklich stornieren?'
             if inv.get("status")=="bezahlt": msg+="\n\nAchtung: Die Rechnung ist bereits als bezahlt markiert."
             if QMessageBox.question(self,"Stornieren",msg)!=QMessageBox.Yes:return
-            inv["status"]="storniert"; inv["cancelled_date"]=datetime.now().strftime("%Y-%m-%d"); inv["paid_date"]=""
+            inv["status"]="storniert"; inv["cancelled_date"]=datetime.now().strftime("%Y-%m-%d"); inv["paid_date"]=""; inv["reminder_closed"]=True
             no=inv.get("number","")
             released=0
             for s in DB["sessions"]:
                 if s.get("invoice_number")==no:
                     s["billed"]=False; s["invoice_number"]=""; released+=1
-            save_data(); update_excel(); t.item(r,3).setText("storniert"); t.item(r,4).setText("")
+            save_data(); update_excel(); audit("INVOICE_CANCELLED","Rechnung "+str(no)+" storniert",self.current_user.get("username","") if self.current_user else ""); t.item(r,3).setText("storniert"); t.item(r,4).setText("")
             QMessageBox.information(self,"Storniert",f"Rechnung {no} wurde storniert.\n{released} verknüpfte Sitzung(en) sind wieder abrechenbar.")
         cancel.clicked.connect(cancel_invoice); h.addWidget(cancel)
         openpdf=QPushButton("PDF öffnen"); openpdf.setMinimumHeight(50)
@@ -1106,12 +1111,13 @@ class Main(QMainWindow):
             _,inv=selected_invoice()
             if not inv:return
             if inv.get("status")!="offen":return QMessageBox.information(self,"Zahlungserinnerung","Eine Zahlungserinnerung ist nur für offene Rechnungen vorgesehen.")
+            if int(inv.get("reminder_count",0))>=3 and QMessageBox.question(self,"Mahnstufe",f'Für diese Rechnung wurden bereits {inv.get("reminder_count",0)} Erinnerungen erfasst. Weitere Erinnerung dokumentieren?')!=QMessageBox.Yes:return
             try: days=(date.today()-datetime.strptime(inv.get("date",""),"%Y-%m-%d").date()).days
             except Exception: days=0
             if days<=14 and QMessageBox.question(self,"Zahlungserinnerung",f"Das 14-tägige Zahlungsziel ist noch nicht überschritten ({days} Tage). Trotzdem Erinnerung erfassen?")!=QMessageBox.Yes:return
             inv["reminder_date"]=datetime.now().strftime("%Y-%m-%d"); inv["reminder_count"]=int(inv.get("reminder_count",0))+1
             save_data(); t.item(t.currentRow(),5).setText(str(inv["reminder_count"])); t.item(t.currentRow(),6).setText(inv["reminder_date"]); audit("PAYMENT_REMINDER",f'Zahlungserinnerung zu Rechnung {inv.get("number","")} erfasst',self.current_user.get("username","") if self.current_user else "")
-            QMessageBox.information(self,"Zahlungserinnerung",f'Zahlungserinnerung für Rechnung {inv.get("number","")} wurde dokumentiert.\n\nMahnstufe: {inv["reminder_count"]}\nDatum: {inv["reminder_date"]}\n\nDie ursprüngliche Rechnung wurde nicht verändert.')
+            QMessageBox.information(self,"Zahlungserinnerung",f'Zahlungserinnerung für Rechnung {inv.get("number","")} wurde dokumentiert.\n\nMahnstufe: {inv["reminder_count"]}\nOffener Betrag: {float(inv.get("amount",0)):.2f} €\nDatum: {inv["reminder_date"]}\n\nDie ursprüngliche Rechnung wurde nicht verändert.')
         remind.clicked.connect(payment_reminder); h.addWidget(remind)
         details=QPushButton("Details"); details.setMinimumHeight(50)
         def invoice_details():
