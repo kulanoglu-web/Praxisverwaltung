@@ -20,10 +20,13 @@ out=Path("test-artifacts"); out.mkdir(exist_ok=True)
 pages=[
     (0,"Dashboard"),
     (1,"Sitzung"),
-    (2,"Klienten"),
-    (3,"Rechnung"),
-    (4,"Rechnungsverwaltung"),
-    (5,"Einstellungen"),
+    (2,"Sitzungsassistent"),
+    (3,"Klienten"),
+    (4,"Neuer-Klient"),
+    (5,"Neue-Rechnung"),
+    (6,"Rechnungen"),
+    (7,"Praxiseinstellungen"),
+    (8,"Benutzerhandbuch"),
 ]
 saved=0
 for index, name in pages:
@@ -42,7 +45,7 @@ for index, name in pages:
     print("UI screenshot OK", name, shot.width(), shot.height())
     saved += 1
 
-if saved < 5:
+if saved < 9:
     raise SystemExit(f"Zu wenige Seiten-Screenshots erstellt: {saved}")
 QTimer.singleShot(100, app.quit)
 app.exec()
