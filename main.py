@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.26"
+APP_VERSION = "0.11.27"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -671,7 +671,8 @@ class Main(QMainWindow):
         codebox=QFrame(); codebox.setObjectName("formCard"); cg=QHBoxLayout(codebox); self.help_fcode=QComboBox(); self.help_fcode.setEditable(True); self.help_fcode.addItem("F-Code auswählen / suchen …");
         for code,name in fcodes.items(): self.help_fcode.addItem(f"{code} – {name}")
         cg.addWidget(QLabel("ICD-10-GM / F-Code")); cg.addWidget(self.help_fcode,1); v.addWidget(codebox)
-        row=QHBoxLayout(); self.help_topic=QComboBox(); self.help_topic.addItems(topics.keys()); row.addWidget(QLabel("Thema")); row.addWidget(self.help_topic,1); v.addLayout(row)
+        row=QHBoxLayout(); self.help_topic=QComboBox(); self.help_topic.addItems(topics.keys()); row.addWidget(QLabel("Thema")); row.addWidget(self.help_topic,1)
+        self.school_filter=QComboBox(); self.school_filter.addItems(["Alle Schulen","VT","TP","Systemisch","SIT"]); row.addWidget(QLabel("Ansatz")); row.addWidget(self.school_filter); v.addLayout(row)
         symptom_catalog={
           "PTBS / Trauma":["Intrusionen / belastende Erinnerungen","Albträume","Flashbacks / Wiedererleben","Vermeidung von Erinnerungen oder Situationen","Übermäßige Wachsamkeit","Schreckhaftigkeit","Reizbarkeit / Ärger","Schlafstörungen","Konzentrationsprobleme","Schuld- oder Schamgefühle","Emotionale Taubheit / Distanz","Sozialer Rückzug","Körperliche Stressreaktionen"],
           "Depressive Beschwerden":["Gedrückte Stimmung","Interessen- / Freudverlust","Antriebsmangel","Erschöpfung","Schlafstörungen","Konzentrationsprobleme","Vermindertes Selbstwertgefühl","Schuldgefühle","Appetitveränderung","Psychomotorische Unruhe / Hemmung","Suizidgedanken"],
@@ -687,7 +688,17 @@ class Main(QMainWindow):
           "Trennung / Beziehungskrise":["Akute Traurigkeit","Verlustangst","Grübeln","Wut / Kränkung","Schlafprobleme","Kontaktzwang / Rückversicherung","Unsicherheit über Entscheidung","Belastung gemeinsamer Kinder"],
           "Soziale Angst":["Angst vor Bewertung","Vermeidung sozialer Situationen","Erröten / Zittern / Schwitzen","Starkes Nachgrübeln","Sicherheitsverhalten","Angst zu sprechen","Blickkontakt vermeiden","Beeinträchtigung in Arbeit / Ausbildung"],
           "Somatische Beschwerden":["Schmerzen","Magen-Darm-Beschwerden","Herz-/Kreislaufempfindungen","Schwindel","Erschöpfung","Häufige Gesundheitsängste","Starke Körperbeobachtung","Wiederholte Rückversicherung"],
-          "Essverhalten / Körperbild":["Restriktives Essen","Essanfälle","Kompensatorisches Verhalten","Starke Gewichtssorgen","Körperunzufriedenheit","Kontrollverlust beim Essen","Vermeidung gemeinsamer Mahlzeiten","Ausgeprägte Beschäftigung mit Figur / Gewicht"]
+          "Essverhalten / Körperbild":["Restriktives Essen","Essanfälle","Kompensatorisches Verhalten","Starke Gewichtssorgen","Körperunzufriedenheit","Kontrollverlust beim Essen","Vermeidung gemeinsamer Mahlzeiten","Ausgeprägte Beschäftigung mit Figur / Gewicht"],
+          "Generalisierte Angst / Sorgen":["Anhaltende Sorgen","Schwer kontrollierbares Grübeln","Innere Unruhe","Muskelanspannung","Reizbarkeit","Konzentrationsprobleme","Schlafprobleme","Erschöpfung"],
+          "Agoraphobie":["Angst in Menschenmengen","Angst in öffentlichen Verkehrsmitteln","Angst allein außer Haus","Fluchtgedanken","Begleitperson erforderlich","Vermeidung","Panikähnliche Symptome","Einschränkung des Bewegungsradius"],
+          "Spezifische Phobie":["Ausgeprägte Angst vor bestimmtem Reiz","Unmittelbare Angstreaktion","Vermeidung","Erwartungsangst","Körperliche Angstsymptome","Alltagsbeeinträchtigung"],
+          "Anpassungsreaktion / Lebenskrise":["Belastendes Ereignis","Traurigkeit","Sorgen / Grübeln","Anspannung","Überforderung","Rückzug","Leistungseinbruch","Beziehungsbelastung"],
+          "Ärger / Aggression":["Schnelle Gereiztheit","Wutausbrüche","Verbale Aggression","Impulsives Verhalten","Körperliche Anspannung","Nachträgliche Schuld","Konflikteskalation","Schwierige Impulskontrolle"],
+          "Sucht / problematischer Konsum":["Starkes Verlangen","Kontrollverlust","Toleranzentwicklung","Entzugssymptome","Konsum trotz Folgen","Vernachlässigung anderer Bereiche","Verheimlichung","Rückfälle"],
+          "Dissoziative Symptome":["Gefühl von Unwirklichkeit","Depersonalisation","Derealisation","Erinnerungslücken","Zeitverlust","Emotionale Taubheit","Automatisches Funktionieren","Stressbezogene Auslöser"],
+          "Bipolare Symptomatik – Exploration":["Phasen deutlich gehobener Stimmung","Vermindertes Schlafbedürfnis","Gesteigerter Antrieb","Beschleunigtes Denken / Sprechen","Impulsives Geldausgeben / Risikoverhalten","Reizbarkeit","Depressive Phasen","Deutliche Funktionsveränderung"],
+          "Psychotische Symptome – Exploration":["Ungewöhnliche Wahrnehmungen","Stimmenhören","Starke Überzeugungen mit Realitätskonflikt","Verwirrtheit","Desorganisiertes Denken","Misstrauen","Sozialer Rückzug","Funktionsverlust"],
+          "Sexualität / Intimität":["Verminderte Lust","Leistungsdruck","Schmerzen / körperliche Beschwerden","Vermeidung von Nähe","Scham","Unterschiedliche Bedürfnisse","Kommunikationsprobleme","Belastung der Partnerschaft"]
         }
         symptom_box=QFrame(); symptom_box.setObjectName("formCard"); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
         self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(150); sb.addWidget(self.symptom_list)
@@ -709,13 +720,19 @@ class Main(QMainWindow):
         sf.addWidget(QLabel("Dauer"),1,0); sf.addWidget(self.sym_duration,1,1); sf.addWidget(QLabel("Intensität"),1,2); sf.addWidget(self.sym_intensity,1,3)
         sf.addWidget(QLabel("Häufigkeit"),2,0); sf.addWidget(self.sym_frequency,2,1); sf.addWidget(QLabel("Alltag"),2,2); sf.addWidget(self.sym_impairment,2,3)
         self.sym_scale=QSpinBox(); self.sym_scale.setRange(0,10); self.sym_scale.setSuffix(" / 10"); self.sym_scale.setToolTip("Subjektive aktuelle Belastung: 0 = keine, 10 = maximal")
-        sf.addWidget(QLabel("Aktuelle Belastung"),3,0); sf.addWidget(self.sym_scale,3,1); v.addWidget(severity)
+        sf.addWidget(QLabel("Aktuelle Belastung"),3,0); sf.addWidget(self.sym_scale,3,1)
+        self.goal_scale=QSpinBox(); self.goal_scale.setRange(0,10); self.goal_scale.setSuffix(" / 10"); self.goal_scale.setToolTip("Subjektive Einschätzung: Wie nah ist die Person aktuell am gewünschten Zustand?")
+        sf.addWidget(QLabel("Zielerreichung"),3,2); sf.addWidget(self.goal_scale,3,3); v.addWidget(severity)
         risk=QFrame(); risk.setObjectName("formCard"); rv=QVBoxLayout(risk); rv.addWidget(QLabel("Sicherheitsrelevante Hinweise"))
         self.risk_checks=[]
         for txt in ["Suizidgedanken","Selbstverletzung","Fremdgefährdung","Akute Desorientierung / psychotische Symptome","Kein aktueller Sicherheitshinweis"]:
             cb=QCheckBox(txt); self.risk_checks.append(cb); rv.addWidget(cb)
         self.help_goal=QLineEdit(); self.help_goal.setPlaceholderText("Sitzungsziel / Anliegen heute …"); rv.addWidget(self.help_goal)
         self.help_resources=QLineEdit(); self.help_resources.setPlaceholderText("Ressourcen / Schutzfaktoren …"); rv.addWidget(self.help_resources)
+        self.help_trigger=QLineEdit(); self.help_trigger.setPlaceholderText("Auslöser / typische Situationen …"); rv.addWidget(self.help_trigger)
+        self.help_maintain=QLineEdit(); self.help_maintain.setPlaceholderText("Aufrechterhaltende Faktoren / Muster …"); rv.addWidget(self.help_maintain)
+        self.help_strength=QLineEdit(); self.help_strength.setPlaceholderText("Was funktioniert bereits / Ausnahmen …"); rv.addWidget(self.help_strength)
+        self.help_support=QLineEdit(); self.help_support.setPlaceholderText("Unterstützungssystem / wichtige Bezugspersonen …"); rv.addWidget(self.help_support)
         self.help_next=QLineEdit(); self.help_next.setPlaceholderText("Vereinbarter nächster Schritt / Hausaufgabe …"); rv.addWidget(self.help_next)
         self.help_note=QLineEdit(); self.help_note.setPlaceholderText("Eigene Beobachtung / ergänzende Notiz …"); rv.addWidget(self.help_note); v.addWidget(risk)
         self.help_text=QTextEdit(); self.help_text.setReadOnly(True); self.help_text.setStyleSheet("font-size:17px;padding:10px"); v.addWidget(self.help_text,1)
@@ -723,7 +740,9 @@ class Main(QMainWindow):
             d=topics[self.help_topic.currentText()]; parts=["THEMA: "+self.help_topic.currentText(),"","GESPRÄCHSFRAGEN"]+["• "+x for x in d["Fragen"]]
             labels={"VT":"VERHALTENSTHERAPEUTISCHE IMPULSE","TP":"TIEFENPSYCHOLOGISCHE IMPULSE","Systemisch":"SYSTEMISCHE IMPULSE"}
             labels["SIT"]="SYSTEMISCH-INTEGRATIVE / SIT-IMPULSE"
-            for key in ["VT","TP","Systemisch","SIT"]:
+            chosen=self.school_filter.currentText() if hasattr(self,"school_filter") else "Alle Schulen"
+            keys=["VT","TP","Systemisch","SIT"] if chosen=="Alle Schulen" else [chosen]
+            for key in keys:
                 if key in d: parts+=["",labels[key]]+["• "+x for x in d[key]]
             selected=[x.text() for x in self.symptom_list.selectedItems()] if hasattr(self,"symptom_list") else []
             if selected: parts+=["","AUSGEWÄHLTE SYMPTOME ("+str(len(selected))+")"]+["☑ "+x for x in selected]
@@ -732,11 +751,16 @@ class Main(QMainWindow):
                 for label,box in [("Dauer",self.sym_duration),("Intensität",self.sym_intensity),("Häufigkeit",self.sym_frequency),("Alltagsbeeinträchtigung",self.sym_impairment)]:
                     if box.currentIndex()>0: details.append(label+": "+box.currentText())
             if hasattr(self,"sym_scale") and self.sym_scale.value()>0: details.append("Subjektive aktuelle Belastung: "+str(self.sym_scale.value())+"/10")
+            if hasattr(self,"goal_scale") and self.goal_scale.value()>0: details.append("Subjektive Zielerreichung: "+str(self.goal_scale.value())+"/10")
             if details: parts+=["","SYMPTOMVERTIEFUNG"]+["• "+x for x in details]
             if hasattr(self,"help_goal") and self.help_goal.text().strip(): parts+=["","SITZUNGSZIEL",self.help_goal.text().strip()]
             if hasattr(self,"help_resources") and self.help_resources.text().strip(): parts+=["","RESSOURCEN / SCHUTZFAKTOREN",self.help_resources.text().strip()]
             risks=[x.text() for x in getattr(self,"risk_checks",[]) if x.isChecked()]
             if risks: parts+=["","SICHERHEITSRELEVANTE HINWEISE"]+["• "+x for x in risks]
+            if hasattr(self,"help_trigger") and self.help_trigger.text().strip(): parts+=["","AUSLÖSER / SITUATIONEN",self.help_trigger.text().strip()]
+            if hasattr(self,"help_maintain") and self.help_maintain.text().strip(): parts+=["","AUFRECHTERHALTENDE FAKTOREN",self.help_maintain.text().strip()]
+            if hasattr(self,"help_strength") and self.help_strength.text().strip(): parts+=["","AUSNAHMEN / BEREITS HILFREICH",self.help_strength.text().strip()]
+            if hasattr(self,"help_support") and self.help_support.text().strip(): parts+=["","UNTERSTÜTZUNGSSYSTEM",self.help_support.text().strip()]
             if hasattr(self,"help_next") and self.help_next.text().strip(): parts+=["","NÄCHSTER SCHRITT / VEREINBARUNG",self.help_next.text().strip()]
             if hasattr(self,"help_note") and self.help_note.text().strip(): parts+=["","EIGENE NOTIZ",self.help_note.text().strip()]
             code=self.help_fcode.currentText() if hasattr(self,"help_fcode") else ""
@@ -752,14 +776,14 @@ class Main(QMainWindow):
                 self.risk_checks[-1].blockSignals(True); self.risk_checks[-1].setChecked(False); self.risk_checks[-1].blockSignals(False)
             render()
         for cb in self.risk_checks: cb.toggled.connect(lambda _,x=cb:risk_changed(x))
-        self.help_goal.textChanged.connect(lambda _:render()); self.help_resources.textChanged.connect(lambda _:render()); self.help_next.textChanged.connect(lambda _:render()); self.help_note.textChanged.connect(lambda _:render()); self.sym_scale.valueChanged.connect(lambda _:render())
+        self.help_goal.textChanged.connect(lambda _:render()); self.help_resources.textChanged.connect(lambda _:render()); self.help_trigger.textChanged.connect(lambda _:render()); self.help_maintain.textChanged.connect(lambda _:render()); self.help_strength.textChanged.connect(lambda _:render()); self.help_support.textChanged.connect(lambda _:render()); self.help_next.textChanged.connect(lambda _:render()); self.help_note.textChanged.connect(lambda _:render()); self.sym_scale.valueChanged.connect(lambda _:render()); self.goal_scale.valueChanged.connect(lambda _:render())
         actions=QHBoxLayout(); copybtn=QPushButton("Zusammenfassung kopieren"); copybtn.clicked.connect(lambda: QApplication.clipboard().setText(self.help_text.toPlainText())); actions.addWidget(copybtn)
         resetbtn=QPushButton("Abfrage zurücksetzen")
         def reset_assessment():
             self.symptom_list.clearSelection()
             for box in (self.sym_duration,self.sym_intensity,self.sym_frequency,self.sym_impairment): box.setCurrentIndex(0)
             for cb in self.risk_checks: cb.setChecked(False)
-            self.help_goal.clear(); self.help_resources.clear(); self.help_next.clear(); self.help_note.clear(); self.sym_scale.setValue(0); render()
+            self.help_goal.clear(); self.help_resources.clear(); self.help_trigger.clear(); self.help_maintain.clear(); self.help_strength.clear(); self.help_support.clear(); self.help_next.clear(); self.help_note.clear(); self.sym_scale.setValue(0); self.goal_scale.setValue(0); self.school_filter.setCurrentIndex(0); render()
         resetbtn.clicked.connect(reset_assessment); actions.addWidget(resetbtn)
         tosession=QPushButton("In Sitzungsnotiz übernehmen")
         def copy_to_session():
@@ -767,7 +791,16 @@ class Main(QMainWindow):
             if hasattr(self,"typed_notes"):
                 cur=self.typed_notes.toPlainText().strip(); self.typed_notes.setPlainText((cur+"\n\n"+txt).strip()); QMessageBox.information(self,"Übernommen","Die strukturierte Zusammenfassung wurde in die Sitzungsnotiz übernommen.")
             else: QApplication.clipboard().setText(txt)
-        tosession.clicked.connect(copy_to_session); actions.addWidget(tosession); v.addLayout(actions)
+        tosession.clicked.connect(copy_to_session); actions.addWidget(tosession)
+        shortcopy=QPushButton("Kurzbefund kopieren")
+        def copy_short():
+            selected=[x.text() for x in self.symptom_list.selectedItems()]; bits=["Thema: "+self.help_topic.currentText()]
+            if selected: bits.append("Symptome: "+", ".join(selected))
+            if self.sym_scale.value()>0: bits.append("Belastung: "+str(self.sym_scale.value())+"/10")
+            if self.help_goal.text().strip(): bits.append("Ziel: "+self.help_goal.text().strip())
+            if self.help_next.text().strip(): bits.append("Nächster Schritt: "+self.help_next.text().strip())
+            QApplication.clipboard().setText("\n".join(bits))
+        shortcopy.clicked.connect(copy_short); actions.addWidget(shortcopy); v.addLayout(actions)
         render()
         add=QPushButton("Ausgewählten Text in Sitzungsnotiz übernehmen"); add.setMinimumHeight(55)
         def add_note():
