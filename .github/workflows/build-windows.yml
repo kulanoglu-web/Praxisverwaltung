@@ -15,6 +15,7 @@ jobs:
       - name: UI screenshot test (1600x900)
         run: python ui_screenshot_test.py
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: PraxisPro-UI-Screenshot
           path: test-artifacts/PraxisPro-Sitzung-1600x900.png
