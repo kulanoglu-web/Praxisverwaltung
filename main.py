@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.10.1"
+APP_VERSION = "0.10.2"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -486,6 +486,17 @@ class Main(QMainWindow):
 
         notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(16,12,16,14); nv.setSpacing(10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setMinimumWidth(175); template.setMinimumHeight(40); nhead.addWidget(template); nv.addLayout(nhead)
         self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …");
+        note_tools=QHBoxLayout(); bullet=QPushButton("• Aufzählung"); timestamp=QPushButton("⏱ Zeitmarke"); clear_note=QPushButton("Notiz leeren")
+        for b in (bullet,timestamp,clear_note): b.setMinimumHeight(38); note_tools.addWidget(b)
+        note_tools.addStretch(); nv.addLayout(note_tools)
+        def insert_bullet():
+            cur=self.notes.textCursor(); cur.insertText("• "); self.notes.setTextCursor(cur); self.notes.setFocus()
+        def insert_timestamp():
+            cur=self.notes.textCursor(); cur.insertText(datetime.now().strftime("[%H:%M] ")); self.notes.setTextCursor(cur); self.notes.setFocus()
+        def clear_notes():
+            if self.notes.toPlainText().strip() and QMessageBox.question(self,"Notiz leeren","Therapienotiz wirklich vollständig leeren?")!=QMessageBox.Yes: return
+            self.notes.clear()
+        bullet.clicked.connect(insert_bullet); timestamp.clicked.connect(insert_timestamp); clear_note.clicked.connect(clear_notes)
         note_templates={"Erstgespräch":"Anliegen / Auftrag:\n\nAktuelle Situation:\n\nRessourcen:\n\nZiele / Vereinbarungen:\n","Verlauf":"Aktueller Verlauf:\n\nBeobachtungen / Veränderungen:\n\nInterventionen:\n\nVereinbarungen / nächster Schritt:\n","Abschluss":"Rückblick / Zielerreichung:\n\nStabilisierende Faktoren:\n\nOffene Themen:\n\nAbschlussvereinbarung:\n"}
         def apply_note_template(text):
             if text in note_templates and (not self.notes.toPlainText().strip() or QMessageBox.question(self,"Vorlage einsetzen","Vorhandene Notiz durch die gewählte Vorlage ersetzen?")==QMessageBox.Yes): self.notes.setPlainText(note_templates[text])
@@ -645,7 +656,7 @@ class Main(QMainWindow):
         last,first=self.s_last.text().strip().lower(),self.s_first.text().strip().lower()
         x=next((c for c in DB["clients"] if c.get("last","").lower()==last and (not first or c.get("first","").lower()==first)),None)
         if x:
-            self.s_first.setText(x.get("first","")); self.s_last.setText(x.get("last","")); self.s_dob.setText(x.get("dob",""))
+            self.s_first.setText(x.get("first","")); self.s_last.setText(x.get("last","")); self.s_dob.setText(x.get("dob","")); self.s_phone.setText(x.get("phone","")); self.s_email.setText(x.get("email",""))
     def start_session(self):
         if not self.require_edit(): return
         now=datetime.now(); self.s_date.setDate(QDate.currentDate()); self.s_start.setTime(QTime.currentTime()); self.s_end.setTime(QTime.currentTime()); self.started=now; self.acc=0; self.running=True; self.update_wallclock()
