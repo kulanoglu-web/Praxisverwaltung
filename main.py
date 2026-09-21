@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.30"
+APP_VERSION = "0.11.31"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -357,12 +357,12 @@ class Main(QMainWindow):
         sv.addWidget(self.nav,1)
         foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); sv.addWidget(foot)
         content=QWidget(); contentv=QVBoxLayout(content); contentv.setContentsMargins(0,0,0,0); contentv.setSpacing(0)
-        topbar=QFrame(); topbar.setObjectName("topBrandBar"); topbar.setFixedHeight(68); tb=QHBoxLayout(topbar); tb.setContentsMargins(24,8,28,8); tb.addStretch()
-        self.top_logo=QLabel(); self.top_logo.setAlignment(Qt.AlignRight|Qt.AlignVCenter); self.top_logo.setMinimumWidth(260)
+        topbar=QFrame(); topbar.setObjectName("topBrandBar"); topbar.setFixedHeight(68); tb=QHBoxLayout(topbar); tb.setContentsMargins(16,5,18,5); tb.addStretch()
+        self.top_logo=QLabel(); self.top_logo.setAlignment(Qt.AlignRight|Qt.AlignVCenter); self.top_logo.setMinimumWidth(220)
         logo_path=practice_logo_path()
         if logo_path:
             px=QPixmap(str(logo_path))
-            if not px.isNull(): self.top_logo.setPixmap(px.scaled(260,52,Qt.KeepAspectRatio,Qt.SmoothTransformation))
+            if not px.isNull(): self.top_logo.setPixmap(px.scaled(220,46,Qt.KeepAspectRatio,Qt.SmoothTransformation))
         tb.addWidget(self.top_logo); contentv.addWidget(topbar)
         self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui()); contentv.addWidget(self.pages,1)
         self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
@@ -455,7 +455,9 @@ class Main(QMainWindow):
         return False
 
     def session_ui(self):
-        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(22,16,22,14); v.setSpacing(14)
+        page=QWidget(); outer=QVBoxLayout(page); outer.setContentsMargins(0,0,0,0)
+        scroll=QScrollArea(); scroll.setObjectName("sessionScroll"); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        body=QWidget(); body.setMinimumWidth(0); v=QVBoxLayout(body); v.setContentsMargins(16,10,16,12); v.setSpacing(8)
         top=QHBoxLayout(); head=QVBoxLayout(); title=QLabel("▣  Sitzungsnotiz"); title.setObjectName("pageTitle"); subtitle=QLabel("Sitzung dokumentieren · Klientendaten · Notizen · Handschrift · Speichern"); subtitle.setObjectName("pageSub"); head.addWidget(title); head.addWidget(subtitle)
         self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setFixedSize(130,40); self.clock.setStyleSheet("font-size:20px;font-weight:800;border:2px solid #8091a1;border-radius:10px;background:white")
         timerbtn=QPushButton("▶  Timer starten"); timerbtn.setFixedHeight(40); timerbtn.setMinimumWidth(130); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:14px"); timerbtn.clicked.connect(self.start_session)
@@ -483,7 +485,7 @@ class Main(QMainWindow):
         self.s_phone=QLineEdit(); self.s_email=QLineEdit()
         for x in (self.s_phone,self.s_email): x.setMinimumHeight(34); x.setReadOnly(True); x.setPlaceholderText("–")
         for rr,(lab,field) in enumerate([("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Telefon",self.s_phone),("E-Mail",self.s_email)],1): dg.addWidget(QLabel(lab),rr,0); dg.addWidget(field,rr,1)
-        details.setMinimumWidth(0); details.setMinimumHeight(285); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(34); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
+        details.setMinimumWidth(0); details.setMinimumHeight(285); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(32); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
 
         quick=QFrame(); quick.setObjectName("formCard"); qg=QGridLayout(quick); qg.setContentsMargins(10,8,10,10); qg.setHorizontalSpacing(7); qg.setVerticalSpacing(6)
         qt=QLabel("♙＋  Klient schnell anlegen"); qt.setObjectName("sectionTitle"); qg.addWidget(qt,0,0,1,2)
@@ -491,7 +493,7 @@ class Main(QMainWindow):
         for x in (qlast,qfirst,qdob,qphone,qmail): x.setMinimumHeight(34)
         qg.addWidget(QLabel("Nachname *"),1,0); qg.addWidget(QLabel("Vorname *"),1,1); qg.addWidget(qlast,2,0); qg.addWidget(qfirst,2,1)
         qg.addWidget(QLabel("Geburtsdatum"),3,0,1,2); qg.addWidget(qdob,4,0,1,2); qg.addWidget(QLabel("Telefon"),5,0); qg.addWidget(QLabel("E-Mail"),5,1); qg.addWidget(qphone,6,0); qg.addWidget(qmail,6,1)
-        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(34); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(0); quick.setMinimumHeight(285); row.addWidget(quick,3); v.addLayout(row)
+        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(32); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(0); quick.setMinimumHeight(285); row.addWidget(quick,3); v.addLayout(row)
 
         def add_quick():
             if not self.require_edit(): return
@@ -1487,7 +1489,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         return w
 
     def settings_ui(self):
-        w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); body=QWidget(); v=QVBoxLayout(body); v.setContentsMargins(32,26,32,36); v.setSpacing(16)
+        w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); body=QWidget(); v=QVBoxLayout(body); v.setContentsMargins(18,12,18,18); v.setSpacing(9)
         title=QLabel("Praxiseinstellungen"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Praxisdaten, Abrechnung, Honorare und Benutzer übersichtlich verwalten."); sub.setObjectName("pageSub"); v.addWidget(sub)
         tabs=QTabWidget(); tabs.setDocumentMode(True); tabs.setMinimumHeight(520); v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
