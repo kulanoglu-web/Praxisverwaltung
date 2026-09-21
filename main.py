@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.7"
+APP_VERSION = "0.11.8"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1381,6 +1381,26 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
         cards.addWidget(card("BEZAHLT",f"{paid:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,1)
         cards.addWidget(card("OFFEN",f"{open_amt:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,2)
         cards.addWidget(card("KLIENTEN",str(len(DB["clients"]))),1,0); cards.addWidget(card("SITZUNGEN "+y,str(sum(1 for s in DB["sessions"] if str(s.get("date","")).startswith(y)))),1,1); cards.addWidget(card("OFFENE RECHNUNGEN",str(sum(1 for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status","offen")=="offen"))),1,2); v.addLayout(cards)
+        today=date.today(); overdue=[]
+        for inv in DB["invoices"]:
+            if inv.get("status","offen")!="offen": continue
+            try:
+                invdate=datetime.strptime(inv.get("date",""),"%Y-%m-%d").date()
+                days=(today-invdate).days
+                if days>14: overdue.append((days,inv))
+            except Exception: pass
+        if overdue:
+            overdue.sort(key=lambda z:z[0],reverse=True)
+            alert=QFrame(); alert.setObjectName("formCard"); av=QVBoxLayout(alert); ah=QHBoxLayout()
+            al=QLabel(f"⚠ {len(overdue)} überfällige Rechnung(en)"); al.setObjectName("sectionTitle"); ah.addWidget(al); ah.addStretch()
+            showoverdue=QPushButton("Überfällige Rechnungen anzeigen"); showoverdue.setMinimumHeight(40)
+            def go_overdue():
+                self.nav.setCurrentRow(6)
+            showoverdue.clicked.connect(go_overdue); ah.addWidget(showoverdue); av.addLayout(ah)
+            preview=[]
+            for days,inv in overdue[:3]:
+                preview.append(f'{inv.get("number","")} · {inv.get("client","")} · {float(inv.get("amount",0) or 0):.2f} € · {days} Tage')
+            ap=QLabel("\n".join(preview)); ap.setObjectName("pageSub"); ap.setWordWrap(True); av.addWidget(ap); v.addWidget(alert)
         quick=QLabel("Schnellzugriff"); quick.setObjectName("sectionTitle"); v.addWidget(quick)
         actions=QHBoxLayout(); new_session=QPushButton("＋  Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("▤  Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(5)); clients=QPushButton("♙  Klienten verwalten"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
         info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch(); return w
