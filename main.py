@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.11.1"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1025,9 +1025,9 @@ class Main(QMainWindow):
         filters=QHBoxLayout(); search=QLineEdit(); search.setPlaceholderText("Rechnung oder Klient suchen …"); search.setClearButtonEnabled(True)
         statusfilter=QComboBox(); statusfilter.addItems(["Alle Status","offen","bezahlt","storniert"]); statusfilter.setMinimumWidth(150)
         filters.addWidget(search,1); filters.addWidget(statusfilter); v.addLayout(filters)
-        t=QTableWidget(0,6); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Zahlungsdatum","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True)
+        t=QTableWidget(0,8); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Zahlungsdatum","Mahnstufe","Letzte Erinnerung","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True)
         for i in reversed(DB["invoices"]):
-            r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),f'{float(i.get("amount",0)):.2f} €']
+            r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),str(i.get("reminder_count",0)),i.get("reminder_date",""),f'{float(i.get("amount",0)):.2f} €']
             for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
         def filt(_=None):
             q=search.text().lower().strip(); sf=statusfilter.currentText()
@@ -1069,7 +1069,7 @@ class Main(QMainWindow):
                 if inv.get("status")=="storniert": return QMessageBox.warning(self,"Status","Eine stornierte Rechnung kann nicht als bezahlt markiert werden.")
                 if inv.get("status")=="bezahlt": return QMessageBox.information(self,"Status","Diese Rechnung ist bereits als bezahlt markiert.")
                 if QMessageBox.question(self,"Zahlung","Rechnung "+str(inv.get("number",""))+" als bezahlt markieren?")!=QMessageBox.Yes:return
-                inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("bezahlt"); t.item(r,4).setText(inv["paid_date"])
+                inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("bezahlt"); t.item(r,4).setText(inv["paid_date"]); t.item(r,5).setText(str(inv.get("reminder_count",0))); t.item(r,6).setText(inv.get("reminder_date",""))
         paid.clicked.connect(mark_paid); h.addWidget(paid)
         cancel=QPushButton("Rechnung stornieren"); cancel.setMinimumHeight(50)
         def cancel_invoice():
@@ -1110,7 +1110,7 @@ class Main(QMainWindow):
             except Exception: days=0
             if days<=14 and QMessageBox.question(self,"Zahlungserinnerung",f"Das 14-tägige Zahlungsziel ist noch nicht überschritten ({days} Tage). Trotzdem Erinnerung erfassen?")!=QMessageBox.Yes:return
             inv["reminder_date"]=datetime.now().strftime("%Y-%m-%d"); inv["reminder_count"]=int(inv.get("reminder_count",0))+1
-            save_data(); audit("PAYMENT_REMINDER",f'Zahlungserinnerung zu Rechnung {inv.get("number","")} erfasst',self.current_user.get("username","") if self.current_user else "")
+            save_data(); t.item(t.currentRow(),5).setText(str(inv["reminder_count"])); t.item(t.currentRow(),6).setText(inv["reminder_date"]); audit("PAYMENT_REMINDER",f'Zahlungserinnerung zu Rechnung {inv.get("number","")} erfasst',self.current_user.get("username","") if self.current_user else "")
             QMessageBox.information(self,"Zahlungserinnerung",f'Zahlungserinnerung für Rechnung {inv.get("number","")} wurde dokumentiert.\n\nMahnstufe: {inv["reminder_count"]}\nDatum: {inv["reminder_date"]}\n\nDie ursprüngliche Rechnung wurde nicht verändert.')
         remind.clicked.connect(payment_reminder); h.addWidget(remind)
         details=QPushButton("Details"); details.setMinimumHeight(50)
