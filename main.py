@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.10"
+APP_VERSION = "0.11.11"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -348,18 +348,22 @@ class Main(QMainWindow):
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
-        logo_path=practice_logo_path()
-        if logo_path:
-            side_logo=QLabel(); side_pix=QPixmap(str(logo_path))
-            if not side_pix.isNull(): side_logo.setPixmap(side_pix.scaled(190,72,Qt.KeepAspectRatio,Qt.SmoothTransformation)); side_logo.setAlignment(Qt.AlignCenter); sv.addWidget(side_logo)
         brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
         for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Benutzerhandbuch"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
         foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); sv.addWidget(foot)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui())
+        content=QWidget(); contentv=QVBoxLayout(content); contentv.setContentsMargins(0,0,0,0); contentv.setSpacing(0)
+        topbar=QFrame(); topbar.setObjectName("topBrandBar"); topbar.setFixedHeight(96); tb=QHBoxLayout(topbar); tb.setContentsMargins(24,8,28,8); tb.addStretch()
+        self.top_logo=QLabel(); self.top_logo.setAlignment(Qt.AlignRight|Qt.AlignVCenter); self.top_logo.setMinimumWidth(330)
+        logo_path=practice_logo_path()
+        if logo_path:
+            px=QPixmap(str(logo_path))
+            if not px.isNull(): self.top_logo.setPixmap(px.scaled(330,78,Qt.KeepAspectRatio,Qt.SmoothTransformation))
+        tb.addWidget(self.top_logo); contentv.addWidget(topbar)
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui()); contentv.addWidget(self.pages,1)
         self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
-        root.addWidget(sidebar); root.addWidget(self.pages,1); self.setCentralWidget(shell)
+        root.addWidget(sidebar); root.addWidget(content,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
         self.wallclock=QLabel(); self.userbadge=QLabel()
         self.statusBar().addWidget(self.userbadge); self.statusBar().addPermanentWidget(self.wallclock)
@@ -374,7 +378,7 @@ class Main(QMainWindow):
         #nav::item { padding:9px 10px; margin:1px 0; border-radius:8px; min-height:21px; }
         #nav::item:selected { background:#2f7de1; color:white; font-weight:700; }
         #nav::item:hover:!selected { background:#244d70; color:white; }
-        QStackedWidget { background:#f4f6f8; }
+        QStackedWidget { background:#f4f6f8; }\n        #topBrandBar { background:white; border-bottom:1px solid #dce3e9; }
         #pageTitle { font-size:30px; font-weight:800; color:#17324d; }
         #pageSub { font-size:15px; color:#607080; padding-bottom:8px; }
         #statCard { background:white; border:1px solid #dce3e9; border-radius:14px; min-height:115px; }
