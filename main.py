@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.31"
+APP_VERSION = "0.11.32"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -428,7 +428,9 @@ class Main(QMainWindow):
         u=self.current_user or {}; self.userbadge.setText("Angemeldet: "+u.get("display_name",u.get("username",""))+" · "+u.get("role",""))
     def update_wallclock(self):
         now=QTime.currentTime(); self.wallclock.setText("● LIVE  "+now.toString("HH:mm:ss"))
-        if hasattr(self,"session_live_clock"): self.session_live_clock.setText(now.toString("HH:mm:ss"))
+        if getattr(self,"session_live_clock",None) is not None:
+            try: self.session_live_clock.setText(now.toString("HH:mm:ss"))
+            except RuntimeError: pass
     def event(self,e):
         if e.type() in (QEvent.MouseButtonPress,QEvent.KeyPress,QEvent.TouchBegin): self.last_activity=datetime.now()
         return super().event(e)
@@ -455,6 +457,7 @@ class Main(QMainWindow):
         return False
 
     def session_ui(self):
+        self.session_live_clock=None
         page=QWidget(); outer=QVBoxLayout(page); outer.setContentsMargins(0,0,0,0)
         scroll=QScrollArea(); scroll.setObjectName("sessionScroll"); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         body=QWidget(); body.setMinimumWidth(0); v=QVBoxLayout(body); v.setContentsMargins(16,10,16,12); v.setSpacing(8)
