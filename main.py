@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.15"
+APP_VERSION = "0.11.16"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -857,42 +857,76 @@ class Main(QMainWindow):
             if self.i_diag.text().strip(): c["diagnosis"]=self.i_diag.text().strip()
         d=client_dir(c)/"Rechnungen"; pdf=d/f"Rechnung_{no}.pdf"
         can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
-        # Rechnungskopf aus den Praxiseinstellungen
+        # Layout nach der bisherigen Praxis-Rechnungsvorlage
         logo_path=practice_logo_path()
         if logo_path:
-            try: can.drawImage(str(logo_path),W-145,H-105,width=95,height=65,preserveAspectRatio=True,mask="auto")
+            try: can.drawImage(str(logo_path),W-230,H-110,width=180,height=72,preserveAspectRatio=True,mask="auto")
             except Exception: pass
-        else:
-            can.setFillColor(HexColor("#17324d")); can.circle(W-92,H-63,31,stroke=1,fill=0)
-            initials="".join(x[:1] for x in get_setting("owner_name","EK").split()[:2]).upper() or "EK"
-            can.setFont("Helvetica-Bold",12); can.drawCentredString(W-92,H-61,initials)
-        can.setFillColor(HexColor("#000000"))
-        owner=get_setting("owner_name",""); practice=get_setting("practice_name","")
-        can.setFont("Helvetica-Bold",13); can.drawString(50,H-55,(owner+" – "+practice).strip(" –"))
-        can.setFont("Helvetica",9); can.drawString(50,H-72,get_setting("qualifications",""))
-        can.drawString(50,H-87,get_setting("address",""))
-        contact=" · ".join(x for x in [("Tel.: "+get_setting("phone","")) if get_setting("phone","") else "",("Fax: "+get_setting("fax","")) if get_setting("fax","") else ""] if x)
-        can.drawString(50,H-102,contact)
-        web=" · ".join(x for x in [get_setting("email",""),get_setting("website",""),("Steuernummer: "+get_setting("tax_number","")) if get_setting("tax_number","") else ""] if x)
-        can.drawString(50,H-117,web)
-        can.setFont("Helvetica-Bold",16); can.drawString(50,H-150,f"Rechnung {no}")
-        can.setFont("Helvetica",9); can.drawRightString(W-50,H-150,"Rechnungsdatum: "+datetime.now().strftime("%d.%m.%Y"))
-        can.setFont("Helvetica",11); y=H-185; can.drawString(50,y,f"{first} {last}"); y-=16
-        if self.i_addr.text().strip():can.drawString(50,y,self.i_addr.text().strip()); y-=16
-        if self.i_diag.text().strip():can.drawString(50,y,"Diagnose: "+self.i_diag.text().strip()); y-=22
+        owner=get_setting("owner_name","Erdoğan Kulanoğlu"); address=get_setting("address","")
+        can.setFillColor(HexColor("#000000")); can.setFont("Helvetica",7)
+        can.drawString(50,H-125,f"{owner} · {address}")
+        y=H-145; can.setFont("Helvetica",10); can.drawString(50,y,f"{first} {last}"); y-=14
+        if self.i_addr.text().strip():
+            for line in self.i_addr.text().strip().splitlines(): can.drawString(50,y,line); y-=13
+        can.setFont("Helvetica",10); can.drawRightString(W-50,H-235,datetime.now().strftime("%d.%m.%Y"))
+        can.setFont("Helvetica-Bold",11); can.drawCentredString(W/2,H-270,f"Rechnungsnummer {no}")
+        can.setFont("Helvetica",10); can.drawString(50,H-300,"Für meine Bemühungen erlaube ich mir Ihnen folgende Leistungen in Rechnung zu stellen:")
+        if self.i_diag.text().strip():
+            can.drawString(50,H-320,"Diagnose: "+self.i_diag.text().strip())
+            table_y=H-350
+        else: table_y=H-335
+        can.setFont("Helvetica-Bold",10); can.drawString(50,table_y+18,"Leistungen:")
+        items=[]
         if rows:
             for s in rows:
-                a=float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))))
-                can.drawString(50,y,f'{s.get("date","")}   {s.get("start","")}–{s.get("end","")}   {s.get("minutes",0)} Min.   {s.get("type","")}'); can.drawRightString(W-50,y,f"{a:.2f} EUR"); y-=18
+                items.append({"date":s.get("date",""),"start":s.get("start",""),"end":s.get("end",""),"minutes":int(s.get("minutes",0)),"type":s.get("type",""),"reduced":bool(s.get("reduced",False)),"amount":float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))))})
         else:
-            can.drawString(50,y,f"{self.i_date.date().toString('dd.MM.yyyy')}   {mins} Min.   {typ}"); can.drawRightString(W-50,y,f"{amt:.2f} EUR"); y-=18
-        y-=17
-        can.setFont("Helvetica-Bold",12); can.drawRightString(W-50,y,f"Gesamt: {amt:.2f} EUR"); y-=35
-        can.setFont("Helvetica",9); can.drawString(50,y,"Zahlbar innerhalb von 14 Tagen. Verwendungszweck: "+no); y-=14
-        can.drawString(50,y,"IBAN "+get_setting("iban","")+" · BIC "+get_setting("bic","")); y-=14
-        if get_setting("paypal",""): can.drawString(50,y,"PayPal: "+get_setting("paypal","")); y-=14
-        can.drawString(50,y,"Leistungen als Heilpraktiker sind nach § 4 Nr. 14 Buchstabe a UStG umsatzsteuerbefreit.")
-        can.drawString(50,55,"Elektronisch erstellt und ohne Unterschrift/Stempel gültig."); can.save()
+            items=[{"date":self.i_date.date().toString("dd.MM.yyyy"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amt}]
+        def display_date(value):
+            try:return datetime.strptime(str(value),"%Y-%m-%d").strftime("%d.%m.%Y")
+            except:return str(value)
+        x=[50,112,198,286,394,456,W-50]; rowh=18
+        headers=["Datum","Anfang–Ende","Dauer in Minuten","Leistung","Ermäßigt","Betrag"]
+        can.setLineWidth(.5); can.setFont("Helvetica-Bold",8)
+        for j,h in enumerate(headers): can.drawString(x[j]+3,table_y-12,h)
+        can.line(x[0],table_y,x[-1],table_y); can.line(x[0],table_y-rowh,x[-1],table_y-rowh)
+        for xx in x: can.line(xx,table_y,xx,table_y-rowh*(len(items)+2))
+        cy=table_y-rowh
+        can.setFont("Helvetica",8)
+        for it in items:
+            vals=[display_date(it["date"]),f'{it["start"]}–{it["end"]}',str(it["minutes"]),it["type"],"Ja" if it["reduced"] else "Nein",f'{it["amount"]:.2f} €'.replace(".",",")]
+            for j,val in enumerate(vals):
+                if j==5: can.drawRightString(x[j+1]-4,cy-12,val)
+                else: can.drawString(x[j]+3,cy-12,val)
+            cy-=rowh; can.line(x[0],cy,x[-1],cy)
+        can.setFont("Helvetica-Bold",8); can.drawString(x[0]+3,cy-12,"Rechnungssumme:"); can.drawRightString(x[-1]-4,cy-12,f'{amt:.2f} €'.replace(".",","))
+        cy-=rowh; can.line(x[0],cy,x[-1],cy)
+        pay_y=cy-42; can.setFont("Helvetica",9)
+        iban=get_setting("iban",""); bic=get_setting("bic",""); paypal=get_setting("paypal","")
+        text=f"Bitte überweisen Sie den o.g. Betrag in den nächsten 14 Tagen auf die folgende Bankverbindung: IBAN: {iban} - BIC: {bic} mit dem Verwendungszweck: {no}."
+        words=text.split(); line=""; lines=[]
+        for word in words:
+            test=(line+" "+word).strip()
+            if can.stringWidth(test,"Helvetica",9)>W-100: lines.append(line); line=word
+            else: line=test
+        if line: lines.append(line)
+        for line in lines: can.drawString(50,pay_y,line); pay_y-=13
+        if paypal: can.drawString(50,pay_y,f"Sie können den Betrag auch per PayPal an {paypal} senden."); pay_y-=38
+        else: pay_y-=25
+        can.drawString(50,pay_y,"Mit freundlichen Grüßen"); pay_y-=35
+        can.drawString(50,pay_y,owner); pay_y-=18
+        can.setFont("Helvetica-Bold",9); can.drawString(50,pay_y,"Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift und Stempel gültig.")
+        footer_y=58; can.setFont("Helvetica",6.5)
+        footer=[
+          f'{owner} - {get_setting("qualifications","")}',
+          get_setting("address","")+" - Steuernummer: "+get_setting("tax_number",""),
+          "Tel.: "+get_setting("phone","")+" - Fax: "+get_setting("fax","")+" - "+get_setting("email","")+" - "+get_setting("website",""),
+          "Bankverbindung: IBAN: "+iban+" - BIC: "+bic,
+          "Die Leistungen als Heilpraktiker sind nach § 4 Nr. 14 Buchstabe a UStG von der Umsatzsteuer befreit."
+        ]
+        for line in footer:
+            can.drawCentredString(W/2,footer_y,line); footer_y-=9
+        can.save()
         invoice_items=[]
         if rows:
             for s in rows:
