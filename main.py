@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.21"
+APP_VERSION = "0.11.22"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -672,6 +672,21 @@ class Main(QMainWindow):
         for code,name in fcodes.items(): self.help_fcode.addItem(f"{code} – {name}")
         cg.addWidget(QLabel("ICD-10-GM / F-Code")); cg.addWidget(self.help_fcode,1); v.addWidget(codebox)
         row=QHBoxLayout(); self.help_topic=QComboBox(); self.help_topic.addItems(topics.keys()); row.addWidget(QLabel("Thema")); row.addWidget(self.help_topic,1); v.addLayout(row)
+        symptom_catalog={
+          "PTBS / Trauma":["Intrusionen / belastende Erinnerungen","Albträume","Flashbacks / Wiedererleben","Vermeidung von Erinnerungen oder Situationen","Übermäßige Wachsamkeit","Schreckhaftigkeit","Reizbarkeit / Ärger","Schlafstörungen","Konzentrationsprobleme","Schuld- oder Schamgefühle","Emotionale Taubheit / Distanz","Sozialer Rückzug","Körperliche Stressreaktionen"],
+          "Depressive Beschwerden":["Gedrückte Stimmung","Interessen- / Freudverlust","Antriebsmangel","Erschöpfung","Schlafstörungen","Konzentrationsprobleme","Vermindertes Selbstwertgefühl","Schuldgefühle","Appetitveränderung","Psychomotorische Unruhe / Hemmung","Suizidgedanken"],
+          "Angst / Panik":["Plötzliche Angstspitzen","Herzklopfen / Herzrasen","Atemnot / Engegefühl","Schwindel","Zittern","Schwitzen","Angst vor Kontrollverlust","Angst zu sterben","Erwartungsangst","Vermeidungsverhalten","Sicherheitsverhalten"],
+          "Schlafprobleme":["Einschlafprobleme","Durchschlafprobleme","Frühes Erwachen","Nicht erholsamer Schlaf","Nächtliches Grübeln","Tagesmüdigkeit","Unregelmäßiger Schlafrhythmus"],
+          "ADHS / Aufmerksamkeit":["Unaufmerksamkeit","Leichte Ablenkbarkeit","Vergesslichkeit","Organisationsprobleme","Aufschieben","Impulsivität","Innere / motorische Unruhe","Probleme mit Zeitmanagement"],
+          "Zwänge":["Aufdringliche Gedanken / Bilder / Impulse","Kontrollzwänge","Wasch- / Reinigungszwänge","Ordnungs- / Symmetriezwänge","Mentale Rituale","Rückversicherung","Vermeidung","Hoher Zeitaufwand"]
+        }
+        symptom_box=QFrame(); symptom_box.setObjectName("formCard"); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
+        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(150); sb.addWidget(self.symptom_list); v.addWidget(symptom_box)
+        def load_symptoms():
+            self.symptom_list.clear(); vals=symptom_catalog.get(self.help_topic.currentText(),[])
+            if not vals: vals=["Aktuelle Belastung","Beeinträchtigung im Alltag","Schlaf / Erholung","Körperliche Beschwerden","Rückzug / Vermeidung","Beziehungsbelastung","Ressourcen / Schutzfaktoren"]
+            for s in vals: self.symptom_list.addItem(s)
+        clear_sym.clicked.connect(self.symptom_list.clearSelection); self.help_topic.currentTextChanged.connect(lambda _:load_symptoms()); load_symptoms()
         self.help_text=QTextEdit(); self.help_text.setReadOnly(True); self.help_text.setStyleSheet("font-size:17px;padding:10px"); v.addWidget(self.help_text,1)
         def render():
             d=topics[self.help_topic.currentText()]; parts=["GESPRÄCHSFRAGEN"]+["• "+x for x in d["Fragen"]]
@@ -679,10 +694,12 @@ class Main(QMainWindow):
             labels["SIT"]="SYSTEMISCH-INTEGRATIVE / SIT-IMPULSE"
             for key in ["VT","TP","Systemisch","SIT"]:
                 if key in d: parts+=["",labels[key]]+["• "+x for x in d[key]]
+            selected=[x.text() for x in self.symptom_list.selectedItems()] if hasattr(self,"symptom_list") else []
+            if selected: parts+=["","AUSGEWÄHLTE SYMPTOME"]+["☑ "+x for x in selected]
             code=self.help_fcode.currentText() if hasattr(self,"help_fcode") else ""
             if " – " in code: parts+=["","AUSGEWÄHLTER F-CODE",code,"Hinweis: Der Code dient als Dokumentations- und Gesprächshilfe; keine automatische Diagnosestellung."]
             self.help_text.setPlainText("\n".join(parts))
-        self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); render()
+        self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); self.symptom_list.itemSelectionChanged.connect(render); render()
         add=QPushButton("Ausgewählten Text in Sitzungsnotiz übernehmen"); add.setMinimumHeight(55)
         def add_note():
             x=self.help_text.textCursor().selectedText().strip()
