@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.19"
+APP_VERSION = "0.11.20"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -657,7 +657,12 @@ class Main(QMainWindow):
             "Fragen":["Wann tritt die Angst besonders auf?","Welche Gedanken und Körperempfindungen bemerken Sie zuerst?","Was tun Sie, um die Angst zu vermeiden oder zu kontrollieren?","Was befürchten Sie, könnte im schlimmsten Fall passieren?","Wann war die Angst geringer und was war dann anders?"],
             "VT":["Angstkreislauf und Sicherheitsverhalten gemeinsam herausarbeiten.","Geeignete Expositionsschritte nur nach individueller Prüfung planen."],
             "TP":["Bedeutung der Angst in aktuellen Beziehungen und Konflikten explorieren.","Affekte und innere Konflikte rund um Autonomie, Nähe oder Kontrolle betrachten."],
-            "Systemisch":["Funktion und Kontext der Angst im Lebenssystem explorieren.","Ausnahmen, Ressourcen und Perspektiven wichtiger Bezugspersonen einbeziehen."]}
+            "Systemisch":["Funktion und Kontext der Angst im Lebenssystem explorieren.","Ausnahmen, Ressourcen und Perspektiven wichtiger Bezugspersonen einbeziehen."]},
+          "Selbstverletzung / Suizidgedanken":{"Fragen":["Gab es seit dem letzten Gespräch Gedanken, sich etwas anzutun oder nicht mehr leben zu wollen?","Gibt es konkrete Vorstellungen, Vorbereitungen oder aktuell verfügbare Mittel?","Was hat Sie bisher davon abgehalten zu handeln?","Wer kann heute unmittelbar unterstützen?","Was braucht es, damit die nächsten Stunden sicher gestaltet werden können?"],"VT":["Aktuelle Gedanken, Impulse, Planung, Mittel und Schutzfaktoren strukturiert explorieren.","Einen konkreten Sicherheitsplan und erreichbare Unterstützung vereinbaren; bei akuter Gefahr Notfallversorgung veranlassen."],"TP":["Akute Sicherheit hat Vorrang; danach Auslöser, Affekte, Beziehungskonflikte und Bedeutung der Krise explorieren."],"Systemisch":["Verfügbare Bezugspersonen und professionelle Hilfen konkret aktivieren.","Verantwortlichkeiten und nächste Schritte für die unmittelbare Sicherheit eindeutig klären."]},
+          "Trauma / belastende Erinnerungen":{"Fragen":["Welche Erinnerungen oder Situationen drängen sich ungewollt auf?","Welche Auslöser bemerken Sie?","Was passiert dabei körperlich, emotional und gedanklich?","Was hilft Ihnen, wieder ins Hier und Jetzt zu kommen?","Welche Situationen vermeiden Sie derzeit?"],"VT":["Trigger, Intrusionen, Vermeidung und Sicherheitsverhalten erfassen.","Stabilisierung und alltagsnahe Bewältigung vor weiterführender Konfrontationsarbeit sichern."],"TP":["Affekte, Beziehungserleben und Bedeutung traumatischer Erfahrungen behutsam explorieren.","Überflutung vermeiden und aktuelle Stabilität fortlaufend berücksichtigen."],"Systemisch":["Sichere Beziehungen, Ressourcen und hilfreiche Kontexte identifizieren.","Auswirkungen auf Partnerschaft, Familie und Alltag zirkulär betrachten."]},
+          "ADHS / Aufmerksamkeit":{"Fragen":["In welchen Alltagssituationen fallen Aufmerksamkeit oder Organisation besonders schwer?","Was wird häufig begonnen, aber nicht beendet?","Welche Strategien funktionieren bereits?","Wie wirken Zeitdruck, Schlaf und Stress auf die Symptome?","Welche konkrete Veränderung würde den Alltag diese Woche erleichtern?"],"VT":["Aufgaben in kleine sichtbare Schritte zerlegen und externe Strukturhilfen erproben.","Ablenkungsquellen, Zeitplanung und Verstärkung hilfreichen Verhaltens untersuchen."],"TP":["Selbstwert, Beschämung und Beziehungserfahrungen im Zusammenhang mit wiederholtem Scheitern explorieren."],"Systemisch":["Anforderungen und Unterstützung in Familie, Arbeit oder Ausbildung sichtbar machen.","Umgebung so gestalten, dass hilfreiches Verhalten leichter wird."]},
+          "Zwänge":{"Fragen":["Welche Gedanken, Bilder oder Impulse lösen den stärksten Druck aus?","Welche Handlungen oder mentalen Rituale folgen darauf?","Wie lange beschäftigen Sie die Zwänge täglich?","Was befürchten Sie, wenn Sie das Ritual nicht ausführen?","Welche Bereiche Ihres Lebens werden dadurch eingeschränkt?"],"VT":["Zwangskreislauf, kurzfristige Entlastung und langfristige Aufrechterhaltung transparent machen.","Expositionsbasierte Schritte nur nach individueller Indikations- und Belastungsprüfung planen."],"TP":["Bedeutung von Kontrolle, Schuld, Aggression und Verantwortung explorieren."],"Systemisch":["Reaktionen und mögliche Einbindung naher Bezugspersonen in Zwangsrituale betrachten.","Unterstützende Veränderungen ohne zusätzliche Rückversicherung entwickeln."]},
+          "Selbstfürsorge / Grenzen":{"Fragen":["Woran merken Sie, dass Sie über Ihre Grenze gehen?","Bei wem fällt Nein-Sagen besonders schwer?","Welche Befürchtung steht hinter dem Setzen einer Grenze?","Was würden Sie einer nahestehenden Person in derselben Situation raten?","Welche kleine Grenze können Sie diese Woche konkret erproben?"],"VT":["Auslöser, automatische Gedanken und Konsequenzen fehlender Abgrenzung analysieren.","Konkrete Formulierungen und Verhaltensübungen vorbereiten."],"TP":["Konflikte zwischen Autonomie, Zugehörigkeit, Schuld und Anerkennung explorieren."],"Systemisch":["Rollen und Erwartungen im Umfeld sichtbar machen.","Veränderungen als Wechselwirkung im Beziehungssystem betrachten."]}
         }
         # F-Code-Schnellzugriff als Arbeitshilfe (keine automatische Diagnose)
         fcodes={
@@ -669,10 +674,13 @@ class Main(QMainWindow):
         row=QHBoxLayout(); self.help_topic=QComboBox(); self.help_topic.addItems(topics.keys()); row.addWidget(QLabel("Thema")); row.addWidget(self.help_topic,1); v.addLayout(row)
         self.help_text=QTextEdit(); self.help_text.setReadOnly(True); self.help_text.setStyleSheet("font-size:17px;padding:10px"); v.addWidget(self.help_text,1)
         def render():
-            d=topics[self.help_topic.currentText()]; parts=["FRAGEN"]+["• "+x for x in d["Fragen"]]
-            for key in ["VT","TP","Systemisch"]: parts+=["",key]+["• "+x for x in d[key]]
+            d=topics[self.help_topic.currentText()]; parts=["GESPRÄCHSFRAGEN"]+["• "+x for x in d["Fragen"]]
+            labels={"VT":"VERHALTENSTHERAPEUTISCHE IMPULSE","TP":"TIEFENPSYCHOLOGISCHE IMPULSE","Systemisch":"SYSTEMISCHE IMPULSE"}
+            for key in ["VT","TP","Systemisch"]: parts+=["",labels[key]]+["• "+x for x in d[key]]
+            code=self.help_fcode.currentText() if hasattr(self,"help_fcode") else ""
+            if " – " in code: parts+=["","AUSGEWÄHLTER F-CODE",code,"Hinweis: Der Code dient als Dokumentations- und Gesprächshilfe; keine automatische Diagnosestellung."]
             self.help_text.setPlainText("\n".join(parts))
-        self.help_topic.currentTextChanged.connect(render); render()
+        self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); render()
         add=QPushButton("Ausgewählten Text in Sitzungsnotiz übernehmen"); add.setMinimumHeight(55)
         def add_note():
             x=self.help_text.textCursor().selectedText().strip()
