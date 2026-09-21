@@ -8,6 +8,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Read app version
+        shell: pwsh
+        run: |
+          $m = Select-String -Path main.py -Pattern '^APP_VERSION\s*=\s*"([^"]+)"'
+          if (-not $m) { throw "APP_VERSION not found in main.py" }
+          $v = $m.Matches[0].Groups[1].Value
+          "APP_VERSION=$v" >> $env:GITHUB_ENV
+          Write-Host "Building PraxisPro v$v"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -24,11 +32,12 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Build installer
-        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" PraxisPro.iss'
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:APP_VERSION" PraxisPro.iss'
       - uses: actions/upload-artifact@v4
         with:
-          name: PraxisPro-Windows-v0.10.8
+          name: PraxisPro-Windows-v${{ env.APP_VERSION }}
           path: |
             dist/Praxisverwaltung.exe
-            installer/PraxisPro_Setup_v0.10.8.exe
+            installer/PraxisPro_Setup_v${{ env.APP_VERSION }}.exe
           retention-days: 30
