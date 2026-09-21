@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.10.0"
+APP_VERSION = "0.10.1"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -484,24 +484,26 @@ class Main(QMainWindow):
         self.client_pick.currentIndexChanged.connect(picked)
         editclient.clicked.connect(self.edit_session_client)
 
-        notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(12,8,12,10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setFixedWidth(150); nhead.addWidget(template); nv.addLayout(nhead)
+        notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(16,12,16,14); nv.setSpacing(10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setMinimumWidth(175); template.setMinimumHeight(40); nhead.addWidget(template); nv.addLayout(nhead)
         self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …");
         note_templates={"Erstgespräch":"Anliegen / Auftrag:\n\nAktuelle Situation:\n\nRessourcen:\n\nZiele / Vereinbarungen:\n","Verlauf":"Aktueller Verlauf:\n\nBeobachtungen / Veränderungen:\n\nInterventionen:\n\nVereinbarungen / nächster Schritt:\n","Abschluss":"Rückblick / Zielerreichung:\n\nStabilisierende Faktoren:\n\nOffene Themen:\n\nAbschlussvereinbarung:\n"}
         def apply_note_template(text):
             if text in note_templates and (not self.notes.toPlainText().strip() or QMessageBox.question(self,"Vorlage einsetzen","Vorhandene Notiz durch die gewählte Vorlage ersetzen?")==QMessageBox.Yes): self.notes.setPlainText(note_templates[text])
             template.setCurrentIndex(0)
         template.currentTextChanged.connect(apply_note_template)
-        self.notes.setMinimumHeight(155); self.notes.setMaximumHeight(210); nv.addWidget(self.notes); v.addWidget(notesbox)
+        self.notes.setMinimumHeight(210); self.notes.setMaximumHeight(300); nv.addWidget(self.notes); v.addWidget(notesbox)
 
         self.ink=InkCanvas(); inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); fullscreen=QPushButton("⛶ Vollbild schreiben"); fullscreen.clicked.connect(self.open_ink_fullscreen)
-        for x in (QLabel("Stärke:"),width,eraser,undo,clearink,fullscreen): inkhead.addWidget(x)
-        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(12,8,12,10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(285); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
+        for x in (QLabel("Stärke:"),width,eraser,undo,clearink,fullscreen):
+            if hasattr(x,"setMinimumHeight"): x.setMinimumHeight(40)
+            inkhead.addWidget(x)
+        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(330); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
         h=QHBoxLayout()
         buttons=[("▶ Sitzung starten",self.start_session,"background:#16a34a"),("⏸ Pause/Fortsetzen",self.pause,"background:#1683d8"),("■ Sitzung beenden",self.end_session,"background:#e11d48"),("💾 Speichern",self.save_session,"background:#f8fafc;color:#1261a0;border:1px solid #9bb7cf")]
         for text_,fn,style in buttons:
-            b=QPushButton(text_); b.setMinimumHeight(54); b.setStyleSheet(style+";font-weight:800;font-size:15px"); b.clicked.connect(fn); h.addWidget(b)
+            b=QPushButton(text_); b.setMinimumHeight(58); b.setStyleSheet(style+";font-weight:800;font-size:15px"); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h)
         scroll=QScrollArea(); scroll.setObjectName("sessionScroll"); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setWidget(page); return scroll
 
