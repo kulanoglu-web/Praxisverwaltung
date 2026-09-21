@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.28"
+APP_VERSION = "0.11.29"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -377,8 +377,8 @@ class Main(QMainWindow):
         #sidebar { background:#132f47; border:0; }
         #brand { color:white; font-size:17px; font-weight:800; padding:5px 8px 12px 8px; letter-spacing:.3px; }
         #sidefoot { color:#b9c8d5; font-size:12px; padding:10px; }
-        #nav { background:transparent; border:0; outline:0; color:#dce7ef; font-size:14px; }
-        #nav::item { padding:9px 10px; margin:1px 0; border-radius:8px; min-height:21px; }
+        #nav { background:transparent; border:0; outline:0; color:#dce7ef; font-size:13px; }
+        #nav::item { padding:7px 9px; margin:1px 0; border-radius:8px; min-height:21px; }
         #nav::item:selected { background:#2f7de1; color:white; font-weight:700; }
         #nav::item:hover:!selected { background:#244d70; color:white; }
         QStackedWidget { background:#f4f6f8; }\n        #topBrandBar { background:white; border-bottom:1px solid #dce3e9; }
@@ -417,7 +417,7 @@ class Main(QMainWindow):
         QCheckBox { spacing:6px; font-size:12px; min-height:22px; }
         QLineEdit[readOnly="true"] { background:#f4f7f9; color:#607080; }
         QTableWidget { background:white; alternate-background-color:#f6f8fa; border:1px solid #d8e0e7; border-radius:8px; gridline-color:#e6ebef; font-size:12px; }
-        QHeaderView::section { background:#edf2f6; color:#243746; padding:9px; border:0; border-bottom:1px solid #ccd6df; font-weight:700; }
+        QHeaderView::section { background:#edf2f6; color:#243746; padding:6px; border:0; border-bottom:1px solid #ccd6df; font-weight:700; }
         QSplitter::handle { background:#d5dde5; height:7px; margin:3px 0; border-radius:3px; }
         QStatusBar { background:#17324d; color:white; }
         QStatusBar QLabel { color:white; font-weight:700; padding:4px 10px; }
@@ -611,8 +611,8 @@ class Main(QMainWindow):
     def helper_ui(self):
         w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0)
         scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        body=QWidget(); body.setMinimumWidth(0); v=QVBoxLayout(body); v.setContentsMargins(18,14,18,18); v.setSpacing(8)
-        title=QLabel("Sitzungsassistent – Fragen & Interventionen"); title.setStyleSheet("font-size:21px;font-weight:700"); v.addWidget(title)
+        body=QWidget(); body.setMinimumWidth(0); v=QVBoxLayout(body); v.setContentsMargins(16,10,16,14); v.setSpacing(6)
+        title=QLabel("Sitzungsassistent – Fragen & Interventionen"); title.setStyleSheet("font-size:20px;font-weight:700"); v.addWidget(title)
         hint=QLabel("Arbeitshilfe zur Gesprächsführung – keine automatische Diagnose."); hint.setWordWrap(True); v.addWidget(hint)
         topics={
           "Selbstwert / Selbstbewusstsein":{
@@ -703,7 +703,7 @@ class Main(QMainWindow):
           "Sexualität / Intimität":["Verminderte Lust","Leistungsdruck","Schmerzen / körperliche Beschwerden","Vermeidung von Nähe","Scham","Unterschiedliche Bedürfnisse","Kommunikationsprobleme","Belastung der Partnerschaft"]
         }
         symptom_box=QFrame(); symptom_box.setObjectName("formCard"); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
-        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(150); sb.addWidget(self.symptom_list)
+        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(120); self.symptom_list.setMaximumHeight(170); sb.addWidget(self.symptom_list)
         sr=QHBoxLayout(); self.sym_custom=QLineEdit(); self.sym_custom.setPlaceholderText("Weiteres Symptom ergänzen …"); add_sym=QPushButton("＋ Symptom"); sr.addWidget(self.sym_custom,1); sr.addWidget(add_sym); sb.addLayout(sr)
         def add_custom_symptom():
             t=self.sym_custom.text().strip()
@@ -810,7 +810,8 @@ class Main(QMainWindow):
             if not x:return QMessageBox.information(self,"Auswahl","Bitte zuerst eine Frage oder einen Hinweis markieren.")
             self.notes.append(x)
         add.clicked.connect(add_note); v.addWidget(add)
-        scroll.setWidget(body); outer.addWidget(scroll)\n        return w
+        scroll.setWidget(body); outer.addWidget(scroll)
+        return w
 
     def restore_draft(self):
         p=ROOT/"Sitzung_Autosave.json.enc"
@@ -1489,13 +1490,13 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); body=QWidget(); v=QVBoxLayout(body); v.setContentsMargins(32,26,32,36); v.setSpacing(16)
         title=QLabel("Praxiseinstellungen"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Praxisdaten, Abrechnung, Honorare und Benutzer übersichtlich verwalten."); sub.setObjectName("pageSub"); v.addWidget(sub)
-        tabs=QTabWidget(); tabs.setDocumentMode(True); tabs.setMinimumHeight(650); v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
-        general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(20,22,20,28); gv.setSpacing(18)
-        form=QFormLayout(); form.setHorizontalSpacing(28); form.setVerticalSpacing(14); form.setLabelAlignment(Qt.AlignLeft|Qt.AlignVCenter); fields={}
+        tabs=QTabWidget(); tabs.setDocumentMode(True); tabs.setMinimumHeight(520); v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
+        general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(16,14,16,20); gv.setSpacing(10)
+        form=QFormLayout(); form.setHorizontalSpacing(18); form.setVerticalSpacing(8); form.setLabelAlignment(Qt.AlignLeft|Qt.AlignVCenter); fields={}
         labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("address","Anschrift"),("phone","Telefon"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
         for key,label in labels:
-            ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(42); fields[key]=ed; form.addRow(label,ed)
-        logo=QLineEdit(get_setting("logo_path")); logo.setMinimumHeight(42); fields["logo_path"]=logo; choose=QPushButton("Logo auswählen …"); choose.setMinimumHeight(42)
+            ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(32); fields[key]=ed; form.addRow(label,ed)
+        logo=QLineEdit(get_setting("logo_path")); logo.setMinimumHeight(32); fields["logo_path"]=logo; choose=QPushButton("Logo auswählen …"); choose.setMinimumHeight(32)
         def pick_logo():
             p,_=QFileDialog.getOpenFileName(self,"Praxislogo auswählen","","Bilder (*.png *.jpg *.jpeg)")
             if p: logo.setText(p)
@@ -1503,10 +1504,10 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         gv.addLayout(form)
         appearance=QFrame(); appearance.setObjectName("formCard"); af=QFormLayout(appearance)
         theme=QComboBox(); theme.addItems(["PraxisPro Blau","Petrol","Grün","Gold","Violett"]); theme.setCurrentText(get_setting("ui_theme","PraxisPro Blau"))
-        fontsize=QSpinBox(); fontsize.setRange(10,18); fontsize.setValue(int(get_setting("ui_font_size","13"))); fontsize.setSuffix(" px")
+        fontsize=QSpinBox(); fontsize.setRange(9,16); fontsize.setValue(int(get_setting("ui_font_size","12"))); fontsize.setSuffix(" px")
         density=QComboBox(); density.addItems(["Kompakt","Normal","Groß"]); density.setCurrentText(get_setting("ui_density","Kompakt"))
         af.addRow("Farbschema",theme); af.addRow("Schriftgröße",fontsize); af.addRow("Darstellung",density); gv.addWidget(appearance)
-        save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(54)
+        save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(42)
         def save_settings():
             for k,ed in fields.items(): set_setting(k,ed.text().strip())
             set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value()); set_setting("ui_theme",theme.currentText()); set_setting("ui_font_size",fontsize.value()); set_setting("ui_density",density.currentText())
