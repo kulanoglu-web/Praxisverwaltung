@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.14"
+APP_VERSION = "0.11.15"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -733,7 +733,9 @@ class Main(QMainWindow):
                 except Exception:pass
         QMessageBox.information(self,"Gespeichert",f"Sitzung gespeichert: {mins} Minuten.")
     def invoice_ui(self):
-        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
+        w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0)
+        scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(28,24,28,34); v.setSpacing(16)
         title=QLabel("Neue Rechnung"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Einzelrechnung oder Sammelrechnung aus noch nicht abgerechneten Sitzungen"); sub.setObjectName("pageSub"); v.addWidget(sub)
         card=QFrame(); card.setObjectName("formCard"); f=QFormLayout(card); f.setSpacing(12)
