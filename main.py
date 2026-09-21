@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.16"
+APP_VERSION = "0.11.17"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -86,8 +86,10 @@ def bundled_asset(name):
 def practice_logo_path():
     custom=get_setting("logo_path","")
     if custom and Path(custom).exists(): return Path(custom)
-    bundled=bundled_asset("logo.jpg")
-    return bundled if bundled.exists() else None
+    for name in ("logo.png","logo.jpg"):
+        bundled=bundled_asset(name)
+        if bundled.exists(): return bundled
+    return None
 
 DATA=ROOT/"praxisdaten.json.enc"
 for p in [ROOT/"Klienten",ROOT/"Einnahmen",ROOT/"Backups",DBDIR]: p.mkdir(parents=True,exist_ok=True)
@@ -344,7 +346,7 @@ def ensure_first_user():
 
 class Main(QMainWindow):
     def __init__(self):
-        super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle(f"Praxisverwaltung v{APP_VERSION}"); self.resize(1280,820); self.setMinimumSize(1050,700)
+        super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle(f"PraxisPro v{APP_VERSION} – Erdoğan Kulanoğlu"); self.resize(1280,820); self.setMinimumSize(1050,700)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
@@ -399,21 +401,21 @@ class Main(QMainWindow):
         QTabWidget::pane { border:0; background:white; border-radius:12px; }
         QTabBar::tab { background:#e9eef3; padding:12px 20px; margin:2px; border-radius:8px; font-size:14px; }
         QTabBar::tab:selected { background:#17324d; color:white; font-weight:700; }
-        QLabel { color:#1f2933; font-size:14px; }
+        QLabel { color:#1f2933; font-size:13px; }
         QLineEdit,QTextEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox {
-            background:white; border:2px solid #b8c7d4; border-radius:9px; padding:8px 10px; min-height:26px; font-size:15px;
+            background:white; border:2px solid #b8c7d4; border-radius:9px; padding:8px 10px; min-height:24px; font-size:13px;
             selection-background-color:#17324d;
         }
         QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QDateEdit:focus,QTimeEdit:focus,QSpinBox:focus {
             border:2px solid #356b92;
         }
-        QPushButton { background:#1f6fb2; color:white; border:0; border-radius:9px; padding:10px 16px; font-size:14px; font-weight:600; }
+        QPushButton { background:#1f6fb2; color:white; border:0; border-radius:9px; padding:9px 14px; font-size:13px; font-weight:600; }
         QPushButton:hover { background:#244d70; }
         QPushButton:disabled { background:#c8d2dc; color:#71808c; }
         QPushButton:pressed { background:#10283d; }
-        QCheckBox { spacing:8px; font-size:14px; min-height:28px; }
+        QCheckBox { spacing:8px; font-size:13px; min-height:26px; }
         QLineEdit[readOnly="true"] { background:#f4f7f9; color:#607080; }
-        QTableWidget { background:white; alternate-background-color:#f6f8fa; border:1px solid #d8e0e7; border-radius:8px; gridline-color:#e6ebef; font-size:14px; }
+        QTableWidget { background:white; alternate-background-color:#f6f8fa; border:1px solid #d8e0e7; border-radius:8px; gridline-color:#e6ebef; font-size:13px; }
         QHeaderView::section { background:#edf2f6; color:#243746; padding:9px; border:0; border-bottom:1px solid #ccd6df; font-weight:700; }
         QSplitter::handle { background:#d5dde5; height:7px; margin:3px 0; border-radius:3px; }
         QStatusBar { background:#17324d; color:white; }
@@ -536,7 +538,7 @@ class Main(QMainWindow):
         for text_,fn,style in buttons:
             b=QPushButton(text_); b.setMinimumHeight(48); b.setStyleSheet(style+";font-weight:800;font-size:13px"); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h)
-        scroll=QScrollArea(); scroll.setObjectName("sessionScroll"); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setWidget(page); return scroll
+        scroll=QScrollArea(); scroll.setObjectName("sessionScroll"); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); page.setMinimumWidth(0); scroll.setWidget(page); return scroll
 
     def open_new_client_dialog(self):
         if not self.require_edit(): return
@@ -645,6 +647,13 @@ class Main(QMainWindow):
             "TP":["Bedeutung der Angst in aktuellen Beziehungen und Konflikten explorieren.","Affekte und innere Konflikte rund um Autonomie, Nähe oder Kontrolle betrachten."],
             "Systemisch":["Funktion und Kontext der Angst im Lebenssystem explorieren.","Ausnahmen, Ressourcen und Perspektiven wichtiger Bezugspersonen einbeziehen."]}
         }
+        # F-Code-Schnellzugriff als Arbeitshilfe (keine automatische Diagnose)
+        fcodes={
+          "F32.0":"Leichte depressive Episode","F32.1":"Mittelgradige depressive Episode","F32.2":"Schwere depressive Episode ohne psychotische Symptome","F33.0":"Rezidivierende depressive Störung, gegenwärtig leichte Episode","F33.1":"Rezidivierende depressive Störung, gegenwärtig mittelgradige Episode","F40.0":"Agoraphobie","F40.1":"Soziale Phobien","F41.0":"Panikstörung","F41.1":"Generalisierte Angststörung","F43.0":"Akute Belastungsreaktion","F43.1":"Posttraumatische Belastungsstörung","F43.2":"Anpassungsstörungen","F45.0":"Somatisierungsstörung","F50.0":"Anorexia nervosa","F50.2":"Bulimia nervosa","F51.0":"Nichtorganische Insomnie","F60.3":"Emotional instabile Persönlichkeitsstörung","F90.0":"Einfache Aktivitäts- und Aufmerksamkeitsstörung"
+        }
+        codebox=QFrame(); codebox.setObjectName("formCard"); cg=QHBoxLayout(codebox); self.help_fcode=QComboBox(); self.help_fcode.setEditable(True); self.help_fcode.addItem("F-Code auswählen / suchen …");
+        for code,name in fcodes.items(): self.help_fcode.addItem(f"{code} – {name}")
+        cg.addWidget(QLabel("ICD-10-GM / F-Code")); cg.addWidget(self.help_fcode,1); v.addWidget(codebox)
         row=QHBoxLayout(); self.help_topic=QComboBox(); self.help_topic.addItems(topics.keys()); row.addWidget(QLabel("Thema")); row.addWidget(self.help_topic,1); v.addLayout(row)
         self.help_text=QTextEdit(); self.help_text.setReadOnly(True); self.help_text.setStyleSheet("font-size:17px;padding:10px"); v.addWidget(self.help_text,1)
         def render():
@@ -1344,10 +1353,15 @@ Die Praxisdaten des jeweiligen Nutzers können unabhängig von diesen Hersteller
             if p: logo.setText(p)
         choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
         gv.addLayout(form)
+        appearance=QFrame(); appearance.setObjectName("formCard"); af=QFormLayout(appearance)
+        theme=QComboBox(); theme.addItems(["PraxisPro Blau","Petrol","Grün","Gold","Violett"]); theme.setCurrentText(get_setting("ui_theme","PraxisPro Blau"))
+        fontsize=QSpinBox(); fontsize.setRange(10,18); fontsize.setValue(int(get_setting("ui_font_size","13"))); fontsize.setSuffix(" px")
+        density=QComboBox(); density.addItems(["Kompakt","Normal","Groß"]); density.setCurrentText(get_setting("ui_density","Kompakt"))
+        af.addRow("Farbschema",theme); af.addRow("Schriftgröße",fontsize); af.addRow("Darstellung",density); gv.addWidget(appearance)
         save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(54)
         def save_settings():
             for k,ed in fields.items(): set_setting(k,ed.text().strip())
-            set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value())
+            set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value()); set_setting("ui_theme",theme.currentText()); set_setting("ui_font_size",fontsize.value()); set_setting("ui_density",density.currentText())
             QMessageBox.information(self,"Gespeichert","Die Praxisvorlage wurde gespeichert. Deine bisherigen Daten bleiben die Standardvorlage.")
         save.clicked.connect(save_settings); gv.addSpacing(8); gv.addWidget(save); gv.addStretch(); tabs.addTab(general,"Praxisdaten")
         billing=QWidget(); bv=QVBoxLayout(billing); bv.setContentsMargins(20,22,20,28); bv.setSpacing(18)
