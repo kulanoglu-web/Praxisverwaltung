@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.9.6"
+APP_VERSION = "0.9.7"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -482,8 +482,13 @@ class Main(QMainWindow):
         self.client_pick.currentIndexChanged.connect(picked)
         editclient.clicked.connect(lambda: self.nav.setCurrentRow(3))
 
-        notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(12,8,12,10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setFixedWidth(135); nhead.addWidget(template); nv.addLayout(nhead)
-        self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …"); self.notes.setMinimumHeight(125); self.notes.setMaximumHeight(165); nv.addWidget(self.notes); v.addWidget(notesbox)
+        notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(12,8,12,10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setFixedWidth(150); nhead.addWidget(template); nv.addLayout(nhead)
+        self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …");
+        note_templates={"Erstgespräch":"Anliegen / Auftrag:\n\nAktuelle Situation:\n\nRessourcen:\n\nZiele / Vereinbarungen:\n","Verlauf":"Aktueller Verlauf:\n\nBeobachtungen / Veränderungen:\n\nInterventionen:\n\nVereinbarungen / nächster Schritt:\n","Abschluss":"Rückblick / Zielerreichung:\n\nStabilisierende Faktoren:\n\nOffene Themen:\n\nAbschlussvereinbarung:\n"}
+        def apply_note_template(text):
+            if text in note_templates and (not self.notes.toPlainText().strip() or QMessageBox.question(self,"Vorlage einsetzen","Vorhandene Notiz durch die gewählte Vorlage ersetzen?")==QMessageBox.Yes): self.notes.setPlainText(note_templates[text])
+            template.setCurrentIndex(0)
+        template.currentTextChanged.connect(apply_note_template) self.notes.setMinimumHeight(125); self.notes.setMaximumHeight(165); nv.addWidget(self.notes); v.addWidget(notesbox)
 
         self.ink=InkCanvas(); inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
@@ -623,7 +628,7 @@ class Main(QMainWindow):
             self.s_first.setText(x.get("first","")); self.s_last.setText(x.get("last","")); self.s_dob.setText(x.get("dob",""))
     def start_session(self):
         if not self.require_edit(): return
-        now=datetime.now(); self.s_date.setDate(QDate.currentDate()); self.started=now; self.acc=0; self.running=True; self.update_wallclock()
+        now=datetime.now(); self.s_date.setDate(QDate.currentDate()); self.s_start.setTime(QTime.currentTime()); self.s_end.setTime(QTime.currentTime()); self.started=now; self.acc=0; self.running=True; self.update_wallclock()
     def pause(self):
         if not self.require_edit(): return
         if self.running and self.started: self.acc+=(datetime.now()-self.started).total_seconds(); self.running=False
