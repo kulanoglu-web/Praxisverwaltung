@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.5"
+APP_VERSION = "0.11.6"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -999,11 +999,24 @@ class Main(QMainWindow):
                 ed=QLineEdit(str(cc.get(key,""))); fields[key]=ed; form.addRow(label,ed)
             buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); form.addRow(buttons)
             def save_master():
-                if not fields["last"].text().strip() or not fields["first"].text().strip():return QMessageBox.warning(dlg,"Fehlt","Vorname und Nachname sind erforderlich.")
+                new_last=fields["last"].text().strip(); new_first=fields["first"].text().strip()
+                if not new_last or not new_first:return QMessageBox.warning(dlg,"Fehlt","Vorname und Nachname sind erforderlich.")
+                old_last,old_first=cc.get("last",""),cc.get("first","")
+                name_changed=(old_last!=new_last or old_first!=new_first)
+                if name_changed:
+                    duplicate=next((x for x in DB["clients"] if x is not cc and x.get("last","").lower()==new_last.lower() and x.get("first","").lower()==new_first.lower() and x.get("dob","")==fields["dob"].text().strip()),None)
+                    if duplicate:return QMessageBox.warning(dlg,"Klient","Ein Klient mit diesem Namen und Geburtsdatum existiert bereits.")
+                    if QMessageBox.question(dlg,"Name ändern",f"Name von {old_first} {old_last} in {new_first} {new_last} ändern?\n\nZugehörige Sitzungen und Rechnungen werden mit aktualisiert.")!=QMessageBox.Yes:return
+                    for sess in DB["sessions"]:
+                        if sess.get("last")==old_last and sess.get("first")==old_first:
+                            sess["last"]=new_last; sess["first"]=new_first
+                    old_keys={f"{old_last}, {old_first}",f"{old_first} {old_last}"}
+                    for inv in DB["invoices"]:
+                        if str(inv.get("client","")).strip() in old_keys: inv["client"]=f"{new_last}, {new_first}"
                 for key,ed in fields.items():cc[key]=ed.text().strip()
                 save_data()
                 for j,key in enumerate(["last","first","dob","phone","email"]):t.setItem(r,j,QTableWidgetItem(str(cc.get(key,""))))
-                audit("CLIENT_UPDATED","Klientenstammdaten bearbeitet",self.current_user.get("username","") if self.current_user else ""); dlg.accept()
+                audit("CLIENT_UPDATED",("Klientenname und Verknüpfungen aktualisiert" if name_changed else "Klientenstammdaten bearbeitet"),self.current_user.get("username","") if self.current_user else ""); dlg.accept()
             buttons.accepted.connect(save_master); buttons.rejected.connect(dlg.reject); dlg.exec()
         editclient.clicked.connect(edit_client_master)
         mainactions=QHBoxLayout(); mainactions.addWidget(opensessions); mainactions.addWidget(editclient); v.addLayout(mainactions)
@@ -1027,9 +1040,13 @@ class Main(QMainWindow):
         def show_ink():
             r=t.currentRow()
             if r<0:return
-            last=t.item(r,0).text(); first=t.item(r,1).text(); d=client_dir({"last":last,"first":first})/"Sitzungen"; files=sorted(d.glob("*_Handschrift.png"),reverse=True)
-            if not files:return QMessageBox.information(self,"Handschrift","Keine handschriftliche Notiz gefunden.")
-            dlg=QMessageBox(self); dlg.setWindowTitle("Handschriftliche Notiz"); pix=QPixmap(str(files[0])); dlg.setIconPixmap(pix.scaled(900,550,Qt.KeepAspectRatio,Qt.SmoothTransformation)); dlg.exec()
+            last=t.item(r,0).text(); first=t.item(r,1).text()
+            rows=[s for s in DB["sessions"] if s.get("last")==last and s.get("first")==first and s.get("ink_file") and Path(s.get("ink_file","")).exists()]
+            rows.sort(key=lambda s:(s.get("date",""),s.get("start","")),reverse=True)
+            if not rows:return QMessageBox.information(self,"Handschrift","Keine handschriftliche Notiz gefunden.")
+            data=decrypt_file_bytes(rows[0].get("ink_file","")); pix=QPixmap()
+            if not data or not pix.loadFromData(data):return QMessageBox.warning(self,"Handschrift","Die handschriftliche Notiz konnte nicht gelesen werden.")
+            dlg=QMessageBox(self); dlg.setWindowTitle("Handschriftliche Notiz"); dlg.setIconPixmap(pix.scaled(900,550,Qt.KeepAspectRatio,Qt.SmoothTransformation)); dlg.exec()
         openink.clicked.connect(show_ink); v.addWidget(openink)
         b=QPushButton("Klientenliste aktualisieren"); b.setMinimumHeight(45)
         def refresh():
