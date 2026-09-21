@@ -31,8 +31,14 @@ jobs:
       - run: pyinstaller --noconfirm --clean --onefile --windowed --add-data "assets/logo.jpg;assets" --name Praxisverwaltung main.py
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
+      - name: Detect signing certificate
+        shell: pwsh
+        env:
+          SIGNING_PFX_B64: ${{ secrets.WINDOWS_SIGNING_PFX }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PFX_B64)) { "HAS_SIGNING_CERT=false" >> $env:GITHUB_ENV } else { "HAS_SIGNING_CERT=true" >> $env:GITHUB_ENV }
       - name: Sign application executable
-        if: ${{ secrets.WINDOWS_SIGNING_PFX != '' }}
+        if: ${{ env.HAS_SIGNING_CERT == 'true' }}
         shell: pwsh
         env:
           SIGNING_PFX_B64: ${{ secrets.WINDOWS_SIGNING_PFX }}
@@ -49,7 +55,7 @@ jobs:
         shell: pwsh
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:APP_VERSION" PraxisPro.iss'
       - name: Sign installer
-        if: ${{ secrets.WINDOWS_SIGNING_PFX != '' }}
+        if: ${{ env.HAS_SIGNING_CERT == 'true' }}
         shell: pwsh
         env:
           SIGNING_PFX_B64: ${{ secrets.WINDOWS_SIGNING_PFX }}
@@ -65,11 +71,7 @@ jobs:
       - name: Signing status
         shell: pwsh
         run: |
-          if ("${{ secrets.WINDOWS_SIGNING_PFX }}" -eq "") {
-            Write-Warning "No trusted code-signing certificate configured. Build is unsigned."
-          } else {
-            Write-Host "PraxisPro EXE and installer are Authenticode-signed and verified."
-          }
+          if ("$env:HAS_SIGNING_CERT" -eq "true") { Write-Host "PraxisPro EXE and installer are Authenticode-signed and verified." } else { Write-Warning "No trusted code-signing certificate configured. Build is unsigned." }
       - uses: actions/upload-artifact@v4
         with:
           name: PraxisPro-Windows-v${{ env.APP_VERSION }}
