@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.10.2"
+APP_VERSION = "0.10.3"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -866,8 +866,10 @@ class Main(QMainWindow):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
         title=QLabel("Klienten"); title.setObjectName("pageTitle"); v.addWidget(title)
         tools=QHBoxLayout(); search=QLineEdit(); search.setPlaceholderText("Klient suchen …"); search.setClearButtonEnabled(True); tools.addWidget(search,1); v.addLayout(tools)
-        t=QTableWidget(0,3); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setAlternatingRowColors(True); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers)
-        for c in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): r=t.rowCount();t.insertRow(r);[t.setItem(r,j,QTableWidgetItem(str(c.get(k,"")))) for j,k in enumerate(["last","first","dob"])]
+        t=QTableWidget(0,5); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum","Telefon","E-Mail"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setAlternatingRowColors(True); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers)
+        for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())):
+            r=t.rowCount(); t.insertRow(r)
+            for j,k in enumerate(["last","first","dob","phone","email"]): t.setItem(r,j,QTableWidgetItem(str(cc.get(k,""))))
         v.addWidget(t)
         def filter_clients(txt):
             q=txt.strip().lower()
@@ -876,6 +878,7 @@ class Main(QMainWindow):
                 t.setRowHidden(row,q not in hay)
         search.textChanged.connect(filter_clients)
         opensessions=QPushButton("Klientenakte öffnen"); opensessions.setMinimumHeight(48)
+        editclient=QPushButton("Klientendaten bearbeiten"); editclient.setMinimumHeight(48)
         def show_sessions():
             r=t.currentRow()
             if r<0:return
@@ -922,7 +925,26 @@ class Main(QMainWindow):
             view.clicked.connect(open_selected)
             actionrow=QHBoxLayout(); actionrow.addWidget(view); actionrow.addWidget(edit); lay.addLayout(actionrow)
             close=QDialogButtonBox(QDialogButtonBox.Close); close.rejected.connect(dlg.reject); lay.addWidget(close); dlg.exec()
-        opensessions.clicked.connect(show_sessions); t.cellDoubleClicked.connect(lambda *_: show_sessions()); v.addWidget(opensessions)
+        opensessions.clicked.connect(show_sessions); t.cellDoubleClicked.connect(lambda *_: show_sessions())
+        def edit_client_master():
+            r=t.currentRow()
+            if r<0: return QMessageBox.information(self,"Klient","Bitte zuerst einen Klienten auswählen.")
+            last=t.item(r,0).text(); first=t.item(r,1).text()
+            cc=next((x for x in DB["clients"] if x.get("last")==last and x.get("first")==first),None)
+            if not cc:return
+            dlg=QDialog(self); dlg.setWindowTitle("Klientendaten bearbeiten"); dlg.setMinimumWidth(560); form=QFormLayout(dlg); fields={}
+            for key,label in [("last","Nachname *"),("first","Vorname *"),("dob","Geburtsdatum"),("phone","Telefon"),("email","E-Mail"),("address","Adresse"),("diagnosis","Diagnose (optional)")]:
+                ed=QLineEdit(str(cc.get(key,""))); fields[key]=ed; form.addRow(label,ed)
+            buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); form.addRow(buttons)
+            def save_master():
+                if not fields["last"].text().strip() or not fields["first"].text().strip():return QMessageBox.warning(dlg,"Fehlt","Vorname und Nachname sind erforderlich.")
+                for key,ed in fields.items():cc[key]=ed.text().strip()
+                save_data()
+                for j,key in enumerate(["last","first","dob","phone","email"]):t.setItem(r,j,QTableWidgetItem(str(cc.get(key,""))))
+                audit("CLIENT_UPDATED","Klientenstammdaten bearbeitet",self.current_user.get("username","") if self.current_user else ""); dlg.accept()
+            buttons.accepted.connect(save_master); buttons.rejected.connect(dlg.reject); dlg.exec()
+        editclient.clicked.connect(edit_client_master)
+        mainactions=QHBoxLayout(); mainactions.addWidget(opensessions); mainactions.addWidget(editclient); v.addLayout(mainactions)
         clientactions=QHBoxLayout()
         tosession=QPushButton("Neue Sitzung für Klient"); toinvoice=QPushButton("Neue Rechnung für Klient")
         def selected_client():
@@ -952,7 +974,7 @@ class Main(QMainWindow):
             t.setRowCount(0)
             for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())):
                 r=t.rowCount(); t.insertRow(r)
-                for j,k in enumerate(["last","first","dob"]): t.setItem(r,j,QTableWidgetItem(str(cc.get(k,""))))
+                for j,k in enumerate(["last","first","dob","phone","email"]): t.setItem(r,j,QTableWidgetItem(str(cc.get(k,""))))
         b.clicked.connect(refresh); v.addWidget(b); return w
     def invoices_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
