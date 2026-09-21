@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.10.4"
+APP_VERSION = "0.10.5"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -763,7 +763,28 @@ class Main(QMainWindow):
         last,first=self.i_last.text().strip().lower(),self.i_first.text().strip().lower()
         rows=sorted([s for s in DB["sessions"] if not s.get("billed") and s.get("last","").lower()==last and s.get("first","").lower()==first],key=lambda s:(s.get("date",""),s.get("start","")))
         if not rows: return QMessageBox.information(self,"Sitzungen","Keine unberechneten Sitzungen für diesen Klienten gefunden.")
-        self.pending_sessions=rows
+        dlg=QDialog(self); dlg.setWindowTitle("Unberechnete Sitzungen auswählen"); dlg.resize(920,560); lay=QVBoxLayout(dlg)
+        info=QLabel(f"{len(rows)} unberechnete Sitzungen gefunden. Bitte die Leistungen für diese Rechnung auswählen."); info.setWordWrap(True); lay.addWidget(info)
+        table=QTableWidget(0,6); table.setHorizontalHeaderLabels(["Übernehmen","Datum","Zeit","Min.","Leistung","Betrag"]); table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        for s in rows:
+            rr=table.rowCount(); table.insertRow(rr); chk=QTableWidgetItem(); chk.setFlags(Qt.ItemIsUserCheckable|Qt.ItemIsEnabled); chk.setCheckState(Qt.Checked); table.setItem(rr,0,chk)
+            amount=amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))
+            vals=[s.get("date",""),f'{s.get("start","")}–{s.get("end","")}',str(s.get("minutes",0)),s.get("type",""),f"{amount:.2f} €"]
+            for j,val in enumerate(vals,1): table.setItem(rr,j,QTableWidgetItem(str(val)))
+        lay.addWidget(table)
+        buttons=QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel); lay.addWidget(buttons); buttons.accepted.connect(dlg.accept); buttons.rejected.connect(dlg.reject)
+        if dlg.exec()!=QDialog.Accepted:return
+        selected=[s for idx,s in enumerate(rows) if table.item(idx,0) and table.item(idx,0).checkState()==Qt.Checked]
+        if not selected:return QMessageBox.information(self,"Sitzungen","Es wurde keine Sitzung ausgewählt.")
+        self.pending_sessions=selected; self.manual_items=[]
+        if hasattr(self,"itemtable"):
+            self.itemtable.setRowCount(0)
+            for s in selected:
+                rr=self.itemtable.rowCount(); self.itemtable.insertRow(rr); amount=amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))
+                vals=[s.get("date",""),f'{s.get("start","")}–{s.get("end","")}',str(s.get("minutes",0)),s.get("type",""),"ermäßigt" if s.get("reduced") else "regulär",f"{amount:.2f} €"]
+                for j,val in enumerate(vals):self.itemtable.setItem(rr,j,QTableWidgetItem(str(val)))
+        self.iteminfo.setText(f"{len(selected)} Sitzungen für Sammelrechnung ausgewählt")
+        rows=selected
         details="\n".join(f'{s.get("date","")} | {s.get("start","")}–{s.get("end","")} | {s.get("minutes",0)} Min. | {s.get("type","")}' for s in rows)
         total=sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows)
         QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\n\n{details}\n\nGesamt: {total:.2f} €\n\nBitte vor PDF-Erstellung kontrollieren.")
