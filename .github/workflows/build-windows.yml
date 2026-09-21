@@ -27,8 +27,8 @@ jobs:
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" PraxisPro.iss'
       - uses: actions/upload-artifact@v4
         with:
-          name: PraxisPro-Windows-v0.10.0
+          name: PraxisPro-Windows-v0.10.2
           path: |
             dist/Praxisverwaltung.exe
-            installer/PraxisPro_Setup_v0.10.0.exe
+            installer/PraxisPro_Setup_v0.10.2.exe
           retention-days: 30
