@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.9.8"
+APP_VERSION = "0.9.9"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -87,7 +87,7 @@ def init_sqlite():
     con.executescript("""
     CREATE TABLE IF NOT EXISTS clients(
       id INTEGER PRIMARY KEY, first TEXT NOT NULL, last TEXT NOT NULL, dob TEXT,
-      address TEXT, diagnosis TEXT, created_at TEXT, updated_at TEXT,
+      address TEXT, diagnosis TEXT, phone TEXT, email TEXT, created_at TEXT, updated_at TEXT,
       UNIQUE(first,last,dob));
     CREATE TABLE IF NOT EXISTS sessions(
       id TEXT PRIMARY KEY, client_id INTEGER, date TEXT, start TEXT, end TEXT,
@@ -125,6 +125,8 @@ def init_sqlite():
     if "locked_until" not in ucols: con.execute("ALTER TABLE users ADD COLUMN locked_until TEXT")
     cols=[r[1] for r in con.execute("PRAGMA table_info(clients)").fetchall()]
     if "client_key" not in cols: con.execute("ALTER TABLE clients ADD COLUMN client_key TEXT")
+    if "phone" not in cols: con.execute("ALTER TABLE clients ADD COLUMN phone TEXT")
+    if "email" not in cols: con.execute("ALTER TABLE clients ADD COLUMN email TEXT")
     con.execute("CREATE INDEX IF NOT EXISTS idx_clients_client_key ON clients(client_key)")
     defaults={
       "practice_name":"Psychologische Privatpraxis","owner_name":"Erdoğan Kulanoğlu",
@@ -144,9 +146,9 @@ def sync_sqlite():
     for x in DB.get("clients",[]):
         ck=hashlib.sha256((x.get("first","").strip().lower()+"|"+x.get("last","").strip().lower()+"|"+x.get("dob","").strip()).encode("utf-8")).hexdigest()
         row=cur.execute("SELECT id FROM clients WHERE client_key=? ORDER BY id DESC LIMIT 1",(ck,)).fetchone()
-        vals=(encrypt_text(x.get("first","")),encrypt_text(x.get("last","")),encrypt_text(x.get("dob","")),encrypt_text(x.get("address","")),encrypt_text(x.get("diagnosis","")),x.get("created_at",""),datetime.now().isoformat(timespec="seconds"),ck)
-        if row: cur.execute("UPDATE clients SET first=?,last=?,dob=?,address=?,diagnosis=?,created_at=?,updated_at=?,client_key=? WHERE id=?",vals+(row[0],))
-        else: cur.execute("INSERT INTO clients(first,last,dob,address,diagnosis,created_at,updated_at,client_key) VALUES(?,?,?,?,?,?,?,?)",vals)
+        vals=(encrypt_text(x.get("first","")),encrypt_text(x.get("last","")),encrypt_text(x.get("dob","")),encrypt_text(x.get("address","")),encrypt_text(x.get("diagnosis","")),encrypt_text(x.get("phone","")),encrypt_text(x.get("email","")),x.get("created_at",""),datetime.now().isoformat(timespec="seconds"),ck)
+        if row: cur.execute("UPDATE clients SET first=?,last=?,dob=?,address=?,diagnosis=?,phone=?,email=?,created_at=?,updated_at=?,client_key=? WHERE id=?",vals+(row[0],))
+        else: cur.execute("INSERT INTO clients(first,last,dob,address,diagnosis,phone,email,created_at,updated_at,client_key) VALUES(?,?,?,?,?,?,?,?,?,?)",vals)
     con.commit()
     for s in DB.get("sessions",[]):
         ck=hashlib.sha256((s.get("first","").strip().lower()+"|"+s.get("last","").strip().lower()+"|"+s.get("dob","").strip()).encode("utf-8")).hexdigest(); cur.execute("SELECT id FROM clients WHERE client_key=? ORDER BY id DESC LIMIT 1",(ck,)); row=cur.fetchone(); cid=row[0] if row else None
