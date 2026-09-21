@@ -488,7 +488,8 @@ class Main(QMainWindow):
         def apply_note_template(text):
             if text in note_templates and (not self.notes.toPlainText().strip() or QMessageBox.question(self,"Vorlage einsetzen","Vorhandene Notiz durch die gewählte Vorlage ersetzen?")==QMessageBox.Yes): self.notes.setPlainText(note_templates[text])
             template.setCurrentIndex(0)
-        template.currentTextChanged.connect(apply_note_template) self.notes.setMinimumHeight(125); self.notes.setMaximumHeight(165); nv.addWidget(self.notes); v.addWidget(notesbox)
+        template.currentTextChanged.connect(apply_note_template)
+        self.notes.setMinimumHeight(125); self.notes.setMaximumHeight(165); nv.addWidget(self.notes); v.addWidget(notesbox)
 
         self.ink=InkCanvas(); inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
