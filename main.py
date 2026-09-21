@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.9"
+APP_VERSION = "0.11.10"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -78,6 +78,16 @@ class InkCanvas(QWidget):
         if not img.isNull(): self.image=img.convertToFormat(QImage.Format_ARGB32).scaled(1200,700,Qt.IgnoreAspectRatio,Qt.SmoothTransformation); self.history=[]; self.update(); return True
         return False
 from openpyxl import Workbook, load_workbook
+
+def bundled_asset(name):
+    base=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent))
+    return base/"assets"/name
+
+def practice_logo_path():
+    custom=get_setting("logo_path","")
+    if custom and Path(custom).exists(): return Path(custom)
+    bundled=bundled_asset("logo.jpg")
+    return bundled if bundled.exists() else None
 
 DATA=ROOT/"praxisdaten.json.enc"
 for p in [ROOT/"Klienten",ROOT/"Einnahmen",ROOT/"Backups",DBDIR]: p.mkdir(parents=True,exist_ok=True)
@@ -338,9 +348,9 @@ class Main(QMainWindow):
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(225); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
-        logo_path=get_setting("logo_path","")
-        if logo_path and Path(logo_path).exists():
-            side_logo=QLabel(); side_pix=QPixmap(logo_path)
+        logo_path=practice_logo_path()
+        if logo_path:
+            side_logo=QLabel(); side_pix=QPixmap(str(logo_path))
             if not side_pix.isNull(): side_logo.setPixmap(side_pix.scaled(190,72,Qt.KeepAspectRatio,Qt.SmoothTransformation)); side_logo.setAlignment(Qt.AlignCenter); sv.addWidget(side_logo)
         brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
@@ -830,9 +840,9 @@ class Main(QMainWindow):
         d=client_dir(c)/"Rechnungen"; pdf=d/f"Rechnung_{no}.pdf"
         can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
         # Rechnungskopf aus den Praxiseinstellungen
-        logo_path=get_setting("logo_path","")
-        if logo_path and Path(logo_path).exists():
-            try: can.drawImage(logo_path,W-145,H-105,width=95,height=65,preserveAspectRatio=True,mask="auto")
+        logo_path=practice_logo_path()
+        if logo_path:
+            try: can.drawImage(str(logo_path),W-145,H-105,width=95,height=65,preserveAspectRatio=True,mask="auto")
             except Exception: pass
         else:
             can.setFillColor(HexColor("#17324d")); can.circle(W-92,H-63,31,stroke=1,fill=0)
