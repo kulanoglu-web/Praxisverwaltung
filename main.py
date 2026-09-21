@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.22"
+APP_VERSION = "0.11.23"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -687,6 +687,13 @@ class Main(QMainWindow):
             if not vals: vals=["Aktuelle Belastung","Beeinträchtigung im Alltag","Schlaf / Erholung","Körperliche Beschwerden","Rückzug / Vermeidung","Beziehungsbelastung","Ressourcen / Schutzfaktoren"]
             for s in vals: self.symptom_list.addItem(s)
         clear_sym.clicked.connect(self.symptom_list.clearSelection); self.help_topic.currentTextChanged.connect(lambda _:load_symptoms()); load_symptoms()
+        severity=QFrame(); severity.setObjectName("formCard"); sf=QGridLayout(severity); sf.addWidget(QLabel("Vertiefung der Symptomabfrage"),0,0,1,4)
+        self.sym_duration=QComboBox(); self.sym_duration.addItems(["Dauer nicht angegeben","< 2 Wochen","2–4 Wochen","1–3 Monate","3–6 Monate","> 6 Monate","> 1 Jahr"])
+        self.sym_intensity=QComboBox(); self.sym_intensity.addItems(["Intensität nicht angegeben","Leicht","Mittel","Stark","Sehr stark"])
+        self.sym_impairment=QComboBox(); self.sym_impairment.addItems(["Alltagsbeeinträchtigung nicht angegeben","Gering","Mittel","Deutlich","Sehr deutlich"])
+        self.sym_frequency=QComboBox(); self.sym_frequency.addItems(["Häufigkeit nicht angegeben","Selten","Mehrmals monatlich","Mehrmals wöchentlich","Täglich","Mehrmals täglich"])
+        sf.addWidget(QLabel("Dauer"),1,0); sf.addWidget(self.sym_duration,1,1); sf.addWidget(QLabel("Intensität"),1,2); sf.addWidget(self.sym_intensity,1,3)
+        sf.addWidget(QLabel("Häufigkeit"),2,0); sf.addWidget(self.sym_frequency,2,1); sf.addWidget(QLabel("Alltag"),2,2); sf.addWidget(self.sym_impairment,2,3); v.addWidget(severity)
         self.help_text=QTextEdit(); self.help_text.setReadOnly(True); self.help_text.setStyleSheet("font-size:17px;padding:10px"); v.addWidget(self.help_text,1)
         def render():
             d=topics[self.help_topic.currentText()]; parts=["GESPRÄCHSFRAGEN"]+["• "+x for x in d["Fragen"]]
@@ -696,10 +703,17 @@ class Main(QMainWindow):
                 if key in d: parts+=["",labels[key]]+["• "+x for x in d[key]]
             selected=[x.text() for x in self.symptom_list.selectedItems()] if hasattr(self,"symptom_list") else []
             if selected: parts+=["","AUSGEWÄHLTE SYMPTOME"]+["☑ "+x for x in selected]
+            details=[]
+            if hasattr(self,"sym_duration"):
+                for label,box in [("Dauer",self.sym_duration),("Intensität",self.sym_intensity),("Häufigkeit",self.sym_frequency),("Alltagsbeeinträchtigung",self.sym_impairment)]:
+                    if box.currentIndex()>0: details.append(label+": "+box.currentText())
+            if details: parts+=["","SYMPTOMVERTIEFUNG"]+["• "+x for x in details]
             code=self.help_fcode.currentText() if hasattr(self,"help_fcode") else ""
             if " – " in code: parts+=["","AUSGEWÄHLTER F-CODE",code,"Hinweis: Der Code dient als Dokumentations- und Gesprächshilfe; keine automatische Diagnosestellung."]
             self.help_text.setPlainText("\n".join(parts))
-        self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); self.symptom_list.itemSelectionChanged.connect(render); render()
+        self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); self.symptom_list.itemSelectionChanged.connect(render)
+        for box in (self.sym_duration,self.sym_intensity,self.sym_frequency,self.sym_impairment): box.currentTextChanged.connect(lambda _:render())
+        render()
         add=QPushButton("Ausgewählten Text in Sitzungsnotiz übernehmen"); add.setMinimumHeight(55)
         def add_note():
             x=self.help_text.textCursor().selectedText().strip()
