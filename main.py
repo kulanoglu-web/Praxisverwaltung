@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.29"
+APP_VERSION = "0.11.30"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -391,8 +391,8 @@ class Main(QMainWindow):
         #clientHeader { background:white; border:1px solid #dce3e9; border-radius:14px; padding:12px; }
         #clientName { color:#17324d; font-size:24px; font-weight:800; }
         #clientBadge { background:#e8f0f6; color:#17324d; border-radius:10px; padding:8px 14px; font-weight:700; }
-        #sectionTitle { color:#17324d; font-size:16px; font-weight:800; padding-top:2px; }
-        #formCard { background:white; border:1px solid #d4e0ea; border-radius:12px; padding:12px; }
+        #sectionTitle { color:#17324d; font-size:14px; font-weight:800; padding-top:2px; }
+        #formCard { background:white; border:1px solid #d4e0ea; border-radius:10px; padding:7px; }
         #sessionScroll { background:#f4f6f8; border:0; }
         #sessionScroll > QWidget > QWidget { background:#f4f6f8; }
         QScrollBar:vertical { background:#eef2f5; width:12px; margin:2px; border-radius:6px; }
@@ -457,13 +457,13 @@ class Main(QMainWindow):
     def session_ui(self):
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(22,16,22,14); v.setSpacing(14)
         top=QHBoxLayout(); head=QVBoxLayout(); title=QLabel("▣  Sitzungsnotiz"); title.setObjectName("pageTitle"); subtitle=QLabel("Sitzung dokumentieren · Klientendaten · Notizen · Handschrift · Speichern"); subtitle.setObjectName("pageSub"); head.addWidget(title); head.addWidget(subtitle)
-        self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setFixedSize(155,48); self.clock.setStyleSheet("font-size:24px;font-weight:800;border:2px solid #8091a1;border-radius:10px;background:white")
-        timerbtn=QPushButton("▶  Timer starten"); timerbtn.setFixedHeight(48); timerbtn.setMinimumWidth(155); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:14px"); timerbtn.clicked.connect(self.start_session)
-        self.session_live_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.session_live_clock.setAlignment(Qt.AlignCenter); self.session_live_clock.setFixedSize(120,48); self.session_live_clock.setToolTip("Aktuelle Uhrzeit – live"); self.session_live_clock.setStyleSheet("font-size:19px;font-weight:800;color:#17324d;background:#e8f0f6;border-radius:10px")
+        self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setFixedSize(130,40); self.clock.setStyleSheet("font-size:20px;font-weight:800;border:2px solid #8091a1;border-radius:10px;background:white")
+        timerbtn=QPushButton("▶  Timer starten"); timerbtn.setFixedHeight(40); timerbtn.setMinimumWidth(130); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:14px"); timerbtn.clicked.connect(self.start_session)
+        self.session_live_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.session_live_clock.setAlignment(Qt.AlignCenter); self.session_live_clock.setFixedSize(105,40); self.session_live_clock.setToolTip("Aktuelle Uhrzeit – live"); self.session_live_clock.setStyleSheet("font-size:16px;font-weight:800;color:#17324d;background:#e8f0f6;border-radius:10px")
         top.addLayout(head); top.addStretch(); top.addWidget(self.session_live_clock); top.addWidget(self.clock); top.addWidget(timerbtn); v.addLayout(top)
 
-        row=QHBoxLayout(); row.setSpacing(14)
-        session=QFrame(); session.setObjectName("formCard"); sg=QGridLayout(session); sg.setContentsMargins(16,12,16,14); sg.setHorizontalSpacing(10); sg.setVerticalSpacing(9)
+        row=QHBoxLayout(); row.setSpacing(8)
+        session=QFrame(); session.setObjectName("formCard"); sg=QGridLayout(session); sg.setContentsMargins(10,8,10,10); sg.setHorizontalSpacing(7); sg.setVerticalSpacing(6)
         st=QLabel("▤  Sitzungsdaten"); st.setObjectName("sectionTitle"); sg.addWidget(st,0,0,1,3)
         self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("Klient auswählen …")
         for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.client_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
@@ -474,9 +474,9 @@ class Main(QMainWindow):
         for x in (self.client_pick,self.s_date,self.s_start,self.s_end,self.s_type): x.setMinimumHeight(34)
         sg.addWidget(QLabel("Klient *"),1,0); sg.addWidget(self.client_pick,1,1); sg.addWidget(newclient,1,2)
         for rr,(lab,field) in enumerate([("Datum *",self.s_date),("Beginn *",self.s_start),("Ende *",self.s_end),("Art *",self.s_type)],2): sg.addWidget(QLabel(lab),rr,0); sg.addWidget(field,rr,1,1,2)
-        sg.addWidget(self.s_red,6,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(0); session.setMinimumHeight(285); row.addWidget(session,5)
+        sg.addWidget(self.s_red,6,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(0); session.setMinimumHeight(285); row.addWidget(session,4)
 
-        details=QFrame(); details.setObjectName("formCard"); dg=QGridLayout(details); dg.setContentsMargins(16,12,16,14); dg.setHorizontalSpacing(8); dg.setVerticalSpacing(9)
+        details=QFrame(); details.setObjectName("formCard"); dg=QGridLayout(details); dg.setContentsMargins(10,8,10,10); dg.setHorizontalSpacing(7); dg.setVerticalSpacing(6)
         dt=QLabel("●  Klientendaten"); dt.setObjectName("sectionTitle"); dg.addWidget(dt,0,0,1,2)
         self.s_last=QLineEdit(); self.s_first=QLineEdit(); self.s_dob=QLineEdit()
         for x in (self.s_last,self.s_first,self.s_dob): x.setMinimumHeight(34); x.setReadOnly(True); x.setPlaceholderText("–")
@@ -485,13 +485,13 @@ class Main(QMainWindow):
         for rr,(lab,field) in enumerate([("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Telefon",self.s_phone),("E-Mail",self.s_email)],1): dg.addWidget(QLabel(lab),rr,0); dg.addWidget(field,rr,1)
         details.setMinimumWidth(0); details.setMinimumHeight(285); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(34); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
 
-        quick=QFrame(); quick.setObjectName("formCard"); qg=QGridLayout(quick); qg.setContentsMargins(16,12,16,14); qg.setHorizontalSpacing(8); qg.setVerticalSpacing(9)
+        quick=QFrame(); quick.setObjectName("formCard"); qg=QGridLayout(quick); qg.setContentsMargins(10,8,10,10); qg.setHorizontalSpacing(7); qg.setVerticalSpacing(6)
         qt=QLabel("♙＋  Klient schnell anlegen"); qt.setObjectName("sectionTitle"); qg.addWidget(qt,0,0,1,2)
         qlast=QLineEdit(); qfirst=QLineEdit(); qdob=QLineEdit(); qdob.setPlaceholderText("TT.MM.JJJJ"); qphone=QLineEdit(); qmail=QLineEdit()
         for x in (qlast,qfirst,qdob,qphone,qmail): x.setMinimumHeight(34)
         qg.addWidget(QLabel("Nachname *"),1,0); qg.addWidget(QLabel("Vorname *"),1,1); qg.addWidget(qlast,2,0); qg.addWidget(qfirst,2,1)
         qg.addWidget(QLabel("Geburtsdatum"),3,0,1,2); qg.addWidget(qdob,4,0,1,2); qg.addWidget(QLabel("Telefon"),5,0); qg.addWidget(QLabel("E-Mail"),5,1); qg.addWidget(qphone,6,0); qg.addWidget(qmail,6,1)
-        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(34); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(0); quick.setMinimumHeight(285); row.addWidget(quick,4); v.addLayout(row)
+        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(34); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(0); quick.setMinimumHeight(285); row.addWidget(quick,3); v.addLayout(row)
 
         def add_quick():
             if not self.require_edit(): return
@@ -702,8 +702,8 @@ class Main(QMainWindow):
           "Psychotische Symptome – Exploration":["Ungewöhnliche Wahrnehmungen","Stimmenhören","Starke Überzeugungen mit Realitätskonflikt","Verwirrtheit","Desorganisiertes Denken","Misstrauen","Sozialer Rückzug","Funktionsverlust"],
           "Sexualität / Intimität":["Verminderte Lust","Leistungsdruck","Schmerzen / körperliche Beschwerden","Vermeidung von Nähe","Scham","Unterschiedliche Bedürfnisse","Kommunikationsprobleme","Belastung der Partnerschaft"]
         }
-        symptom_box=QFrame(); symptom_box.setObjectName("formCard"); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
-        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(120); self.symptom_list.setMaximumHeight(170); sb.addWidget(self.symptom_list)
+        symptom_box=QFrame(); symptom_box.setObjectName("formCard"); symptom_box.setMinimumWidth(0); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
+        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(105); self.symptom_list.setMaximumHeight(145); sb.addWidget(self.symptom_list)
         sr=QHBoxLayout(); self.sym_custom=QLineEdit(); self.sym_custom.setPlaceholderText("Weiteres Symptom ergänzen …"); add_sym=QPushButton("＋ Symptom"); sr.addWidget(self.sym_custom,1); sr.addWidget(add_sym); sb.addLayout(sr)
         def add_custom_symptom():
             t=self.sym_custom.text().strip()
@@ -714,7 +714,7 @@ class Main(QMainWindow):
             if not vals: vals=["Aktuelle Belastung","Beeinträchtigung im Alltag","Schlaf / Erholung","Körperliche Beschwerden","Rückzug / Vermeidung","Beziehungsbelastung","Ressourcen / Schutzfaktoren"]
             for s in vals: self.symptom_list.addItem(s)
         clear_sym.clicked.connect(self.symptom_list.clearSelection); self.help_topic.currentTextChanged.connect(lambda _:load_symptoms()); load_symptoms()
-        severity=QFrame(); severity.setObjectName("formCard"); sf=QGridLayout(severity); sf.addWidget(QLabel("Vertiefung der Symptomabfrage"),0,0,1,4)
+        severity=QFrame(); severity.setObjectName("formCard"); severity.setMinimumWidth(0); sf=QGridLayout(severity); sf.addWidget(QLabel("Vertiefung der Symptomabfrage"),0,0,1,4)
         self.sym_duration=QComboBox(); self.sym_duration.addItems(["Dauer nicht angegeben","< 2 Wochen","2–4 Wochen","1–3 Monate","3–6 Monate","> 6 Monate","> 1 Jahr"])
         self.sym_intensity=QComboBox(); self.sym_intensity.addItems(["Intensität nicht angegeben","Leicht","Mittel","Stark","Sehr stark"])
         self.sym_impairment=QComboBox(); self.sym_impairment.addItems(["Alltagsbeeinträchtigung nicht angegeben","Gering","Mittel","Deutlich","Sehr deutlich"])
@@ -725,7 +725,7 @@ class Main(QMainWindow):
         sf.addWidget(QLabel("Aktuelle Belastung"),3,0); sf.addWidget(self.sym_scale,3,1)
         self.goal_scale=QSpinBox(); self.goal_scale.setRange(0,10); self.goal_scale.setSuffix(" / 10"); self.goal_scale.setToolTip("Subjektive Einschätzung: Wie nah ist die Person aktuell am gewünschten Zustand?")
         sf.addWidget(QLabel("Zielerreichung"),3,2); sf.addWidget(self.goal_scale,3,3); v.addWidget(severity)
-        risk=QFrame(); risk.setObjectName("formCard"); rv=QVBoxLayout(risk); rv.addWidget(QLabel("Sicherheitsrelevante Hinweise"))
+        risk=QFrame(); risk.setObjectName("formCard"); risk.setMinimumWidth(0); rv=QVBoxLayout(risk); rv.addWidget(QLabel("Sicherheitsrelevante Hinweise"))
         self.risk_checks=[]
         for txt in ["Suizidgedanken","Selbstverletzung","Fremdgefährdung","Akute Desorientierung / psychotische Symptome","Kein aktueller Sicherheitshinweis"]:
             cb=QCheckBox(txt); self.risk_checks.append(cb); rv.addWidget(cb)
