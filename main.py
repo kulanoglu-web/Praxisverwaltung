@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.10.9"
+APP_VERSION = "0.11.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1101,13 +1101,25 @@ class Main(QMainWindow):
                 if guess.exists(): inv["pdf"]=str(guess); save_data(); QDesktopServices.openUrl(QUrl.fromLocalFile(str(guess))); return
             QMessageBox.information(self,"PDF","Das PDF konnte nicht gefunden werden.")
         openpdf.clicked.connect(open_pdf); h.addWidget(openpdf)
+        remind=QPushButton("Zahlungserinnerung"); remind.setMinimumHeight(50)
+        def payment_reminder():
+            _,inv=selected_invoice()
+            if not inv:return
+            if inv.get("status")!="offen":return QMessageBox.information(self,"Zahlungserinnerung","Eine Zahlungserinnerung ist nur für offene Rechnungen vorgesehen.")
+            try: days=(date.today()-datetime.strptime(inv.get("date",""),"%Y-%m-%d").date()).days
+            except Exception: days=0
+            if days<=14 and QMessageBox.question(self,"Zahlungserinnerung",f"Das 14-tägige Zahlungsziel ist noch nicht überschritten ({days} Tage). Trotzdem Erinnerung erfassen?")!=QMessageBox.Yes:return
+            inv["reminder_date"]=datetime.now().strftime("%Y-%m-%d"); inv["reminder_count"]=int(inv.get("reminder_count",0))+1
+            save_data(); audit("PAYMENT_REMINDER",f'Zahlungserinnerung zu Rechnung {inv.get("number","")} erfasst',self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.information(self,"Zahlungserinnerung",f'Zahlungserinnerung für Rechnung {inv.get("number","")} wurde dokumentiert.\n\nMahnstufe: {inv["reminder_count"]}\nDatum: {inv["reminder_date"]}\n\nDie ursprüngliche Rechnung wurde nicht verändert.')
+        remind.clicked.connect(payment_reminder); h.addWidget(remind)
         details=QPushButton("Details"); details.setMinimumHeight(50)
         def invoice_details():
             _,inv=selected_invoice()
             if not inv:return
             items=inv.get("items",[])
             lines="\n".join(f'{x.get("date","")}  {x.get("start","")}–{x.get("end","")}  {x.get("minutes",0)} Min.  {x.get("type","")}  {float(x.get("amount",0)):.2f} €' for x in items) or "Keine Einzelpositionen gespeichert."
-            QMessageBox.information(self,"Rechnungsdetails",f'Rechnung: {inv.get("number","")}\nKlient: {inv.get("client","")}\nStatus: {inv.get("status","offen")}\nZahlungsdatum: {inv.get("paid_date","") or "–"}\nBetrag: {float(inv.get("amount",0)):.2f} €\n\n{lines}')
+            QMessageBox.information(self,"Rechnungsdetails",f'Rechnung: {inv.get("number","")}\nKlient: {inv.get("client","")}\nStatus: {inv.get("status","offen")}\nZahlungsdatum: {inv.get("paid_date","") or "–"}\nLetzte Zahlungserinnerung: {inv.get("reminder_date","") or "–"}\nMahnstufe: {inv.get("reminder_count",0)}\nBetrag: {float(inv.get("amount",0)):.2f} €\n\n{lines}')
         details.clicked.connect(invoice_details); t.cellDoubleClicked.connect(lambda *_: invoice_details()); h.addWidget(details); v.addLayout(h)
         backup=QPushButton("Datensicherung erstellen"); backup.setMinimumHeight(48)
         def do_backup():
