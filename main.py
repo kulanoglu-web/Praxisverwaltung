@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.9.5"
+APP_VERSION = "0.9.6"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -370,6 +370,12 @@ class Main(QMainWindow):
         #clientBadge { background:#e8f0f6; color:#17324d; border-radius:10px; padding:8px 14px; font-weight:700; }
         #sectionTitle { color:#17324d; font-size:16px; font-weight:800; padding-top:2px; }
         #formCard { background:white; border:1px solid #d4e0ea; border-radius:12px; padding:12px; }
+        #sessionScroll { background:#f4f6f8; border:0; }
+        #sessionScroll > QWidget > QWidget { background:#f4f6f8; }
+        QScrollBar:vertical { background:#eef2f5; width:12px; margin:2px; border-radius:6px; }
+        QScrollBar::handle:vertical { background:#9fb0bf; min-height:38px; border-radius:6px; }
+        QScrollBar:horizontal { background:#eef2f5; height:12px; margin:2px; border-radius:6px; }
+        QScrollBar::handle:horizontal { background:#9fb0bf; min-width:38px; border-radius:6px; }
         QTabWidget::pane { border:0; background:white; border-radius:12px; }
         QTabBar::tab { background:#e9eef3; padding:12px 20px; margin:2px; border-radius:8px; font-size:14px; }
         QTabBar::tab:selected { background:#17324d; color:white; font-weight:700; }
@@ -443,7 +449,7 @@ class Main(QMainWindow):
         for x in (self.client_pick,self.s_date,self.s_start,self.s_end,self.s_type): x.setMinimumHeight(38)
         sg.addWidget(QLabel("Klient *"),1,0); sg.addWidget(self.client_pick,1,1); sg.addWidget(newclient,1,2)
         for rr,(lab,field) in enumerate([("Datum *",self.s_date),("Beginn *",self.s_start),("Ende *",self.s_end),("Art *",self.s_type)],2): sg.addWidget(QLabel(lab),rr,0); sg.addWidget(field,rr,1,1,2)
-        sg.addWidget(self.s_red,6,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(480); row.addWidget(session,5)
+        sg.addWidget(self.s_red,6,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(450); session.setMinimumHeight(300); row.addWidget(session,5)
 
         details=QFrame(); details.setObjectName("formCard"); dg=QGridLayout(details); dg.setContentsMargins(14,8,14,10); dg.setHorizontalSpacing(8); dg.setVerticalSpacing(6)
         dt=QLabel("●  Klientendaten"); dt.setObjectName("sectionTitle"); dg.addWidget(dt,0,0,1,2)
@@ -452,7 +458,7 @@ class Main(QMainWindow):
         self.s_phone=QLineEdit(); self.s_email=QLineEdit()
         for x in (self.s_phone,self.s_email): x.setMinimumHeight(38); x.setReadOnly(True); x.setPlaceholderText("–")
         for rr,(lab,field) in enumerate([("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Telefon",self.s_phone),("E-Mail",self.s_email)],1): dg.addWidget(QLabel(lab),rr,0); dg.addWidget(field,rr,1)
-        details.setMinimumWidth(300); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(38); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
+        details.setMinimumWidth(290); details.setMinimumHeight(300); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(38); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
 
         quick=QFrame(); quick.setObjectName("formCard"); qg=QGridLayout(quick); qg.setContentsMargins(14,8,14,10); qg.setHorizontalSpacing(8); qg.setVerticalSpacing(6)
         qt=QLabel("♙＋  Klient schnell anlegen"); qt.setObjectName("sectionTitle"); qg.addWidget(qt,0,0,1,2)
@@ -460,7 +466,7 @@ class Main(QMainWindow):
         for x in (qlast,qfirst,qdob,qphone,qmail): x.setMinimumHeight(38)
         qg.addWidget(QLabel("Nachname *"),1,0); qg.addWidget(QLabel("Vorname *"),1,1); qg.addWidget(qlast,2,0); qg.addWidget(qfirst,2,1)
         qg.addWidget(QLabel("Geburtsdatum"),3,0,1,2); qg.addWidget(qdob,4,0,1,2); qg.addWidget(QLabel("Telefon"),5,0); qg.addWidget(QLabel("E-Mail"),5,1); qg.addWidget(qphone,6,0); qg.addWidget(qmail,6,1)
-        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(38); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(360); row.addWidget(quick,4); v.addLayout(row)
+        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(38); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(340); quick.setMinimumHeight(300); row.addWidget(quick,4); v.addLayout(row)
 
         def add_quick():
             if not self.require_edit(): return
@@ -477,19 +483,19 @@ class Main(QMainWindow):
         editclient.clicked.connect(lambda: self.nav.setCurrentRow(3))
 
         notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(12,8,12,10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setFixedWidth(135); nhead.addWidget(template); nv.addLayout(nhead)
-        self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …"); self.notes.setMinimumHeight(80); self.notes.setMaximumHeight(115); nv.addWidget(self.notes); v.addWidget(notesbox)
+        self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …"); self.notes.setMinimumHeight(125); self.notes.setMaximumHeight(165); nv.addWidget(self.notes); v.addWidget(notesbox)
 
         self.ink=InkCanvas(); inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); fullscreen=QPushButton("⛶ Vollbild schreiben"); fullscreen.clicked.connect(self.open_ink_fullscreen)
         for x in (QLabel("Stärke:"),width,eraser,undo,clearink,fullscreen): inkhead.addWidget(x)
-        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(12,8,12,10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(185); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
+        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(12,8,12,10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(245); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
         h=QHBoxLayout()
         buttons=[("▶ Sitzung starten",self.start_session,"background:#16a34a"),("⏸ Pause/Fortsetzen",self.pause,"background:#1683d8"),("■ Sitzung beenden",self.end_session,"background:#e11d48"),("💾 Speichern",self.save_session,"background:#f8fafc;color:#1261a0;border:1px solid #9bb7cf")]
         for text_,fn,style in buttons:
             b=QPushButton(text_); b.setMinimumHeight(54); b.setStyleSheet(style+";font-weight:800;font-size:15px"); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h)
-        scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setWidget(page); return scroll
+        scroll=QScrollArea(); scroll.setObjectName("sessionScroll"); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); scroll.setWidget(page); return scroll
 
     def open_new_client_dialog(self):
         if not self.require_edit(): return
