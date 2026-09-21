@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.9.9"
+APP_VERSION = "0.10.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -482,7 +482,7 @@ class Main(QMainWindow):
             if isinstance(cc,dict):
                 self.s_last.setText(cc.get("last","")); self.s_first.setText(cc.get("first","")); self.s_dob.setText(cc.get("dob","")); self.s_phone.setText(cc.get("phone","")); self.s_email.setText(cc.get("email",""))
         self.client_pick.currentIndexChanged.connect(picked)
-        editclient.clicked.connect(lambda: self.nav.setCurrentRow(3))
+        editclient.clicked.connect(self.edit_session_client)
 
         notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(12,8,12,10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setFixedWidth(150); nhead.addWidget(template); nv.addLayout(nhead)
         self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …");
@@ -508,17 +508,32 @@ class Main(QMainWindow):
     def open_new_client_dialog(self):
         if not self.require_edit(): return
         dlg=QDialog(self); dlg.setWindowTitle("Neuen Klienten anlegen"); dlg.setMinimumWidth(520); form=QFormLayout(dlg)
-        last=QLineEdit(); first=QLineEdit(); dob=QLineEdit(); dob.setPlaceholderText("TT.MM.JJJJ"); address=QLineEdit(); diagnosis=QLineEdit()
-        form.addRow("Nachname *",last); form.addRow("Vorname *",first); form.addRow("Geburtsdatum",dob); form.addRow("Adresse",address); form.addRow("Diagnose",diagnosis)
+        last=QLineEdit(); first=QLineEdit(); dob=QLineEdit(); dob.setPlaceholderText("TT.MM.JJJJ"); address=QLineEdit(); diagnosis=QLineEdit(); phone=QLineEdit(); email=QLineEdit()
+        form.addRow("Nachname *",last); form.addRow("Vorname *",first); form.addRow("Geburtsdatum",dob); form.addRow("Telefon",phone); form.addRow("E-Mail",email); form.addRow("Adresse",address); form.addRow("Diagnose",diagnosis)
         buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); form.addRow(buttons)
         def save_client():
             if not last.text().strip() or not first.text().strip(): return QMessageBox.warning(dlg,"Fehlt","Vorname und Nachname sind erforderlich.")
             exists=next((x for x in DB["clients"] if x.get("last","").lower()==last.text().strip().lower() and x.get("first","").lower()==first.text().strip().lower() and x.get("dob","")==dob.text().strip()),None)
             if exists:return QMessageBox.warning(dlg,"Klient","Dieser Klient ist bereits vorhanden.")
-            cc={"last":last.text().strip(),"first":first.text().strip(),"dob":dob.text().strip(),"address":address.text().strip(),"diagnosis":diagnosis.text().strip()}; DB["clients"].append(cc); save_data()
+            cc={"last":last.text().strip(),"first":first.text().strip(),"dob":dob.text().strip(),"phone":phone.text().strip(),"email":email.text().strip(),"address":address.text().strip(),"diagnosis":diagnosis.text().strip()}; DB["clients"].append(cc); save_data()
             if hasattr(self,"client_pick"): self.client_pick.addItem(f"{cc['last']}, {cc['first']}",cc); self.client_pick.setCurrentIndex(self.client_pick.count()-1)
             audit("CLIENT_CREATED","Klient angelegt",self.current_user.get("username","") if self.current_user else ""); dlg.accept()
         buttons.accepted.connect(save_client); buttons.rejected.connect(dlg.reject); dlg.exec()
+
+    def edit_session_client(self):
+        cc=self.client_pick.currentData() if hasattr(self,"client_pick") else None
+        if not isinstance(cc,dict): return QMessageBox.information(self,"Klient","Bitte zuerst einen Klienten auswählen.")
+        dlg=QDialog(self); dlg.setWindowTitle("Klientendaten bearbeiten"); dlg.setMinimumWidth(540); form=QFormLayout(dlg)
+        fields={}
+        for key,label in [("last","Nachname *"),("first","Vorname *"),("dob","Geburtsdatum"),("phone","Telefon"),("email","E-Mail"),("address","Adresse"),("diagnosis","Diagnose (optional)")]:
+            ed=QLineEdit(str(cc.get(key,""))); fields[key]=ed; form.addRow(label,ed)
+        buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); form.addRow(buttons)
+        def save_edit():
+            if not fields["last"].text().strip() or not fields["first"].text().strip(): return QMessageBox.warning(dlg,"Fehlt","Vorname und Nachname sind erforderlich.")
+            for key,ed in fields.items(): cc[key]=ed.text().strip()
+            save_data(); self.s_last.setText(cc.get("last","")); self.s_first.setText(cc.get("first","")); self.s_dob.setText(cc.get("dob","")); self.s_phone.setText(cc.get("phone","")); self.s_email.setText(cc.get("email",""))
+            idx=self.client_pick.currentIndex(); self.client_pick.setItemText(idx,f'{cc.get("last","")}, {cc.get("first","")}'); audit("CLIENT_UPDATED","Klientendaten bearbeitet",self.current_user.get("username","") if self.current_user else ""); dlg.accept()
+        buttons.accepted.connect(save_edit); buttons.rejected.connect(dlg.reject); dlg.exec()
 
     def open_ink_fullscreen(self):
         dlg=QDialog(self); dlg.setWindowTitle("Handschrift – Vollbild"); dlg.setWindowState(Qt.WindowFullScreen)
@@ -817,21 +832,21 @@ class Main(QMainWindow):
         title=QLabel("Neuen Klienten anlegen"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Stammdaten einmal erfassen und anschließend direkt für Sitzungen und Rechnungen verwenden."); sub.setObjectName("pageSub"); v.addWidget(sub)
         card=QFrame(); card.setObjectName("formCard"); form=QFormLayout(card); form.setSpacing(14)
-        last=QLineEdit(); first=QLineEdit(); dob=QLineEdit(); dob.setPlaceholderText("TT.MM.JJJJ"); address=QLineEdit(); diagnosis=QLineEdit()
-        for x in (last,first,dob,address,diagnosis): x.setMinimumHeight(44)
-        form.addRow("Nachname *",last); form.addRow("Vorname *",first); form.addRow("Geburtsdatum",dob); form.addRow("Adresse",address); form.addRow("Diagnose (optional)",diagnosis); v.addWidget(card)
+        last=QLineEdit(); first=QLineEdit(); dob=QLineEdit(); dob.setPlaceholderText("TT.MM.JJJJ"); phone=QLineEdit(); email=QLineEdit(); address=QLineEdit(); diagnosis=QLineEdit()
+        for x in (last,first,dob,phone,email,address,diagnosis): x.setMinimumHeight(44)
+        form.addRow("Nachname *",last); form.addRow("Vorname *",first); form.addRow("Geburtsdatum",dob); form.addRow("Telefon",phone); form.addRow("E-Mail",email); form.addRow("Adresse",address); form.addRow("Diagnose (optional)",diagnosis); v.addWidget(card)
         row=QHBoxLayout(); save=QPushButton("💾 Klient anlegen"); save.setMinimumHeight(52); session=QPushButton("＋ Anlegen und Sitzung öffnen"); session.setMinimumHeight(52)
         def create(go_session=False):
             if not self.require_edit():return
             if not last.text().strip() or not first.text().strip():return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
-            cc={"last":last.text().strip(),"first":first.text().strip(),"dob":dob.text().strip(),"address":address.text().strip(),"diagnosis":diagnosis.text().strip()}
+            cc={"last":last.text().strip(),"first":first.text().strip(),"dob":dob.text().strip(),"phone":phone.text().strip(),"email":email.text().strip(),"address":address.text().strip(),"diagnosis":diagnosis.text().strip()}
             if any(x.get("last","").lower()==cc["last"].lower() and x.get("first","").lower()==cc["first"].lower() and x.get("dob","")==cc["dob"] for x in DB["clients"]):return QMessageBox.warning(self,"Klient","Dieser Klient ist bereits vorhanden.")
             DB["clients"].append(cc); save_data(); audit("CLIENT_CREATED","Klient angelegt",self.current_user.get("username","") if self.current_user else "")
             if hasattr(self,"client_pick"): self.client_pick.addItem(f"{cc['last']}, {cc['first']}",cc)
             if go_session:
                 self.s_last.setText(cc["last"]); self.s_first.setText(cc["first"]); self.s_dob.setText(cc["dob"]); self.nav.setCurrentRow(1)
             else:
-                QMessageBox.information(self,"Klient","Klient wurde angelegt."); last.clear(); first.clear(); dob.clear(); address.clear(); diagnosis.clear()
+                QMessageBox.information(self,"Klient","Klient wurde angelegt."); last.clear(); first.clear(); dob.clear(); phone.clear(); email.clear(); address.clear(); diagnosis.clear()
         save.clicked.connect(lambda:create(False)); session.clicked.connect(lambda:create(True)); row.addWidget(save); row.addWidget(session); v.addLayout(row); v.addStretch(); return w
 
     def clients_ui(self):
@@ -905,7 +920,7 @@ class Main(QMainWindow):
         def client_to_session():
             x=selected_client()
             if not x:return
-            self.s_last.setText(x.get("last","")); self.s_first.setText(x.get("first","")); self.s_dob.setText(x.get("dob","")); self.nav.setCurrentRow(1)
+            self.client_pick.setCurrentText(f"{x.get('last','')}, {x.get('first','')}"); self.s_last.setText(x.get("last","")); self.s_first.setText(x.get("first","")); self.s_dob.setText(x.get("dob","")); self.s_phone.setText(x.get("phone","")); self.s_email.setText(x.get("email","")); self.nav.setCurrentRow(1)
         def client_to_invoice():
             x=selected_client()
             if not x:return
@@ -1194,4 +1209,4 @@ if __name__ == "__main__":
     if not ensure_first_user(): sys.exit(0)
     login=LoginDialog()
     if login.exec()!=QDialog.Accepted: sys.exit(0)
-    win=Main(); win.current_user=login.user; win.setWindowTitle("PraxisPro – "+login.user.get("display_name","")); win.show(); sys.exit(app.exec())
+    win=Main(); win.current_user=login.user; win.setWindowTitle(f"PraxisPro v{APP_VERSION} – "+login.user.get("display_name","")); win.show(); sys.exit(app.exec())
