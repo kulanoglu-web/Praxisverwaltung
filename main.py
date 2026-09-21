@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.23"
+APP_VERSION = "0.11.24"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -678,10 +678,19 @@ class Main(QMainWindow):
           "Angst / Panik":["Plötzliche Angstspitzen","Herzklopfen / Herzrasen","Atemnot / Engegefühl","Schwindel","Zittern","Schwitzen","Angst vor Kontrollverlust","Angst zu sterben","Erwartungsangst","Vermeidungsverhalten","Sicherheitsverhalten"],
           "Schlafprobleme":["Einschlafprobleme","Durchschlafprobleme","Frühes Erwachen","Nicht erholsamer Schlaf","Nächtliches Grübeln","Tagesmüdigkeit","Unregelmäßiger Schlafrhythmus"],
           "ADHS / Aufmerksamkeit":["Unaufmerksamkeit","Leichte Ablenkbarkeit","Vergesslichkeit","Organisationsprobleme","Aufschieben","Impulsivität","Innere / motorische Unruhe","Probleme mit Zeitmanagement"],
-          "Zwänge":["Aufdringliche Gedanken / Bilder / Impulse","Kontrollzwänge","Wasch- / Reinigungszwänge","Ordnungs- / Symmetriezwänge","Mentale Rituale","Rückversicherung","Vermeidung","Hoher Zeitaufwand"]
+          "Zwänge":["Aufdringliche Gedanken / Bilder / Impulse","Kontrollzwänge","Wasch- / Reinigungszwänge","Ordnungs- / Symmetriezwänge","Mentale Rituale","Rückversicherung","Vermeidung","Hoher Zeitaufwand"],
+          "Stress / Überlastung":["Anspannung","Erschöpfung","Reizbarkeit","Konzentrationsprobleme","Schlafprobleme","Grübeln","Körperliche Stresssymptome","Gefühl von Kontrollverlust"],
+          "Trauer / Verlust":["Intensive Traurigkeit","Sehnsucht","Gedankliche Beschäftigung mit Verlust","Schuldgefühle","Rückzug","Schlafprobleme","Funktionsbeeinträchtigung","Schwierigkeit, Alltag wieder aufzunehmen"],
+          "Eifersucht / Vertrauen":["Misstrauen","Kontrollverhalten","Rückversicherung","Grübeln","Verlustangst","Konflikteskalation","Rückzug","Wut / Kränkung"],
+          "Selbstwert / Selbstbewusstsein":["Selbstkritik","Scham","Versagensangst","Sozialer Vergleich","Unsicherheit","Schwierigkeit Grenzen zu setzen","Vermeidung","Starkes Bedürfnis nach Bestätigung"]
         }
         symptom_box=QFrame(); symptom_box.setObjectName("formCard"); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
-        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(150); sb.addWidget(self.symptom_list); v.addWidget(symptom_box)
+        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(150); sb.addWidget(self.symptom_list)
+        sr=QHBoxLayout(); self.sym_custom=QLineEdit(); self.sym_custom.setPlaceholderText("Weiteres Symptom ergänzen …"); add_sym=QPushButton("＋ Symptom"); sr.addWidget(self.sym_custom,1); sr.addWidget(add_sym); sb.addLayout(sr)
+        def add_custom_symptom():
+            t=self.sym_custom.text().strip()
+            if t: self.symptom_list.addItem(t); self.symptom_list.item(self.symptom_list.count()-1).setSelected(True); self.sym_custom.clear()
+        add_sym.clicked.connect(add_custom_symptom); self.sym_custom.returnPressed.connect(add_custom_symptom); v.addWidget(symptom_box)
         def load_symptoms():
             self.symptom_list.clear(); vals=symptom_catalog.get(self.help_topic.currentText(),[])
             if not vals: vals=["Aktuelle Belastung","Beeinträchtigung im Alltag","Schlaf / Erholung","Körperliche Beschwerden","Rückzug / Vermeidung","Beziehungsbelastung","Ressourcen / Schutzfaktoren"]
@@ -694,6 +703,11 @@ class Main(QMainWindow):
         self.sym_frequency=QComboBox(); self.sym_frequency.addItems(["Häufigkeit nicht angegeben","Selten","Mehrmals monatlich","Mehrmals wöchentlich","Täglich","Mehrmals täglich"])
         sf.addWidget(QLabel("Dauer"),1,0); sf.addWidget(self.sym_duration,1,1); sf.addWidget(QLabel("Intensität"),1,2); sf.addWidget(self.sym_intensity,1,3)
         sf.addWidget(QLabel("Häufigkeit"),2,0); sf.addWidget(self.sym_frequency,2,1); sf.addWidget(QLabel("Alltag"),2,2); sf.addWidget(self.sym_impairment,2,3); v.addWidget(severity)
+        risk=QFrame(); risk.setObjectName("formCard"); rv=QVBoxLayout(risk); rv.addWidget(QLabel("Sicherheitsrelevante Hinweise"))
+        self.risk_checks=[]
+        for txt in ["Suizidgedanken","Selbstverletzung","Fremdgefährdung","Akute Desorientierung / psychotische Symptome","Kein aktueller Sicherheitshinweis"]:
+            cb=QCheckBox(txt); self.risk_checks.append(cb); rv.addWidget(cb)
+        self.help_note=QLineEdit(); self.help_note.setPlaceholderText("Eigene Beobachtung / ergänzende Notiz …"); rv.addWidget(self.help_note); v.addWidget(risk)
         self.help_text=QTextEdit(); self.help_text.setReadOnly(True); self.help_text.setStyleSheet("font-size:17px;padding:10px"); v.addWidget(self.help_text,1)
         def render():
             d=topics[self.help_topic.currentText()]; parts=["GESPRÄCHSFRAGEN"]+["• "+x for x in d["Fragen"]]
@@ -708,11 +722,17 @@ class Main(QMainWindow):
                 for label,box in [("Dauer",self.sym_duration),("Intensität",self.sym_intensity),("Häufigkeit",self.sym_frequency),("Alltagsbeeinträchtigung",self.sym_impairment)]:
                     if box.currentIndex()>0: details.append(label+": "+box.currentText())
             if details: parts+=["","SYMPTOMVERTIEFUNG"]+["• "+x for x in details]
+            risks=[x.text() for x in getattr(self,"risk_checks",[]) if x.isChecked()]
+            if risks: parts+=["","SICHERHEITSRELEVANTE HINWEISE"]+["• "+x for x in risks]
+            if hasattr(self,"help_note") and self.help_note.text().strip(): parts+=["","EIGENE NOTIZ",self.help_note.text().strip()]
             code=self.help_fcode.currentText() if hasattr(self,"help_fcode") else ""
             if " – " in code: parts+=["","AUSGEWÄHLTER F-CODE",code,"Hinweis: Der Code dient als Dokumentations- und Gesprächshilfe; keine automatische Diagnosestellung."]
             self.help_text.setPlainText("\n".join(parts))
         self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); self.symptom_list.itemSelectionChanged.connect(render)
         for box in (self.sym_duration,self.sym_intensity,self.sym_frequency,self.sym_impairment): box.currentTextChanged.connect(lambda _:render())
+        for cb in self.risk_checks: cb.toggled.connect(lambda _:render())
+        self.help_note.textChanged.connect(lambda _:render())
+        copybtn=QPushButton("Zusammenfassung kopieren"); copybtn.clicked.connect(lambda: QApplication.clipboard().setText(self.help_text.toPlainText())); v.addWidget(copybtn)
         render()
         add=QPushButton("Ausgewählten Text in Sitzungsnotiz übernehmen"); add.setMinimumHeight(55)
         def add_note():
