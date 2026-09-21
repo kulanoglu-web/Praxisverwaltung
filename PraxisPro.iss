@@ -1,10 +1,10 @@
 #define MyAppName "PraxisPro"
-#define MyAppVersion "0.9.4"
+#define MyAppVersion "0.9.6"
 #define MyAppPublisher "Erdogan Kulanoglu"
 #define MyAppExeName "Praxisverwaltung.exe"
 
 [Setup]
-AppId={{B22B6B7B-5139-4A6D-9D71-PRAXISPRO2026}
+AppId={{B22B6B7B-5139-4A6D-9D71-0A2026092101}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
