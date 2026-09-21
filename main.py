@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.10.8"
+APP_VERSION = "0.10.9"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1035,11 +1035,25 @@ class Main(QMainWindow):
                 hay=" ".join(t.item(r,j).text().lower() for j in range(t.columnCount()) if t.item(r,j))
                 status=t.item(r,3).text() if t.item(r,3) else ""
                 t.setRowHidden(r,(q not in hay) or (sf!="Alle Status" and status!=sf))
+                if status=="offen":
+                    try:
+                        inv_date=datetime.strptime(t.item(r,1).text(),"%Y-%m-%d").date()
+                        if (date.today()-inv_date).days>14:
+                            for j in range(t.columnCount()):
+                                if t.item(r,j): t.item(r,j).setToolTip("Zahlungsziel von 14 Tagen überschritten")
+                    except Exception: pass
         search.textChanged.connect(filt); statusfilter.currentTextChanged.connect(filt); v.addWidget(t)
         summary=QHBoxLayout()
+        overdue_count=0
+        today=date.today()
+        for inv in DB["invoices"]:
+            if inv.get("status","offen")=="offen":
+                try:
+                    if (today-datetime.strptime(inv.get("date",""),"%Y-%m-%d").date()).days>14: overdue_count+=1
+                except Exception: pass
         open_total=sum(float(x.get("amount",0)) for x in DB["invoices"] if x.get("status","offen")=="offen")
         paid_total=sum(float(x.get("amount",0)) for x in DB["invoices"] if x.get("status")=="bezahlt")
-        for txt in (f"Offen: {open_total:.2f} €",f"Bezahlt: {paid_total:.2f} €",f"Rechnungen: {len(DB['invoices'])}"):
+        for txt in (f"Offen: {open_total:.2f} €",f"Bezahlt: {paid_total:.2f} €",f"Überfällig >14 Tage: {overdue_count}",f"Rechnungen: {len(DB['invoices'])}"):
             lab=QLabel(txt); lab.setObjectName("clientBadge"); lab.setAlignment(Qt.AlignCenter); lab.setMinimumHeight(40); summary.addWidget(lab)
         v.addLayout(summary)
         h=QHBoxLayout()
