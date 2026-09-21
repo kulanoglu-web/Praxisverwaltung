@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt pyinstaller
-      - run: pyinstaller --noconfirm --clean --onefile --windowed --name Praxisverwaltung main.py
+      - name: UI screenshot test (1600x900)\n        run: python ui_screenshot_test.py\n      - uses: actions/upload-artifact@v4\n        with:\n          name: PraxisPro-UI-Screenshot\n          path: test-artifacts/PraxisPro-Sitzung-1600x900.png\n          retention-days: 30\n      - run: pyinstaller --noconfirm --clean --onefile --windowed --name Praxisverwaltung main.py
       - uses: actions/upload-artifact@v4
         with:
           name: Praxisverwaltung-Windows
