@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.24"
+APP_VERSION = "0.11.25"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -682,7 +682,9 @@ class Main(QMainWindow):
           "Stress / Überlastung":["Anspannung","Erschöpfung","Reizbarkeit","Konzentrationsprobleme","Schlafprobleme","Grübeln","Körperliche Stresssymptome","Gefühl von Kontrollverlust"],
           "Trauer / Verlust":["Intensive Traurigkeit","Sehnsucht","Gedankliche Beschäftigung mit Verlust","Schuldgefühle","Rückzug","Schlafprobleme","Funktionsbeeinträchtigung","Schwierigkeit, Alltag wieder aufzunehmen"],
           "Eifersucht / Vertrauen":["Misstrauen","Kontrollverhalten","Rückversicherung","Grübeln","Verlustangst","Konflikteskalation","Rückzug","Wut / Kränkung"],
-          "Selbstwert / Selbstbewusstsein":["Selbstkritik","Scham","Versagensangst","Sozialer Vergleich","Unsicherheit","Schwierigkeit Grenzen zu setzen","Vermeidung","Starkes Bedürfnis nach Bestätigung"]
+          "Selbstwert / Selbstbewusstsein":["Selbstkritik","Scham","Versagensangst","Sozialer Vergleich","Unsicherheit","Schwierigkeit Grenzen zu setzen","Vermeidung","Starkes Bedürfnis nach Bestätigung"],
+          "Paar – Kommunikation / Konflikte":["Häufige Eskalationen","Kritik / Vorwürfe","Rückzug / Schweigen","Gefühl nicht verstanden zu werden","Vertrauensverlust","Nähe-Distanz-Konflikte","Unterschiedliche Erwartungen","Wiederkehrende ungelöste Konflikte"],
+          "Trennung / Beziehungskrise":["Akute Traurigkeit","Verlustangst","Grübeln","Wut / Kränkung","Schlafprobleme","Kontaktzwang / Rückversicherung","Unsicherheit über Entscheidung","Belastung gemeinsamer Kinder"]
         }
         symptom_box=QFrame(); symptom_box.setObjectName("formCard"); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
         self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(150); sb.addWidget(self.symptom_list)
@@ -707,32 +709,50 @@ class Main(QMainWindow):
         self.risk_checks=[]
         for txt in ["Suizidgedanken","Selbstverletzung","Fremdgefährdung","Akute Desorientierung / psychotische Symptome","Kein aktueller Sicherheitshinweis"]:
             cb=QCheckBox(txt); self.risk_checks.append(cb); rv.addWidget(cb)
+        self.help_goal=QLineEdit(); self.help_goal.setPlaceholderText("Sitzungsziel / Anliegen heute …"); rv.addWidget(self.help_goal)
+        self.help_resources=QLineEdit(); self.help_resources.setPlaceholderText("Ressourcen / Schutzfaktoren …"); rv.addWidget(self.help_resources)
         self.help_note=QLineEdit(); self.help_note.setPlaceholderText("Eigene Beobachtung / ergänzende Notiz …"); rv.addWidget(self.help_note); v.addWidget(risk)
         self.help_text=QTextEdit(); self.help_text.setReadOnly(True); self.help_text.setStyleSheet("font-size:17px;padding:10px"); v.addWidget(self.help_text,1)
         def render():
-            d=topics[self.help_topic.currentText()]; parts=["GESPRÄCHSFRAGEN"]+["• "+x for x in d["Fragen"]]
+            d=topics[self.help_topic.currentText()]; parts=["THEMA: "+self.help_topic.currentText(),"","GESPRÄCHSFRAGEN"]+["• "+x for x in d["Fragen"]]
             labels={"VT":"VERHALTENSTHERAPEUTISCHE IMPULSE","TP":"TIEFENPSYCHOLOGISCHE IMPULSE","Systemisch":"SYSTEMISCHE IMPULSE"}
             labels["SIT"]="SYSTEMISCH-INTEGRATIVE / SIT-IMPULSE"
             for key in ["VT","TP","Systemisch","SIT"]:
                 if key in d: parts+=["",labels[key]]+["• "+x for x in d[key]]
             selected=[x.text() for x in self.symptom_list.selectedItems()] if hasattr(self,"symptom_list") else []
-            if selected: parts+=["","AUSGEWÄHLTE SYMPTOME"]+["☑ "+x for x in selected]
+            if selected: parts+=["","AUSGEWÄHLTE SYMPTOME ("+str(len(selected))+")"]+["☑ "+x for x in selected]
             details=[]
             if hasattr(self,"sym_duration"):
                 for label,box in [("Dauer",self.sym_duration),("Intensität",self.sym_intensity),("Häufigkeit",self.sym_frequency),("Alltagsbeeinträchtigung",self.sym_impairment)]:
                     if box.currentIndex()>0: details.append(label+": "+box.currentText())
             if details: parts+=["","SYMPTOMVERTIEFUNG"]+["• "+x for x in details]
+            if hasattr(self,"help_goal") and self.help_goal.text().strip(): parts+=["","SITZUNGSZIEL",self.help_goal.text().strip()]
+            if hasattr(self,"help_resources") and self.help_resources.text().strip(): parts+=["","RESSOURCEN / SCHUTZFAKTOREN",self.help_resources.text().strip()]
             risks=[x.text() for x in getattr(self,"risk_checks",[]) if x.isChecked()]
             if risks: parts+=["","SICHERHEITSRELEVANTE HINWEISE"]+["• "+x for x in risks]
             if hasattr(self,"help_note") and self.help_note.text().strip(): parts+=["","EIGENE NOTIZ",self.help_note.text().strip()]
             code=self.help_fcode.currentText() if hasattr(self,"help_fcode") else ""
             if " – " in code: parts+=["","AUSGEWÄHLTER F-CODE",code,"Hinweis: Der Code dient als Dokumentations- und Gesprächshilfe; keine automatische Diagnosestellung."]
+            parts+=["","FACHLICHER HINWEIS","Arbeitshilfe zur strukturierten Exploration. Sie ersetzt keine eigenständige Diagnostik, Risikoabwägung oder Behandlungsentscheidung."]
             self.help_text.setPlainText("\n".join(parts))
         self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); self.symptom_list.itemSelectionChanged.connect(render)
         for box in (self.sym_duration,self.sym_intensity,self.sym_frequency,self.sym_impairment): box.currentTextChanged.connect(lambda _:render())
-        for cb in self.risk_checks: cb.toggled.connect(lambda _:render())
-        self.help_note.textChanged.connect(lambda _:render())
-        copybtn=QPushButton("Zusammenfassung kopieren"); copybtn.clicked.connect(lambda: QApplication.clipboard().setText(self.help_text.toPlainText())); v.addWidget(copybtn)
+        def risk_changed(changed):
+            if changed.text()=="Kein aktueller Sicherheitshinweis" and changed.isChecked():
+                for cb in self.risk_checks[:-1]: cb.blockSignals(True); cb.setChecked(False); cb.blockSignals(False)
+            elif changed.isChecked() and changed is not self.risk_checks[-1]:
+                self.risk_checks[-1].blockSignals(True); self.risk_checks[-1].setChecked(False); self.risk_checks[-1].blockSignals(False)
+            render()
+        for cb in self.risk_checks: cb.toggled.connect(lambda _,x=cb:risk_changed(x))
+        self.help_goal.textChanged.connect(lambda _:render()); self.help_resources.textChanged.connect(lambda _:render()); self.help_note.textChanged.connect(lambda _:render())
+        actions=QHBoxLayout(); copybtn=QPushButton("Zusammenfassung kopieren"); copybtn.clicked.connect(lambda: QApplication.clipboard().setText(self.help_text.toPlainText())); actions.addWidget(copybtn)
+        resetbtn=QPushButton("Abfrage zurücksetzen")
+        def reset_assessment():
+            self.symptom_list.clearSelection()
+            for box in (self.sym_duration,self.sym_intensity,self.sym_frequency,self.sym_impairment): box.setCurrentIndex(0)
+            for cb in self.risk_checks: cb.setChecked(False)
+            self.help_goal.clear(); self.help_resources.clear(); self.help_note.clear(); render()
+        resetbtn.clicked.connect(reset_assessment); actions.addWidget(resetbtn); v.addLayout(actions)
         render()
         add=QPushButton("Ausgewählten Text in Sitzungsnotiz übernehmen"); add.setMinimumHeight(55)
         def add_note():
