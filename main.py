@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.10.7"
+APP_VERSION = "0.10.8"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -887,7 +887,7 @@ class Main(QMainWindow):
             DB["clients"].append(cc); save_data(); audit("CLIENT_CREATED","Klient angelegt",self.current_user.get("username","") if self.current_user else "")
             if hasattr(self,"client_pick"): self.client_pick.addItem(f"{cc['last']}, {cc['first']}",cc)
             if go_session:
-                self.s_last.setText(cc["last"]); self.s_first.setText(cc["first"]); self.s_dob.setText(cc["dob"]); self.nav.setCurrentRow(1)
+                self.s_last.setText(cc["last"]); self.s_first.setText(cc["first"]); self.s_dob.setText(cc["dob"]); self.s_phone.setText(cc.get("phone","")); self.s_email.setText(cc.get("email","")); self.client_pick.setCurrentIndex(self.client_pick.count()-1); self.nav.setCurrentRow(1)
             else:
                 QMessageBox.information(self,"Klient","Klient wurde angelegt."); last.clear(); first.clear(); dob.clear(); phone.clear(); email.clear(); address.clear(); diagnosis.clear()
         save.clicked.connect(lambda:create(False)); session.clicked.connect(lambda:create(True)); row.addWidget(save); row.addWidget(session); v.addLayout(row); v.addStretch(); return w
@@ -1025,9 +1025,9 @@ class Main(QMainWindow):
         filters=QHBoxLayout(); search=QLineEdit(); search.setPlaceholderText("Rechnung oder Klient suchen …"); search.setClearButtonEnabled(True)
         statusfilter=QComboBox(); statusfilter.addItems(["Alle Status","offen","bezahlt","storniert"]); statusfilter.setMinimumWidth(150)
         filters.addWidget(search,1); filters.addWidget(statusfilter); v.addLayout(filters)
-        t=QTableWidget(0,5); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True)
+        t=QTableWidget(0,6); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Zahlungsdatum","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True)
         for i in reversed(DB["invoices"]):
-            r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),f'{float(i.get("amount",0)):.2f} €']
+            r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),f'{float(i.get("amount",0)):.2f} €']
             for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
         def filt(_=None):
             q=search.text().lower().strip(); sf=statusfilter.currentText()
@@ -1046,13 +1046,16 @@ class Main(QMainWindow):
         paid=QPushButton("✓ Als bezahlt markieren"); paid.setMinimumHeight(50)
         def selected_invoice():
             r=t.currentRow()
-            if r<0:return None,None
+            if r<0:
+                QMessageBox.information(self,"Rechnung","Bitte zuerst eine Rechnung auswählen."); return None,None
             no=t.item(r,0).text(); return r,next((x for x in DB["invoices"] if x.get("number")==no),None)
         def mark_paid():
             r,inv=selected_invoice()
             if inv:
                 if inv.get("status")=="storniert": return QMessageBox.warning(self,"Status","Eine stornierte Rechnung kann nicht als bezahlt markiert werden.")
-                inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("bezahlt")
+                if inv.get("status")=="bezahlt": return QMessageBox.information(self,"Status","Diese Rechnung ist bereits als bezahlt markiert.")
+                if QMessageBox.question(self,"Zahlung","Rechnung "+str(inv.get("number",""))+" als bezahlt markieren?")!=QMessageBox.Yes:return
+                inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); save_data(); update_excel(); t.item(r,3).setText("bezahlt"); t.item(r,4).setText(inv["paid_date"])
         paid.clicked.connect(mark_paid); h.addWidget(paid)
         cancel=QPushButton("Rechnung stornieren"); cancel.setMinimumHeight(50)
         def cancel_invoice():
@@ -1062,13 +1065,13 @@ class Main(QMainWindow):
             msg=f'Rechnung {inv.get("number","")} wirklich stornieren?'
             if inv.get("status")=="bezahlt": msg+="\n\nAchtung: Die Rechnung ist bereits als bezahlt markiert."
             if QMessageBox.question(self,"Stornieren",msg)!=QMessageBox.Yes:return
-            inv["status"]="storniert"; inv["cancelled_date"]=datetime.now().strftime("%Y-%m-%d")
+            inv["status"]="storniert"; inv["cancelled_date"]=datetime.now().strftime("%Y-%m-%d"); inv["paid_date"]=""
             no=inv.get("number","")
             released=0
             for s in DB["sessions"]:
                 if s.get("invoice_number")==no:
                     s["billed"]=False; s["invoice_number"]=""; released+=1
-            save_data(); update_excel(); t.item(r,3).setText("storniert")
+            save_data(); update_excel(); t.item(r,3).setText("storniert"); t.item(r,4).setText("")
             QMessageBox.information(self,"Storniert",f"Rechnung {no} wurde storniert.\n{released} verknüpfte Sitzung(en) sind wieder abrechenbar.")
         cancel.clicked.connect(cancel_invoice); h.addWidget(cancel)
         openpdf=QPushButton("PDF öffnen"); openpdf.setMinimumHeight(50)
@@ -1083,7 +1086,15 @@ class Main(QMainWindow):
                 guess=client_dir({"last":last,"first":first})/"Rechnungen"/f"Rechnung_{inv.get('number','')}.pdf"
                 if guess.exists(): inv["pdf"]=str(guess); save_data(); QDesktopServices.openUrl(QUrl.fromLocalFile(str(guess))); return
             QMessageBox.information(self,"PDF","Das PDF konnte nicht gefunden werden.")
-        openpdf.clicked.connect(open_pdf); h.addWidget(openpdf); v.addLayout(h)
+        openpdf.clicked.connect(open_pdf); h.addWidget(openpdf)
+        details=QPushButton("Details"); details.setMinimumHeight(50)
+        def invoice_details():
+            _,inv=selected_invoice()
+            if not inv:return
+            items=inv.get("items",[])
+            lines="\n".join(f'{x.get("date","")}  {x.get("start","")}–{x.get("end","")}  {x.get("minutes",0)} Min.  {x.get("type","")}  {float(x.get("amount",0)):.2f} €' for x in items) or "Keine Einzelpositionen gespeichert."
+            QMessageBox.information(self,"Rechnungsdetails",f'Rechnung: {inv.get("number","")}\nKlient: {inv.get("client","")}\nStatus: {inv.get("status","offen")}\nZahlungsdatum: {inv.get("paid_date","") or "–"}\nBetrag: {float(inv.get("amount",0)):.2f} €\n\n{lines}')
+        details.clicked.connect(invoice_details); t.cellDoubleClicked.connect(lambda *_: invoice_details()); h.addWidget(details); v.addLayout(h)
         backup=QPushButton("Datensicherung erstellen"); backup.setMinimumHeight(48)
         def do_backup():
             dest=ROOT/"Backups"/datetime.now().strftime("Backup_%Y-%m-%d_%H-%M-%S"); dest.mkdir(parents=True,exist_ok=True)
