@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.43"
+APP_VERSION = "0.11.44"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -859,12 +859,14 @@ class Main(QMainWindow):
                 school_keys=["VT","TP","Systemisch","SIT","EFT"] if chosen_school=="Alle Schulen" else [chosen_school]
                 for sk in school_keys:
                     if sk in lib: parts+=["","INTERVENTIONEN "+sk]+["• "+x for x in lib[sk]]
-            labels={"VT":"VERHALTENSTHERAPEUTISCHE IMPULSE","TP":"TIEFENPSYCHOLOGISCHE IMPULSE","Systemisch":"SYSTEMISCHE IMPULSE"}
-            labels["SIT"]="SYSTEMISCH-INTEGRATIVE / SIT-IMPULSE"
+            # Basisimpulse nur ergänzen, wenn für das Thema keine spezifische
+            # Interventionsbibliothek derselben Schule vorhanden ist. So entstehen
+            # keine doppelten VT/TP/Systemisch/SIT-Blöcke in der Zusammenfassung.
+            labels={"VT":"VERHALTENSTHERAPEUTISCHE IMPULSE","TP":"TIEFENPSYCHOLOGISCHE IMPULSE","Systemisch":"SYSTEMISCHE IMPULSE","SIT":"SYSTEMISCH-INTEGRATIVE / SIT-IMPULSE","EFT":"EMOTIONSFOKUSSIERTE IMPULSE"}
             chosen=self.school_filter.currentText() if hasattr(self,"school_filter") else "Alle Schulen"
-            keys=["VT","TP","Systemisch","SIT"] if chosen=="Alle Schulen" else [chosen]
+            keys=["VT","TP","Systemisch","SIT","EFT"] if chosen=="Alle Schulen" else [chosen]
             for key in keys:
-                if key in d: parts+=["",labels[key]]+["• "+x for x in d[key]]
+                if key in d and key not in lib: parts+=["",labels[key]]+["• "+x for x in d[key]]
             selected=[x.text() for x in self.symptom_list.selectedItems()] if hasattr(self,"symptom_list") else []
             if selected: parts+=["","AUSGEWÄHLTE SYMPTOME ("+str(len(selected))+")"]+["☑ "+x for x in selected]
             screening=[x.text() for x in getattr(self,"screening_checks",[]) if x.isChecked()]
