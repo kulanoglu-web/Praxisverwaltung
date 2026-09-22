@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.34"
+APP_VERSION = "0.11.35"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -708,6 +708,16 @@ class Main(QMainWindow):
           "Sexualität / Intimität":["Verminderte Lust","Leistungsdruck","Schmerzen / körperliche Beschwerden","Vermeidung von Nähe","Scham","Unterschiedliche Bedürfnisse","Kommunikationsprobleme","Belastung der Partnerschaft"]
         }
         # Verdachtsfall-Screening: eigene strukturierte Explorationsfragen, keine automatische Diagnose.
+        # Paartherapie: zwei getrennte Perspektiven, gemeinsame Ziele und Sicherheitsklärung.
+        couple=QFrame(); couple.setObjectName("formCard"); cv=QVBoxLayout(couple); ch=QHBoxLayout(); ch.addWidget(QLabel("Paartherapie – getrennte Perspektiven")); ch.addStretch()
+        self.couple_mode=QCheckBox("Paarmodus aktiv"); ch.addWidget(self.couple_mode); cv.addLayout(ch)
+        names=QHBoxLayout(); self.partner_a=QLineEdit(); self.partner_a.setPlaceholderText("Partner A / Name"); self.partner_b=QLineEdit(); self.partner_b.setPlaceholderText("Partner B / Name"); names.addWidget(self.partner_a); names.addWidget(self.partner_b); cv.addLayout(names)
+        cols=QHBoxLayout(); self.partner_a_view=QTextEdit(); self.partner_a_view.setPlaceholderText("Sicht Partner A: Anliegen, Wünsche, Verletzungen, Ressourcen …"); self.partner_b_view=QTextEdit(); self.partner_b_view.setPlaceholderText("Sicht Partner B: Anliegen, Wünsche, Verletzungen, Ressourcen …"); self.partner_a_view.setMaximumHeight(115); self.partner_b_view.setMaximumHeight(115); cols.addWidget(self.partner_a_view); cols.addWidget(self.partner_b_view); cv.addLayout(cols)
+        self.couple_cycle=QLineEdit(); self.couple_cycle.setPlaceholderText("Wiederkehrender Interaktions-/Eskalationskreislauf …"); cv.addWidget(self.couple_cycle)
+        self.couple_goal=QLineEdit(); self.couple_goal.setPlaceholderText("Gemeinsames Ziel / Auftrag des Paares …"); cv.addWidget(self.couple_goal)
+        self.couple_resources=QLineEdit(); self.couple_resources.setPlaceholderText("Gemeinsame Ressourcen / positive Ausnahmen …"); cv.addWidget(self.couple_resources)
+        cr=QHBoxLayout(); self.couple_violence=QCheckBox("Hinweis auf Gewalt / Drohung / Zwang / Kontrolle"); self.couple_children=QCheckBox("Kinder / Elternebene betroffen"); cr.addWidget(self.couple_violence); cr.addWidget(self.couple_children); cr.addStretch(); cv.addLayout(cr)
+        couplehint=QLabel("Bei Gewalt, Zwang oder akuter Gefährdung: Sicherheit und getrennte Risikoabklärung vor üblichen Paarinterventionen priorisieren."); couplehint.setWordWrap(True); cv.addWidget(couplehint); v.addWidget(couple)
         screening_catalog={
           "Depressive Beschwerden":["Besteht seit mindestens zwei Wochen an den meisten Tagen eine deutlich gedrückte Stimmung?","Besteht deutlich weniger Interesse oder Freude an sonst wichtigen Aktivitäten?","Sind Antrieb oder Energie deutlich vermindert?","Bestehen Schlaf-, Appetit- oder Konzentrationsveränderungen?","Bestehen Hoffnungslosigkeit, starke Schuldgefühle oder Gedanken, nicht mehr leben zu wollen?"],
           "Angst / Panik":["Treten wiederholt plötzlich starke Angstspitzen auf?","Bestehen dabei deutliche körperliche Symptome wie Herzrasen, Atemnot, Zittern oder Schwindel?","Besteht anhaltende Sorge vor weiteren Anfällen?","Werden Situationen aus Angst vermieden?","Wie stark beeinträchtigt dies Alltag, Arbeit oder Beziehungen?"],
@@ -784,6 +794,15 @@ class Main(QMainWindow):
             if selected: parts+=["","AUSGEWÄHLTE SYMPTOME ("+str(len(selected))+")"]+["☑ "+x for x in selected]
             screening=[x.text() for x in getattr(self,"screening_checks",[]) if x.isChecked()]
             if screening: parts+=["","VERDACHTSFALL – BEJAHETE EXPLORATIONSFRAGEN"]+["☑ "+x for x in screening]+["Hinweis: strukturierte Exploration; keine automatische Diagnose."]
+            if getattr(self,"couple_mode",None) is not None and self.couple_mode.isChecked():
+                parts+=["","PAARTHERAPIE – GETRENNTE PERSPEKTIVEN"]
+                if self.partner_a.text().strip() or self.partner_a_view.toPlainText().strip(): parts+=["Partner A: "+(self.partner_a.text().strip() or "A"),self.partner_a_view.toPlainText().strip()]
+                if self.partner_b.text().strip() or self.partner_b_view.toPlainText().strip(): parts+=["Partner B: "+(self.partner_b.text().strip() or "B"),self.partner_b_view.toPlainText().strip()]
+                if self.couple_cycle.text().strip(): parts+=["Interaktionskreislauf: "+self.couple_cycle.text().strip()]
+                if self.couple_goal.text().strip(): parts+=["Gemeinsames Ziel: "+self.couple_goal.text().strip()]
+                if self.couple_resources.text().strip(): parts+=["Ressourcen / positive Ausnahmen: "+self.couple_resources.text().strip()]
+                if self.couple_children.isChecked(): parts+=["☑ Kinder / Elternebene betroffen"]
+                if self.couple_violence.isChecked(): parts+=["⚠ Hinweis auf Gewalt / Drohung / Zwang / Kontrolle","Sicherheit und individuelle Risikoabklärung priorisieren; übliche Paarinterventionen nicht schematisch fortsetzen."]
             details=[]
             if hasattr(self,"sym_duration"):
                 for label,box in [("Dauer",self.sym_duration),("Intensität",self.sym_intensity),("Häufigkeit",self.sym_frequency),("Alltagsbeeinträchtigung",self.sym_impairment)]:
@@ -805,6 +824,8 @@ class Main(QMainWindow):
             if " – " in code: parts+=["","AUSGEWÄHLTER F-CODE",code,"Hinweis: Der Code dient als Dokumentations- und Gesprächshilfe; keine automatische Diagnosestellung."]
             parts+=["","FACHLICHER HINWEIS","Arbeitshilfe zur strukturierten Exploration. Sie ersetzt keine eigenständige Diagnostik, Risikoabwägung oder Behandlungsentscheidung."]
             self.help_text.setPlainText("\n".join(parts))
+        for field in (self.partner_a,self.partner_b,self.couple_cycle,self.couple_goal,self.couple_resources): field.textChanged.connect(lambda _:render())
+        self.partner_a_view.textChanged.connect(render); self.partner_b_view.textChanged.connect(render); self.couple_mode.toggled.connect(lambda _:render()); self.couple_violence.toggled.connect(lambda _:render()); self.couple_children.toggled.connect(lambda _:render())
         self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); self.symptom_list.itemSelectionChanged.connect(render)
         for box in (self.sym_duration,self.sym_intensity,self.sym_frequency,self.sym_impairment): box.currentTextChanged.connect(lambda _:render())
         def risk_changed(changed):
