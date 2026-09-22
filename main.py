@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.33"
+APP_VERSION = "0.11.34"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -707,6 +707,35 @@ class Main(QMainWindow):
           "Psychotische Symptome – Exploration":["Ungewöhnliche Wahrnehmungen","Stimmenhören","Starke Überzeugungen mit Realitätskonflikt","Verwirrtheit","Desorganisiertes Denken","Misstrauen","Sozialer Rückzug","Funktionsverlust"],
           "Sexualität / Intimität":["Verminderte Lust","Leistungsdruck","Schmerzen / körperliche Beschwerden","Vermeidung von Nähe","Scham","Unterschiedliche Bedürfnisse","Kommunikationsprobleme","Belastung der Partnerschaft"]
         }
+        # Verdachtsfall-Screening: eigene strukturierte Explorationsfragen, keine automatische Diagnose.
+        screening_catalog={
+          "Depressive Beschwerden":["Besteht seit mindestens zwei Wochen an den meisten Tagen eine deutlich gedrückte Stimmung?","Besteht deutlich weniger Interesse oder Freude an sonst wichtigen Aktivitäten?","Sind Antrieb oder Energie deutlich vermindert?","Bestehen Schlaf-, Appetit- oder Konzentrationsveränderungen?","Bestehen Hoffnungslosigkeit, starke Schuldgefühle oder Gedanken, nicht mehr leben zu wollen?"],
+          "Angst / Panik":["Treten wiederholt plötzlich starke Angstspitzen auf?","Bestehen dabei deutliche körperliche Symptome wie Herzrasen, Atemnot, Zittern oder Schwindel?","Besteht anhaltende Sorge vor weiteren Anfällen?","Werden Situationen aus Angst vermieden?","Wie stark beeinträchtigt dies Alltag, Arbeit oder Beziehungen?"],
+          "PTBS / Trauma":["Gab es ein stark belastendes oder traumatisches Ereignis?","Treten ungewollte Erinnerungen, Albträume oder Wiedererleben auf?","Werden Erinnerungen, Gedanken, Gefühle oder Situationen vermieden?","Bestehen anhaltende Übererregung, Schreckhaftigkeit oder Schlafprobleme?","Beeinträchtigen die Beschwerden Alltag oder Beziehungen deutlich?"],
+          "ADHS / Aufmerksamkeit":["Bestanden Aufmerksamkeits- oder Organisationsprobleme bereits in Kindheit/Jugend?","Treten die Schwierigkeiten in mehr als einem Lebensbereich auf?","Bestehen deutliche Ablenkbarkeit, Vergesslichkeit oder Probleme beim Abschließen von Aufgaben?","Bestehen Impulsivität oder ausgeprägte innere/motorische Unruhe?","Führen die Beschwerden zu relevanter Beeinträchtigung?"],
+          "Zwänge":["Treten wiederholt aufdringliche Gedanken, Bilder oder Impulse auf?","Werden wiederholte Handlungen oder mentale Rituale ausgeführt, um Anspannung zu reduzieren?","Werden die Gedanken oder Rituale als schwer kontrollierbar erlebt?","Beanspruchen sie viel Zeit?","Führen sie zu Vermeidung oder deutlicher Alltagsbeeinträchtigung?"],
+          "Schlafprobleme":["Bestehen Ein-, Durchschlafprobleme oder frühes Erwachen?","Treten die Probleme wiederholt auf?","Besteht tagsüber Müdigkeit oder Leistungseinbuße?","Gibt es erkennbare körperliche, medikamentöse oder substanzbezogene Ursachen?","Welche Schlafgewohnheiten und Belastungsfaktoren könnten die Beschwerden beeinflussen?"],
+          "Soziale Angst":["Besteht ausgeprägte Angst vor negativer Bewertung durch andere?","Werden soziale oder Leistungssituationen vermieden oder nur unter starker Angst ausgehalten?","Besteht ausgeprägtes Nachgrübeln nach sozialen Situationen?","Werden Sicherheitsstrategien eingesetzt?","Entsteht dadurch eine relevante Einschränkung?"],
+          "Somatische Beschwerden":["Bestehen wiederkehrende oder anhaltende körperliche Beschwerden?","Wie stark sind Sorgen und gedankliche Beschäftigung mit den Beschwerden?","Wie häufig wird Rückversicherung oder medizinische Abklärung gesucht?","Welche Belastungs- oder Beziehungssituationen verändern die Beschwerden?","Welche medizinischen Befunde bzw. Ausschlussdiagnostik liegen vor?"],
+          "Paar – Kommunikation / Konflikte":["Wie häufig eskalieren Konflikte und wie enden sie typischerweise?","Gibt es ein wiederkehrendes Muster aus Kritik, Verteidigung, Rückzug oder Schweigen?","Wie erleben beide Partner Nähe, Distanz, Vertrauen und Verbindlichkeit?","Welche gemeinsamen Ressourcen und positiven Ausnahmen gibt es?","Gibt es Angst, Drohungen, Kontrolle, Zwang oder körperliche/sexualisierte Gewalt?"],
+          "Trennung / Beziehungskrise":["Wollen beide an der Beziehung arbeiten oder steht Klärung/Trennung im Vordergrund?","Welche Ereignisse haben die Krise verschärft?","Wie werden Vertrauen, Bindung und Verletzungen von beiden erlebt?","Sind Kinder betroffen und wie wird die Elternebene geschützt?","Gibt es Sicherheitsrisiken, Gewalt, Stalking oder Zwang?"]
+        }
+        screenbox=QFrame(); screenbox.setObjectName("formCard"); scv=QVBoxLayout(screenbox); sch=QHBoxLayout(); sch.addWidget(QLabel("Fragebogen bei Verdachtsfall")); sch.addStretch(); self.screening_btn=QPushButton("Fragebogen zum Thema laden"); sch.addWidget(self.screening_btn); scv.addLayout(sch)
+        self.screening_checks=[]; self.screening_area=QWidget(); self.screening_layout=QVBoxLayout(self.screening_area); self.screening_layout.setContentsMargins(0,0,0,0); scv.addWidget(self.screening_area)
+        screenhint=QLabel("Strukturierte Exploration als Arbeitshilfe. Das Ergebnis ist kein Testwert und keine automatische Diagnose."); screenhint.setWordWrap(True); scv.addWidget(screenhint); v.addWidget(screenbox)
+        def load_screening():
+            while self.screening_layout.count():
+                it=self.screening_layout.takeAt(0); w=it.widget()
+                if w: w.deleteLater()
+            self.screening_checks=[]
+            questions=screening_catalog.get(self.help_topic.currentText(),[])
+            if not questions:
+                questions=["Bestehen die Beschwerden wiederholt oder anhaltend?","Führen sie zu relevanter Beeinträchtigung im Alltag?","Welche Auslöser, Schutzfaktoren und Differenzialerklärungen sind zu prüfen?"]
+            for q in questions:
+                cb=QCheckBox(q); cb.setWordWrap(True) if hasattr(cb,"setWordWrap") else None; self.screening_checks.append(cb); self.screening_layout.addWidget(cb)
+                cb.toggled.connect(lambda _:render())
+            render()
+        self.screening_btn.clicked.connect(load_screening)
         symptom_box=QFrame(); symptom_box.setObjectName("formCard"); symptom_box.setMinimumWidth(0); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
         self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(105); self.symptom_list.setMaximumHeight(145); sb.addWidget(self.symptom_list)
         sr=QHBoxLayout(); self.sym_custom=QLineEdit(); self.sym_custom.setPlaceholderText("Weiteres Symptom ergänzen …"); add_sym=QPushButton("＋ Symptom"); sr.addWidget(self.sym_custom,1); sr.addWidget(add_sym); sb.addLayout(sr)
@@ -753,6 +782,8 @@ class Main(QMainWindow):
                 if key in d: parts+=["",labels[key]]+["• "+x for x in d[key]]
             selected=[x.text() for x in self.symptom_list.selectedItems()] if hasattr(self,"symptom_list") else []
             if selected: parts+=["","AUSGEWÄHLTE SYMPTOME ("+str(len(selected))+")"]+["☑ "+x for x in selected]
+            screening=[x.text() for x in getattr(self,"screening_checks",[]) if x.isChecked()]
+            if screening: parts+=["","VERDACHTSFALL – BEJAHETE EXPLORATIONSFRAGEN"]+["☑ "+x for x in screening]+["Hinweis: strukturierte Exploration; keine automatische Diagnose."]
             details=[]
             if hasattr(self,"sym_duration"):
                 for label,box in [("Dauer",self.sym_duration),("Intensität",self.sym_intensity),("Häufigkeit",self.sym_frequency),("Alltagsbeeinträchtigung",self.sym_impairment)]:
