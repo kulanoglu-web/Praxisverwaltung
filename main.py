@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.42"
+APP_VERSION = "0.11.43"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -832,6 +832,16 @@ class Main(QMainWindow):
         self.risk_checks=[]
         for txt in ["Suizidgedanken","Selbstverletzung","Fremdgefährdung","Akute Desorientierung / psychotische Symptome","Kein aktueller Sicherheitshinweis"]:
             cb=QCheckBox(txt); self.risk_checks.append(cb); rv.addWidget(cb)
+        def normalize_risk_checks(changed,checked):
+            if not checked: return
+            if changed.text()=="Kein aktueller Sicherheitshinweis":
+                for x in self.risk_checks:
+                    if x is not changed: x.blockSignals(True); x.setChecked(False); x.blockSignals(False)
+            else:
+                safe=next((x for x in self.risk_checks if x.text()=="Kein aktueller Sicherheitshinweis"),None)
+                if safe: safe.blockSignals(True); safe.setChecked(False); safe.blockSignals(False)
+            render()
+        for cb in self.risk_checks: cb.toggled.connect(lambda checked,x=cb: normalize_risk_checks(x,checked))
         self.help_goal=QLineEdit(); self.help_goal.setPlaceholderText("Sitzungsziel / Anliegen heute …"); rv.addWidget(self.help_goal)
         self.help_resources=QLineEdit(); self.help_resources.setPlaceholderText("Ressourcen / Schutzfaktoren …"); rv.addWidget(self.help_resources)
         self.help_trigger=QLineEdit(); self.help_trigger.setPlaceholderText("Auslöser / typische Situationen …"); rv.addWidget(self.help_trigger)
