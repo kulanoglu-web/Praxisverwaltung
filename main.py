@@ -3,7 +3,7 @@ import subprocess, json, os, re, math, shutil, sqlite3, base64, hashlib
 from pathlib import Path
 from datetime import datetime, date
 from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent
-from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider)
+from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider,QSizePolicy)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap, QDesktopServices
 from reportlab.lib.pagesizes import A4
@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.41"
+APP_VERSION = "0.11.42"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -801,7 +801,7 @@ class Main(QMainWindow):
             if not questions:
                 questions=["Bestehen die Beschwerden wiederholt oder anhaltend?","Führen sie zu relevanter Beeinträchtigung im Alltag?","Welche Auslöser, Schutzfaktoren und Differenzialerklärungen sind zu prüfen?"]
             for q in questions:
-                cb=QCheckBox(q); cb.setWordWrap(True) if hasattr(cb,"setWordWrap") else None; self.screening_checks.append(cb); self.screening_layout.addWidget(cb)
+                cb=QCheckBox(q); cb.setToolTip(q); cb.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Preferred); self.screening_checks.append(cb); self.screening_layout.addWidget(cb)
                 cb.toggled.connect(lambda _:render())
             render()
         self.screening_btn.clicked.connect(load_screening)
