@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.35"
+APP_VERSION = "0.11.36"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -118,6 +118,11 @@ def init_sqlite():
       type TEXT, reduced INTEGER DEFAULT 0, amount REAL,
       FOREIGN KEY(invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
       FOREIGN KEY(session_id) REFERENCES sessions(id));
+    CREATE TABLE IF NOT EXISTS couple_assessments(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, client_label TEXT,
+      partner_a TEXT, partner_b TEXT, topic TEXT, perspective_a TEXT, perspective_b TEXT,
+      interaction_cycle TEXT, shared_goal TEXT, resources TEXT, children_involved INTEGER DEFAULT 0,
+      safety_flag INTEGER DEFAULT 0, answers_a TEXT, answers_b TEXT, username TEXT);
     CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
     CREATE TABLE IF NOT EXISTS users(
       id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
@@ -713,6 +718,11 @@ class Main(QMainWindow):
         self.couple_mode=QCheckBox("Paarmodus aktiv"); ch.addWidget(self.couple_mode); cv.addLayout(ch)
         names=QHBoxLayout(); self.partner_a=QLineEdit(); self.partner_a.setPlaceholderText("Partner A / Name"); self.partner_b=QLineEdit(); self.partner_b.setPlaceholderText("Partner B / Name"); names.addWidget(self.partner_a); names.addWidget(self.partner_b); cv.addLayout(names)
         cols=QHBoxLayout(); self.partner_a_view=QTextEdit(); self.partner_a_view.setPlaceholderText("Sicht Partner A: Anliegen, Wünsche, Verletzungen, Ressourcen …"); self.partner_b_view=QTextEdit(); self.partner_b_view.setPlaceholderText("Sicht Partner B: Anliegen, Wünsche, Verletzungen, Ressourcen …"); self.partner_a_view.setMaximumHeight(115); self.partner_b_view.setMaximumHeight(115); cols.addWidget(self.partner_a_view); cols.addWidget(self.partner_b_view); cv.addLayout(cols)
+        ratings=QGridLayout(); ratings.addWidget(QLabel("Getrennte Einschätzung (0–10)"),0,0,1,5)
+        self.couple_a_distress=QSpinBox(); self.couple_a_distress.setRange(0,10); self.couple_b_distress=QSpinBox(); self.couple_b_distress.setRange(0,10)
+        self.couple_a_hope=QSpinBox(); self.couple_a_hope.setRange(0,10); self.couple_b_hope=QSpinBox(); self.couple_b_hope.setRange(0,10)
+        ratings.addWidget(QLabel("Belastung"),1,0); ratings.addWidget(QLabel("A"),1,1); ratings.addWidget(self.couple_a_distress,1,2); ratings.addWidget(QLabel("B"),1,3); ratings.addWidget(self.couple_b_distress,1,4)
+        ratings.addWidget(QLabel("Zuversicht"),2,0); ratings.addWidget(QLabel("A"),2,1); ratings.addWidget(self.couple_a_hope,2,2); ratings.addWidget(QLabel("B"),2,3); ratings.addWidget(self.couple_b_hope,2,4); cv.addLayout(ratings)
         self.couple_cycle=QLineEdit(); self.couple_cycle.setPlaceholderText("Wiederkehrender Interaktions-/Eskalationskreislauf …"); cv.addWidget(self.couple_cycle)
         self.couple_goal=QLineEdit(); self.couple_goal.setPlaceholderText("Gemeinsames Ziel / Auftrag des Paares …"); cv.addWidget(self.couple_goal)
         self.couple_resources=QLineEdit(); self.couple_resources.setPlaceholderText("Gemeinsame Ressourcen / positive Ausnahmen …"); cv.addWidget(self.couple_resources)
@@ -801,6 +811,7 @@ class Main(QMainWindow):
                 if self.couple_cycle.text().strip(): parts+=["Interaktionskreislauf: "+self.couple_cycle.text().strip()]
                 if self.couple_goal.text().strip(): parts+=["Gemeinsames Ziel: "+self.couple_goal.text().strip()]
                 if self.couple_resources.text().strip(): parts+=["Ressourcen / positive Ausnahmen: "+self.couple_resources.text().strip()]
+                parts+=["Getrennte Einschätzung: Belastung A "+str(self.couple_a_distress.value())+"/10 · B "+str(self.couple_b_distress.value())+"/10","Zuversicht A "+str(self.couple_a_hope.value())+"/10 · B "+str(self.couple_b_hope.value())+"/10"]
                 if self.couple_children.isChecked(): parts+=["☑ Kinder / Elternebene betroffen"]
                 if self.couple_violence.isChecked(): parts+=["⚠ Hinweis auf Gewalt / Drohung / Zwang / Kontrolle","Sicherheit und individuelle Risikoabklärung priorisieren; übliche Paarinterventionen nicht schematisch fortsetzen."]
             details=[]
@@ -825,6 +836,7 @@ class Main(QMainWindow):
             parts+=["","FACHLICHER HINWEIS","Arbeitshilfe zur strukturierten Exploration. Sie ersetzt keine eigenständige Diagnostik, Risikoabwägung oder Behandlungsentscheidung."]
             self.help_text.setPlainText("\n".join(parts))
         for field in (self.partner_a,self.partner_b,self.couple_cycle,self.couple_goal,self.couple_resources): field.textChanged.connect(lambda _:render())
+        for box in (self.couple_a_distress,self.couple_b_distress,self.couple_a_hope,self.couple_b_hope): box.valueChanged.connect(lambda _:render())
         self.partner_a_view.textChanged.connect(render); self.partner_b_view.textChanged.connect(render); self.couple_mode.toggled.connect(lambda _:render()); self.couple_violence.toggled.connect(lambda _:render()); self.couple_children.toggled.connect(lambda _:render())
         self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); self.symptom_list.itemSelectionChanged.connect(render)
         for box in (self.sym_duration,self.sym_intensity,self.sym_frequency,self.sym_impairment): box.currentTextChanged.connect(lambda _:render())
@@ -836,6 +848,16 @@ class Main(QMainWindow):
             render()
         for cb in self.risk_checks: cb.toggled.connect(lambda _,x=cb:risk_changed(x))
         self.help_goal.textChanged.connect(lambda _:render()); self.help_resources.textChanged.connect(lambda _:render()); self.help_trigger.textChanged.connect(lambda _:render()); self.help_maintain.textChanged.connect(lambda _:render()); self.help_strength.textChanged.connect(lambda _:render()); self.help_support.textChanged.connect(lambda _:render()); self.help_next.textChanged.connect(lambda _:render()); self.help_note.textChanged.connect(lambda _:render()); self.sym_scale.valueChanged.connect(lambda _:render()); self.goal_scale.valueChanged.connect(lambda _:render())
+        couple_actions=QHBoxLayout(); savecouple=QPushButton("Paarverlauf speichern"); historycouple=QPushButton("Paarverlauf anzeigen"); couple_actions.addWidget(savecouple); couple_actions.addWidget(historycouple); couple_actions.addStretch(); v.addLayout(couple_actions)
+        def save_couple_assessment():
+            if not self.couple_mode.isChecked(): return QMessageBox.information(self,"Paartherapie","Bitte zuerst den Paarmodus aktivieren.")
+            con=sqlite3.connect(DBFILE); con.execute("""INSERT INTO couple_assessments(created_at,client_label,partner_a,partner_b,topic,perspective_a,perspective_b,interaction_cycle,shared_goal,resources,children_involved,safety_flag,answers_a,answers_b,username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(datetime.now().isoformat(timespec="seconds"),"",encrypt_text(self.partner_a.text().strip()),encrypt_text(self.partner_b.text().strip()),self.help_topic.currentText(),encrypt_text(self.partner_a_view.toPlainText()),encrypt_text(self.partner_b_view.toPlainText()),encrypt_text(self.couple_cycle.text()),encrypt_text(self.couple_goal.text()),encrypt_text(self.couple_resources.text()),1 if self.couple_children.isChecked() else 0,1 if self.couple_violence.isChecked() else 0,encrypt_text("Belastung "+str(self.couple_a_distress.value())+"/10; Zuversicht "+str(self.couple_a_hope.value())+"/10"),encrypt_text("Belastung "+str(self.couple_b_distress.value())+"/10; Zuversicht "+str(self.couple_b_hope.value())+"/10"),(self.current_user or {}).get("username",""))); con.commit(); con.close(); audit("COUPLE_ASSESSMENT_SAVED","Paarverlauf gespeichert",(self.current_user or {}).get("username","")); QMessageBox.information(self,"Paartherapie","Paarverlauf verschlüsselt gespeichert.")
+        def show_couple_history():
+            con=sqlite3.connect(DBFILE); rows=con.execute("SELECT created_at,partner_a,partner_b,topic,interaction_cycle,shared_goal,answers_a,answers_b,safety_flag FROM couple_assessments ORDER BY id DESC LIMIT 20").fetchall(); con.close()
+            dlg=QDialog(self); dlg.setWindowTitle("Paartherapie – Verlauf"); dlg.resize(900,620); vv=QVBoxLayout(dlg); out=QTextEdit(); out.setReadOnly(True); chunks=[]
+            for r in rows: chunks.append(r[0].replace("T"," ")+" · "+decrypt_text(r[1])+" / "+decrypt_text(r[2])+"\nThema: "+r[3]+"\nKreislauf: "+decrypt_text(r[4])+"\nZiel: "+decrypt_text(r[5])+"\nA: "+decrypt_text(r[6])+" | B: "+decrypt_text(r[7])+("\n⚠ Sicherheitsmarkierung" if r[8] else "")+"\n")
+            out.setPlainText("\n".join(chunks) if chunks else "Noch kein Paarverlauf gespeichert."); vv.addWidget(out); close=QPushButton("Schließen"); close.clicked.connect(dlg.accept); vv.addWidget(close); dlg.exec()
+        savecouple.clicked.connect(save_couple_assessment); historycouple.clicked.connect(show_couple_history)
         actions=QHBoxLayout(); copybtn=QPushButton("Zusammenfassung kopieren"); copybtn.clicked.connect(lambda: QApplication.clipboard().setText(self.help_text.toPlainText())); actions.addWidget(copybtn)
         resetbtn=QPushButton("Abfrage zurücksetzen")
         def reset_assessment():
