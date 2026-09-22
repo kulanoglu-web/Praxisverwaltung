@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.44"
+APP_VERSION = "0.11.45"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -832,16 +832,6 @@ class Main(QMainWindow):
         self.risk_checks=[]
         for txt in ["Suizidgedanken","Selbstverletzung","Fremdgefährdung","Akute Desorientierung / psychotische Symptome","Kein aktueller Sicherheitshinweis"]:
             cb=QCheckBox(txt); self.risk_checks.append(cb); rv.addWidget(cb)
-        def normalize_risk_checks(changed,checked):
-            if not checked: return
-            if changed.text()=="Kein aktueller Sicherheitshinweis":
-                for x in self.risk_checks:
-                    if x is not changed: x.blockSignals(True); x.setChecked(False); x.blockSignals(False)
-            else:
-                safe=next((x for x in self.risk_checks if x.text()=="Kein aktueller Sicherheitshinweis"),None)
-                if safe: safe.blockSignals(True); safe.setChecked(False); safe.blockSignals(False)
-            render()
-        for cb in self.risk_checks: cb.toggled.connect(lambda checked,x=cb: normalize_risk_checks(x,checked))
         self.help_goal=QLineEdit(); self.help_goal.setPlaceholderText("Sitzungsziel / Anliegen heute …"); rv.addWidget(self.help_goal)
         self.help_resources=QLineEdit(); self.help_resources.setPlaceholderText("Ressourcen / Schutzfaktoren …"); rv.addWidget(self.help_resources)
         self.help_trigger=QLineEdit(); self.help_trigger.setPlaceholderText("Auslöser / typische Situationen …"); rv.addWidget(self.help_trigger)
@@ -941,6 +931,11 @@ class Main(QMainWindow):
             self.symptom_list.clearSelection()
             for box in (self.sym_duration,self.sym_intensity,self.sym_frequency,self.sym_impairment): box.setCurrentIndex(0)
             for cb in self.risk_checks: cb.setChecked(False)
+            for cb in getattr(self,"screening_checks",[]): cb.setChecked(False)
+            self.couple_mode.setChecked(False); self.partner_a.clear(); self.partner_b.clear(); self.partner_a_view.clear(); self.partner_b_view.clear()
+            self.couple_cycle.clear(); self.couple_goal.clear(); self.couple_resources.clear(); self.couple_children.setChecked(False); self.couple_violence.setChecked(False)
+            for box in (self.couple_a_distress,self.couple_b_distress,self.couple_a_hope,self.couple_b_hope): box.setValue(0)
+            for _,a,b in self.couple_question_rows: a.setValue(0); b.setValue(0)
             self.help_goal.clear(); self.help_resources.clear(); self.help_trigger.clear(); self.help_maintain.clear(); self.help_strength.clear(); self.help_support.clear(); self.help_next.clear(); self.help_note.clear(); self.sym_scale.setValue(0); self.goal_scale.setValue(0); self.school_filter.setCurrentIndex(0); render()
         resetbtn.clicked.connect(reset_assessment); actions.addWidget(resetbtn)
         tosession=QPushButton("In Sitzungsnotiz übernehmen")
