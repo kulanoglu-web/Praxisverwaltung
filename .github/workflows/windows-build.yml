@@ -7,7 +7,7 @@ on:
     paths:
       - "main.py"
       - "requirements.txt"
-      - "PraxisPro.spec"
+      - "PraxisPro.spec"\n      - "smoke_screenshot.py"
       - "build_windows.bat"
       - "build_setup.bat"
       - "installer/**"
@@ -36,7 +36,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Build PraxisPro EXE
+      - name: Capture PraxisPro UI screenshot\n        shell: cmd\n        run: python smoke_screenshot.py\n\n      - name: Build PraxisPro EXE
         shell: cmd
         run: build_windows.bat
 
