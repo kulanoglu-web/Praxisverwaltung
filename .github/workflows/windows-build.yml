@@ -57,16 +57,16 @@ jobs:
           Get-FileHash "dist/PraxisPro.exe" -Algorithm SHA256
           Get-FileHash $setup.FullName -Algorithm SHA256
 
-      - name: Publish setup as GitHub Release
+      - name: Publish setup and screenshot as GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v0.11.33"
-          $setup = "setup/PraxisPro_Setup_v0.11.33.exe"
+          $setup = "setup/PraxisPro_Setup_v0.11.33.exe"\n          $shot = "test-output/PraxisPro-Dashboard.png"
           gh release view $tag --repo "${{ github.repository }}" 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag $setup --repo "${{ github.repository }}" --title "PraxisPro v0.11.33" --notes "Windows-Setup für PraxisPro v0.11.33."
+            gh release create $tag $setup $shot --repo "${{ github.repository }}" --title "PraxisPro v0.11.33" --notes "Windows-Setup für PraxisPro v0.11.33."
           } else {
-            gh release upload $tag $setup --repo "${{ github.repository }}" --clobber
+            gh release upload $tag $setup $shot --repo "${{ github.repository }}" --clobber
           }
