@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.46"
+APP_VERSION = "0.11.47"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -918,7 +918,13 @@ class Main(QMainWindow):
         couple_actions=QHBoxLayout(); savecouple=QPushButton("Paarverlauf speichern"); historycouple=QPushButton("Paarverlauf anzeigen"); couple_actions.addWidget(savecouple); couple_actions.addWidget(historycouple); couple_actions.addStretch(); v.addLayout(couple_actions)
         def save_couple_assessment():
             if not self.couple_mode.isChecked(): return QMessageBox.information(self,"Paartherapie","Bitte zuerst den Paarmodus aktivieren.")
-            con=sqlite3.connect(DBFILE); con.execute("""INSERT INTO couple_assessments(created_at,client_label,partner_a,partner_b,topic,perspective_a,perspective_b,interaction_cycle,shared_goal,resources,children_involved,safety_flag,answers_a,answers_b,username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(datetime.now().isoformat(timespec="seconds"),"",encrypt_text(self.partner_a.text().strip()),encrypt_text(self.partner_b.text().strip()),self.help_topic.currentText(),encrypt_text(self.partner_a_view.toPlainText()),encrypt_text(self.partner_b_view.toPlainText()),encrypt_text(self.couple_cycle.text()),encrypt_text(self.couple_goal.text()),encrypt_text(self.couple_resources.text()),1 if self.couple_children.isChecked() else 0,1 if self.couple_violence.isChecked() else 0,encrypt_text("Belastung "+str(self.couple_a_distress.value())+"/10; Zuversicht "+str(self.couple_a_hope.value())+"/10; "+"; ".join(q+"="+str(a.value()) for q,a,b in self.couple_question_rows)),encrypt_text("Belastung "+str(self.couple_b_distress.value())+"/10; Zuversicht "+str(self.couple_b_hope.value())+"/10; "+"; ".join(q+"="+str(b.value()) for q,a,b in self.couple_question_rows)),(self.current_user or {}).get("username",""))); con.commit(); con.close(); audit("COUPLE_ASSESSMENT_SAVED","Paarverlauf gespeichert",(self.current_user or {}).get("username","")); QMessageBox.information(self,"Paartherapie","Paarverlauf verschlüsselt gespeichert.")
+            a=self.partner_a.text().strip(); b=self.partner_b.text().strip()
+            if not a or not b: return QMessageBox.warning(self,"Paartherapie","Bitte Partner A und Partner B eintragen, bevor der Paarverlauf gespeichert wird.")
+            if a.casefold()==b.casefold(): return QMessageBox.warning(self,"Paartherapie","Partner A und Partner B dürfen nicht identisch sein.")
+            if self.couple_violence.isChecked():
+                answer=QMessageBox.question(self,"Sicherheitsmarkierung","Es ist Gewalt, Drohung, Zwang oder Kontrolle markiert. Wurde die individuelle Sicherheits-/Risikoabklärung dokumentiert?\n\nMit „Ja“ wird der Paarverlauf gespeichert.")
+                if answer!=QMessageBox.Yes: return
+            con=sqlite3.connect(DBFILE); con.execute("""INSERT INTO couple_assessments(created_at,client_label,partner_a,partner_b,topic,perspective_a,perspective_b,interaction_cycle,shared_goal,resources,children_involved,safety_flag,answers_a,answers_b,username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(datetime.now().isoformat(timespec="seconds"),"",encrypt_text(a),encrypt_text(b),self.help_topic.currentText(),encrypt_text(self.partner_a_view.toPlainText()),encrypt_text(self.partner_b_view.toPlainText()),encrypt_text(self.couple_cycle.text()),encrypt_text(self.couple_goal.text()),encrypt_text(self.couple_resources.text()),1 if self.couple_children.isChecked() else 0,1 if self.couple_violence.isChecked() else 0,encrypt_text("Belastung "+str(self.couple_a_distress.value())+"/10; Zuversicht "+str(self.couple_a_hope.value())+"/10; "+"; ".join(q+"="+str(a.value()) for q,a,b in self.couple_question_rows)),encrypt_text("Belastung "+str(self.couple_b_distress.value())+"/10; Zuversicht "+str(self.couple_b_hope.value())+"/10; "+"; ".join(q+"="+str(b.value()) for q,a,b in self.couple_question_rows)),(self.current_user or {}).get("username",""))); con.commit(); con.close(); audit("COUPLE_ASSESSMENT_SAVED","Paarverlauf gespeichert",(self.current_user or {}).get("username","")); QMessageBox.information(self,"Paartherapie","Paarverlauf verschlüsselt gespeichert.")
         def show_couple_history():
             a=self.partner_a.text().strip(); b=self.partner_b.text().strip()
             con=sqlite3.connect(DBFILE); rows=con.execute("SELECT created_at,partner_a,partner_b,topic,interaction_cycle,shared_goal,answers_a,answers_b,safety_flag FROM couple_assessments ORDER BY id DESC LIMIT 100").fetchall(); con.close()
