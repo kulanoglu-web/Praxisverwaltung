@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.40"
+APP_VERSION = "0.11.41"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1001,7 +1001,19 @@ class Main(QMainWindow):
         if self.running and self.started:x+=(datetime.now()-self.started).total_seconds()
         return int(x)
     def tick(self):
-        s=self.elapsed(); self.clock.setText(f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}")
+        # Seitenwechsel können das Qt-Label bereits zerstört haben, während der Timer noch feuert.
+        # In diesem Fall den verwaisten Timer sauber stoppen statt auf ein gelöschtes C++-Objekt zuzugreifen.
+        s=self.elapsed()
+        try:
+            clock=getattr(self,"clock",None)
+            if clock is None: return
+            clock.setText(f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}")
+        except RuntimeError:
+            timer=getattr(self,"timer",None)
+            if timer is not None:
+                try: timer.stop()
+                except RuntimeError: pass
+            self.clock=None
     def end_session(self):
         if not self.require_edit(): return
         if self.running and self.started:self.acc+=(datetime.now()-self.started).total_seconds()
