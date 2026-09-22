@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.38"
+APP_VERSION = "0.11.39"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -745,7 +745,11 @@ class Main(QMainWindow):
           "Soziale Angst":["Besteht ausgeprägte Angst vor negativer Bewertung durch andere?","Werden soziale oder Leistungssituationen vermieden oder nur unter starker Angst ausgehalten?","Besteht ausgeprägtes Nachgrübeln nach sozialen Situationen?","Werden Sicherheitsstrategien eingesetzt?","Entsteht dadurch eine relevante Einschränkung?"],
           "Somatische Beschwerden":["Bestehen wiederkehrende oder anhaltende körperliche Beschwerden?","Wie stark sind Sorgen und gedankliche Beschäftigung mit den Beschwerden?","Wie häufig wird Rückversicherung oder medizinische Abklärung gesucht?","Welche Belastungs- oder Beziehungssituationen verändern die Beschwerden?","Welche medizinischen Befunde bzw. Ausschlussdiagnostik liegen vor?"],
           "Paar – Kommunikation / Konflikte":["Wie häufig eskalieren Konflikte und wie enden sie typischerweise?","Gibt es ein wiederkehrendes Muster aus Kritik, Verteidigung, Rückzug oder Schweigen?","Wie erleben beide Partner Nähe, Distanz, Vertrauen und Verbindlichkeit?","Welche gemeinsamen Ressourcen und positiven Ausnahmen gibt es?","Gibt es Angst, Drohungen, Kontrolle, Zwang oder körperliche/sexualisierte Gewalt?"],
-          "Trennung / Beziehungskrise":["Wollen beide an der Beziehung arbeiten oder steht Klärung/Trennung im Vordergrund?","Welche Ereignisse haben die Krise verschärft?","Wie werden Vertrauen, Bindung und Verletzungen von beiden erlebt?","Sind Kinder betroffen und wie wird die Elternebene geschützt?","Gibt es Sicherheitsrisiken, Gewalt, Stalking oder Zwang?"]
+          "Trennung / Beziehungskrise":["Wollen beide an der Beziehung arbeiten oder steht Klärung/Trennung im Vordergrund?","Welche Ereignisse haben die Krise verschärft?","Wie werden Vertrauen, Bindung und Verletzungen von beiden erlebt?","Sind Kinder betroffen und wie wird die Elternebene geschützt?","Gibt es Sicherheitsrisiken, Gewalt, Stalking oder Zwang?"],
+          "Essverhalten / Körperbild":["Besteht deutliche Einschränkung der Nahrungsaufnahme oder starke Angst vor Gewichtszunahme?","Treten Essanfälle mit Kontrollverlust auf?","Gibt es Erbrechen, exzessive Bewegung oder andere kompensatorische Verhaltensweisen?","Wie stark bestimmen Gewicht und Figur den Selbstwert?","Bestehen körperliche Warnzeichen oder rasche Gewichtsveränderungen?"],
+          "Sucht / problematischer Konsum":["Welche Substanz bzw. welches Verhalten steht im Vordergrund?","Besteht Kontrollverlust über Beginn, Menge oder Ende?","Wird trotz körperlicher, psychischer oder sozialer Folgen fortgesetzt?","Bestehen Toleranz, Entzug oder starkes Verlangen?","Gab es riskante Situationen, Mischkonsum oder frühere Entzüge?"],
+          "Bipolare Symptomatik – Exploration":["Gab es klar abgrenzbare Phasen ungewöhnlich gehobener oder stark gereizter Stimmung?","War das Schlafbedürfnis deutlich vermindert, ohne sich müde zu fühlen?","Bestanden deutlich gesteigerter Antrieb, Rededrang oder beschleunigtes Denken?","Kam es zu ungewöhnlichem Risiko-, Kauf- oder Sexualverhalten?","Wie lange dauerten diese Phasen und welche Folgen hatten sie?"],
+          "Psychotische Symptome – Exploration":["Bestehen aktuell Wahrnehmungen, die andere nicht teilen?","Gibt es Überzeugungen, die zu deutlichen Konflikten mit der gemeinsamen Realität führen?","Bestehen Verwirrtheit oder deutlich desorganisiertes Denken/Verhalten?","Wie sind Orientierung, Selbstversorgung und aktuelle Sicherheit?","Bestehen Substanzkonsum, Medikamentenänderungen oder körperliche Auffälligkeiten?"]
         }
         clinical_map={
           "Depressive Beschwerden":{"codes":["F32.- Depressive Episode","F33.- Rezidivierende depressive Störung"],"diff":["Bipolare Symptomatik / frühere Phasen gehobener Stimmung?","Substanz-/Medikamenteneinfluss?","Somatische Ursachen, Trauer oder Anpassungsreaktion?"]},
@@ -755,7 +759,16 @@ class Main(QMainWindow):
           "ADHS / Aufmerksamkeit":{"codes":["F90.0 Aktivitäts- und Aufmerksamkeitsstörung"],"diff":["Beginn in Kindheit/Jugend und mehrere Lebensbereiche prüfen.","Schlaf, Depression, Angst, Trauma, Substanzen und körperliche Ursachen mitprüfen."]},
           "Zwänge":{"codes":["F42.- Zwangsstörung"],"diff":["Zwangsgedanken/-handlungen von Sorgen, Psychose und zwanghafter Persönlichkeit abgrenzen.","Zeitaufwand, Einsicht, Vermeidung und Einbezug Angehöriger klären."]},
           "Schlafprobleme":{"codes":["F51.0 Nichtorganische Insomnie"],"diff":["Organische Schlafstörung, Medikamente/Substanzen, Schmerz und Schichtarbeit prüfen.","Depression, Angst, Trauma oder manische Symptomatik mitprüfen."]},
-          "Somatische Beschwerden":{"codes":["F45.- Somatoforme Störungen"],"diff":["Medizinische Abklärung und Warnzeichen berücksichtigen.","Angst, Depression, Stress, Medikamente und körperliche Erkrankungen mitprüfen."]}
+          "Somatische Beschwerden":{"codes":["F45.- Somatoforme Störungen"],"diff":["Medizinische Abklärung und Warnzeichen berücksichtigen.","Angst, Depression, Stress, Medikamente und körperliche Erkrankungen mitprüfen."]},
+          "Agoraphobie":{"codes":["F40.0 Agoraphobie"],"diff":["Panikattacken mit oder ohne Agoraphobie klären.","Körperliche Ursachen, Substanzen und andere Angststörungen mitprüfen."]},
+          "Spezifische Phobie":{"codes":["F40.2 Spezifische (isolierte) Phobien"],"diff":["Konkreten Auslöser, Vermeidung und Beeinträchtigung klären.","Traumabezogene Reaktion, Zwang oder andere Angststörung abgrenzen."]},
+          "Anpassungsreaktion / Lebenskrise":{"codes":["F43.2 Anpassungsstörungen"],"diff":["Zeitlicher Zusammenhang mit identifizierbarer Belastung klären.","Depressive Episode, Angststörung, Trauerreaktion und PTBS mitprüfen."]},
+          "Essverhalten / Körperbild":{"codes":["F50.- Essstörungen"],"diff":["Gewichtsentwicklung, Restriktion, Essanfälle und kompensatorisches Verhalten klären.","Körperliche Risiken und medizinische Mitbehandlung berücksichtigen."]},
+          "Sucht / problematischer Konsum":{"codes":["F10–F19 Psychische und Verhaltensstörungen durch psychotrope Substanzen"],"diff":["Substanz, Menge, Häufigkeit, Kontrollverlust und Folgen klären.","Entzugsrisiko, Mischkonsum, körperliche Risiken und komorbide Störungen prüfen."]},
+          "Dissoziative Symptome":{"codes":["F44.- Dissoziative Störungen"],"diff":["Neurologische/körperliche Ursachen und Substanzeinflüsse berücksichtigen.","Trauma, Panik, Psychose und andere Bewusstseinsveränderungen abgrenzen."]},
+          "Bipolare Symptomatik – Exploration":{"codes":["F31.- Bipolare affektive Störung"],"diff":["Dauer und Ausmaß gehobener/gereizter Stimmung und verminderten Schlafbedarfs klären.","Substanzen, Medikamente, ADHS und andere Ursachen erhöhter Aktivität mitprüfen."]},
+          "Psychotische Symptome – Exploration":{"codes":["F20–F29 Schizophrenie, schizotype und wahnhafte Störungen"],"diff":["Akuität, Realitätsprüfung, Orientierung und Sicherheitslage unmittelbar klären.","Substanzen, Medikamente, organische Ursachen und affektive Störungen mitprüfen."]},
+          "Trauer / Verlust":{"codes":["Keine schematische F-Code-Zuordnung"],"diff":["Normale Trauer nicht vorschnell pathologisieren.","Dauer, Funktionsbeeinträchtigung, Depression, Trauma und Sicherheitsaspekte individuell prüfen."]}
         }
         clinicalbox=QFrame(); clinicalbox.setObjectName("formCard"); clv=QVBoxLayout(clinicalbox); clv.addWidget(QLabel("Verdachtsfall → F-Code-Hinweise → Differenzialfragen"))
         self.clinical_hint=QTextEdit(); self.clinical_hint.setReadOnly(True); self.clinical_hint.setMaximumHeight(155); clv.addWidget(self.clinical_hint); v.addWidget(clinicalbox)
