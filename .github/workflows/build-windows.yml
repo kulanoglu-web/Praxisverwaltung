@@ -1,4 +1,6 @@
 name: Windows EXE
+permissions:
+  contents: write
 on:
   workflow_dispatch:
   push:
@@ -22,12 +24,17 @@ jobs:
       - run: pip install -r requirements.txt pyinstaller
       - name: UI screenshot test (1600x900)
         run: python ui_screenshot_test.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: PraxisPro-UI-Screenshots
-          path: test-artifacts/*.png
-          retention-days: 30
+      - name: Publish UI screenshots to release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v$env:APP_VERSION"
+          gh release view $tag --repo "${{ github.repository }}" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo "${{ github.repository }}" --title "PraxisPro v$env:APP_VERSION" --notes "PraxisPro Windows-Release."
+          }
+          gh release upload $tag test-artifacts/*.png --repo "${{ github.repository }}" --clobber
       - run: pyinstaller --noconfirm --clean --onefile --windowed --add-data "assets/logo.jpg;assets" --name Praxisverwaltung main.py
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
