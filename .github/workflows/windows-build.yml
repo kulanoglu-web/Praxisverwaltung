@@ -14,7 +14,7 @@ on:
       - ".github/workflows/windows-build.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows:
@@ -57,12 +57,16 @@ jobs:
           Get-FileHash "dist/PraxisPro.exe" -Algorithm SHA256
           Get-FileHash $setup.FullName -Algorithm SHA256
 
-      - name: Upload Windows build
-        uses: actions/upload-artifact@v4
-        with:
-          name: PraxisPro-Windows-v0.11.33
-          path: |
-            dist/PraxisPro.exe
-            setup/PraxisPro_Setup_v0.11.33.exe
-          if-no-files-found: error
-          retention-days: 30
+      - name: Publish setup as GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v0.11.33"
+          $setup = "setup/PraxisPro_Setup_v0.11.33.exe"
+          gh release view $tag --repo "${{ github.repository }}" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag $setup --repo "${{ github.repository }}" --title "PraxisPro v0.11.33" --notes "Windows-Setup für PraxisPro v0.11.33."
+          } else {
+            gh release upload $tag $setup --repo "${{ github.repository }}" --clobber
+          }
