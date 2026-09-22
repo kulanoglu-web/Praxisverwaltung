@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.45"
+APP_VERSION = "0.11.46"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -920,10 +920,22 @@ class Main(QMainWindow):
             if not self.couple_mode.isChecked(): return QMessageBox.information(self,"Paartherapie","Bitte zuerst den Paarmodus aktivieren.")
             con=sqlite3.connect(DBFILE); con.execute("""INSERT INTO couple_assessments(created_at,client_label,partner_a,partner_b,topic,perspective_a,perspective_b,interaction_cycle,shared_goal,resources,children_involved,safety_flag,answers_a,answers_b,username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(datetime.now().isoformat(timespec="seconds"),"",encrypt_text(self.partner_a.text().strip()),encrypt_text(self.partner_b.text().strip()),self.help_topic.currentText(),encrypt_text(self.partner_a_view.toPlainText()),encrypt_text(self.partner_b_view.toPlainText()),encrypt_text(self.couple_cycle.text()),encrypt_text(self.couple_goal.text()),encrypt_text(self.couple_resources.text()),1 if self.couple_children.isChecked() else 0,1 if self.couple_violence.isChecked() else 0,encrypt_text("Belastung "+str(self.couple_a_distress.value())+"/10; Zuversicht "+str(self.couple_a_hope.value())+"/10; "+"; ".join(q+"="+str(a.value()) for q,a,b in self.couple_question_rows)),encrypt_text("Belastung "+str(self.couple_b_distress.value())+"/10; Zuversicht "+str(self.couple_b_hope.value())+"/10; "+"; ".join(q+"="+str(b.value()) for q,a,b in self.couple_question_rows)),(self.current_user or {}).get("username",""))); con.commit(); con.close(); audit("COUPLE_ASSESSMENT_SAVED","Paarverlauf gespeichert",(self.current_user or {}).get("username","")); QMessageBox.information(self,"Paartherapie","Paarverlauf verschlüsselt gespeichert.")
         def show_couple_history():
-            con=sqlite3.connect(DBFILE); rows=con.execute("SELECT created_at,partner_a,partner_b,topic,interaction_cycle,shared_goal,answers_a,answers_b,safety_flag FROM couple_assessments ORDER BY id DESC LIMIT 20").fetchall(); con.close()
+            a=self.partner_a.text().strip(); b=self.partner_b.text().strip()
+            con=sqlite3.connect(DBFILE); rows=con.execute("SELECT created_at,partner_a,partner_b,topic,interaction_cycle,shared_goal,answers_a,answers_b,safety_flag FROM couple_assessments ORDER BY id DESC LIMIT 100").fetchall(); con.close()
+            # Standardmäßig nur den aktuell geöffneten Paarfall zeigen. Ohne Namen
+            # wird bewusst kein praxisweiter Verlauf mit fremden Paaren angezeigt.
+            if not a and not b:
+                return QMessageBox.information(self,"Paartherapie","Bitte Partner A oder Partner B eintragen, damit der passende Paarverlauf gefiltert werden kann.")
+            def same_case(r):
+                ra=decrypt_text(r[1]).strip().casefold(); rb=decrypt_text(r[2]).strip().casefold()
+                aa=a.casefold(); bb=b.casefold()
+                direct=(not aa or ra==aa) and (not bb or rb==bb)
+                swapped=(not aa or rb==aa) and (not bb or ra==bb)
+                return direct or swapped
+            rows=[r for r in rows if same_case(r)][:20]
             dlg=QDialog(self); dlg.setWindowTitle("Paartherapie – Verlauf"); dlg.resize(900,620); vv=QVBoxLayout(dlg); out=QTextEdit(); out.setReadOnly(True); chunks=[]
             for r in rows: chunks.append(r[0].replace("T"," ")+" · "+decrypt_text(r[1])+" / "+decrypt_text(r[2])+"\nThema: "+r[3]+"\nKreislauf: "+decrypt_text(r[4])+"\nZiel: "+decrypt_text(r[5])+"\nA: "+decrypt_text(r[6])+" | B: "+decrypt_text(r[7])+("\n⚠ Sicherheitsmarkierung" if r[8] else "")+"\n")
-            out.setPlainText("\n".join(chunks) if chunks else "Noch kein Paarverlauf gespeichert."); vv.addWidget(out); close=QPushButton("Schließen"); close.clicked.connect(dlg.accept); vv.addWidget(close); dlg.exec()
+            out.setPlainText("\n".join(chunks) if chunks else "Für dieses Paar ist noch kein Verlauf gespeichert."); vv.addWidget(out); close=QPushButton("Schließen"); close.clicked.connect(dlg.accept); vv.addWidget(close); dlg.exec()
         savecouple.clicked.connect(save_couple_assessment); historycouple.clicked.connect(show_couple_history)
         actions=QHBoxLayout(); copybtn=QPushButton("Zusammenfassung kopieren"); copybtn.clicked.connect(lambda: QApplication.clipboard().setText(self.help_text.toPlainText())); actions.addWidget(copybtn)
         resetbtn=QPushButton("Abfrage zurücksetzen")
