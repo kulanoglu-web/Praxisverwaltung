@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.39"
+APP_VERSION = "0.11.40"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -684,7 +684,7 @@ class Main(QMainWindow):
         for code,name in fcodes.items(): self.help_fcode.addItem(f"{code} – {name}")
         cg.addWidget(QLabel("ICD-10-GM / F-Code")); cg.addWidget(self.help_fcode,1); v.addWidget(codebox)
         row=QHBoxLayout(); self.help_topic=QComboBox(); self.help_topic.addItems(topics.keys()); row.addWidget(QLabel("Thema")); row.addWidget(self.help_topic,1)
-        self.school_filter=QComboBox(); self.school_filter.addItems(["Alle Schulen","VT","TP","Systemisch","SIT"]); row.addWidget(QLabel("Ansatz")); row.addWidget(self.school_filter); v.addLayout(row)
+        self.school_filter=QComboBox(); self.school_filter.addItems(["Alle Schulen","VT","TP","Systemisch","SIT","EFT"]); row.addWidget(QLabel("Ansatz")); row.addWidget(self.school_filter); v.addLayout(row)
         symptom_catalog={
           "PTBS / Trauma":["Intrusionen / belastende Erinnerungen","Albträume","Flashbacks / Wiedererleben","Vermeidung von Erinnerungen oder Situationen","Übermäßige Wachsamkeit","Schreckhaftigkeit","Reizbarkeit / Ärger","Schlafstörungen","Konzentrationsprobleme","Schuld- oder Schamgefühle","Emotionale Taubheit / Distanz","Sozialer Rückzug","Körperliche Stressreaktionen"],
           "Depressive Beschwerden":["Gedrückte Stimmung","Interessen- / Freudverlust","Antriebsmangel","Erschöpfung","Schlafstörungen","Konzentrationsprobleme","Vermindertes Selbstwertgefühl","Schuldgefühle","Appetitveränderung","Psychomotorische Unruhe / Hemmung","Suizidgedanken"],
@@ -750,6 +750,18 @@ class Main(QMainWindow):
           "Sucht / problematischer Konsum":["Welche Substanz bzw. welches Verhalten steht im Vordergrund?","Besteht Kontrollverlust über Beginn, Menge oder Ende?","Wird trotz körperlicher, psychischer oder sozialer Folgen fortgesetzt?","Bestehen Toleranz, Entzug oder starkes Verlangen?","Gab es riskante Situationen, Mischkonsum oder frühere Entzüge?"],
           "Bipolare Symptomatik – Exploration":["Gab es klar abgrenzbare Phasen ungewöhnlich gehobener oder stark gereizter Stimmung?","War das Schlafbedürfnis deutlich vermindert, ohne sich müde zu fühlen?","Bestanden deutlich gesteigerter Antrieb, Rededrang oder beschleunigtes Denken?","Kam es zu ungewöhnlichem Risiko-, Kauf- oder Sexualverhalten?","Wie lange dauerten diese Phasen und welche Folgen hatten sie?"],
           "Psychotische Symptome – Exploration":["Bestehen aktuell Wahrnehmungen, die andere nicht teilen?","Gibt es Überzeugungen, die zu deutlichen Konflikten mit der gemeinsamen Realität führen?","Bestehen Verwirrtheit oder deutlich desorganisiertes Denken/Verhalten?","Wie sind Orientierung, Selbstversorgung und aktuelle Sicherheit?","Bestehen Substanzkonsum, Medikamentenänderungen oder körperliche Auffälligkeiten?"]
+        }
+        intervention_library={
+          "Depressive Beschwerden":{"VT":["Verhaltensaktivierung und Tagesstruktur schrittweise planen.","Automatische negative Gedanken und Rückzugskreisläufe prüfen."],"TP":["Verlust-, Selbstwert- und Beziehungskonflikte sowie Affekte explorieren."],"Systemisch":["Ressourcen, hilfreiche Beziehungen und Ausnahmen aktivieren."],"SIT":["Problemaufrechterhaltende Interaktionen erfassen und konkrete nächste Schritte vereinbaren."]},
+          "Angst / Panik":{"VT":["Panik-/Angstkreislauf und Sicherheitsverhalten transparent machen.","Expositionsschritte nach Indikations- und Belastungsprüfung planen."],"TP":["Bedeutung der Angst, Konflikte und Beziehungserwartungen explorieren."],"Systemisch":["Kontext, Rückversicherung und Reaktionen wichtiger Bezugspersonen einbeziehen."],"SIT":["Auslöser, Muster und wirksame Bewältigung in konkrete Alltagsschritte übersetzen."]},
+          "Soziale Angst":{"VT":["Bewertungsängste, Sicherheitsverhalten und Vermeidung analysieren.","Verhaltensexperimente schrittweise planen."],"TP":["Scham, Selbstwert und Beziehungserwartungen explorieren."],"Systemisch":["Soziale Kontexte, Rollen und unterstützende Rückmeldungen nutzen."],"SIT":["Konkrete soziale Situationen analysieren und neue Handlungsoptionen erproben."]},
+          "PTBS / Trauma":{"VT":["Stabilisierung, Psychoedukation und traumabezogene Vermeidung erfassen.","Traumafokussierte Verfahren nur fachgerecht und bei ausreichender Stabilität einsetzen."],"TP":["Affekte, Ohnmacht, Schuld/Scham und Beziehungsmuster behutsam bearbeiten."],"Systemisch":["Sicherheit, Ressourcen und tragfähige Beziehungen im Umfeld stärken."],"SIT":["Stabilität priorisieren, Muster erfassen und handlungsorientierte sichere Schritte entwickeln."]},
+          "ADHS / Aufmerksamkeit":{"VT":["Externe Struktur, Aufgabenzerlegung, Zeitmanagement und Verstärker nutzen."],"TP":["Selbstwert, Beschämung und wiederkehrende Scheiternserfahrungen explorieren."],"Systemisch":["Umgebung und Anforderungen so verändern, dass hilfreiches Verhalten leichter wird."],"SIT":["Alltagsprobleme konkretisieren, funktionierende Ausnahmen nutzen und umsetzbare Routinen entwickeln."]},
+          "Zwänge":{"VT":["Zwangskreislauf erklären und Exposition mit Reaktionsmanagement fachgerecht planen."],"TP":["Kontrolle, Verantwortung, Schuld und aggressive/ambivalente Affekte explorieren."],"Systemisch":["Rückversicherung und Einbindung von Angehörigen in Rituale betrachten."],"SIT":["Ritualauslöser und Interaktionsmuster erfassen und alternative Handlungen entwickeln."]},
+          "Schlafprobleme":{"VT":["Schlafverhalten, Bettzeiten, Wachzeiten und schlafbezogene Bewertungen erfassen.","Evidenzbasierte verhaltensorientierte Schlafmaßnahmen passend zur Situation planen."],"TP":["Nächtliche Affekte, Konflikte und Grübelthemen explorieren."],"Systemisch":["Alltagsrhythmus, Familie/Partnerschaft und Umgebungsfaktoren einbeziehen."],"SIT":["Konkrete Schlafmuster und beeinflussbare Abend-/Morgenroutinen bearbeiten."]},
+          "Sucht / problematischer Konsum":{"VT":["Auslöser, Craving, Konsequenzen und Rückfallketten analysieren.","Motivation und konkrete Alternativ-/Notfallstrategien entwickeln."],"TP":["Affektregulation, Beziehungsmuster und Funktion des Konsums explorieren."],"Systemisch":["Unterstützungssystem, Grenzen und konsumfördernde Interaktionen betrachten."],"SIT":["Funktion des Konsums und konkrete Veränderungsschritte im Alltag bearbeiten."]},
+          "Paar – Kommunikation / Konflikte":{"VT":["Konfliktsequenzen analysieren, Kommunikationsfertigkeiten und positive gemeinsame Aktivitäten fördern."],"TP":["Bindungswünsche, Verletzungen und wiederkehrende unbewusste Beziehungserwartungen explorieren."],"Systemisch":["Zirkuläre Muster, Perspektivwechsel, Ressourcen und Ausnahmen sichtbar machen."],"SIT":["Interaktionskreisläufe konkret erfassen und gemeinsam überprüfbare Veränderungen vereinbaren."],"EFT":["Primäre Emotionen und Bindungsbedürfnisse unter Kritik, Rückzug oder Ärger zugänglich machen."]},
+          "Trennung / Beziehungskrise":{"VT":["Entscheidungsdruck strukturieren und konkrete hilfreiche Verhaltensschritte planen."],"TP":["Ambivalenzen, Verlustangst, Kränkung und Bindungsmuster explorieren."],"Systemisch":["Paar- und Elternebene unterscheiden und Folgen möglicher Entscheidungen multiperspektivisch betrachten."],"SIT":["Auftrag klären und nächste Schritte für Beziehungsklärung oder respektvolle Trennung entwickeln."],"EFT":["Verletzlichkeit, Bindungsangst und unerfüllte emotionale Bedürfnisse bearbeiten."]}
         }
         clinical_map={
           "Depressive Beschwerden":{"codes":["F32.- Depressive Episode","F33.- Rezidivierende depressive Störung"],"diff":["Bipolare Symptomatik / frühere Phasen gehobener Stimmung?","Substanz-/Medikamenteneinfluss?","Somatische Ursachen, Trauer oder Anpassungsreaktion?"]},
@@ -831,6 +843,12 @@ class Main(QMainWindow):
         self.help_text=QTextEdit(); self.help_text.setReadOnly(True); self.help_text.setStyleSheet("font-size:17px;padding:10px"); v.addWidget(self.help_text,1)
         def render():
             d=topics[self.help_topic.currentText()]; parts=["THEMA: "+self.help_topic.currentText(),"","GESPRÄCHSFRAGEN"]+["• "+x for x in d["Fragen"]]
+            lib=intervention_library.get(self.help_topic.currentText(),{})
+            if lib:
+                chosen_school=self.school_filter.currentText() if hasattr(self,"school_filter") else "Alle Schulen"
+                school_keys=["VT","TP","Systemisch","SIT","EFT"] if chosen_school=="Alle Schulen" else [chosen_school]
+                for sk in school_keys:
+                    if sk in lib: parts+=["","INTERVENTIONEN "+sk]+["• "+x for x in lib[sk]]
             labels={"VT":"VERHALTENSTHERAPEUTISCHE IMPULSE","TP":"TIEFENPSYCHOLOGISCHE IMPULSE","Systemisch":"SYSTEMISCHE IMPULSE"}
             labels["SIT"]="SYSTEMISCH-INTEGRATIVE / SIT-IMPULSE"
             chosen=self.school_filter.currentText() if hasattr(self,"school_filter") else "Alle Schulen"
