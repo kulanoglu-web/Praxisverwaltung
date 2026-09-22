@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.37"
+APP_VERSION = "0.11.38"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -747,6 +747,23 @@ class Main(QMainWindow):
           "Paar – Kommunikation / Konflikte":["Wie häufig eskalieren Konflikte und wie enden sie typischerweise?","Gibt es ein wiederkehrendes Muster aus Kritik, Verteidigung, Rückzug oder Schweigen?","Wie erleben beide Partner Nähe, Distanz, Vertrauen und Verbindlichkeit?","Welche gemeinsamen Ressourcen und positiven Ausnahmen gibt es?","Gibt es Angst, Drohungen, Kontrolle, Zwang oder körperliche/sexualisierte Gewalt?"],
           "Trennung / Beziehungskrise":["Wollen beide an der Beziehung arbeiten oder steht Klärung/Trennung im Vordergrund?","Welche Ereignisse haben die Krise verschärft?","Wie werden Vertrauen, Bindung und Verletzungen von beiden erlebt?","Sind Kinder betroffen und wie wird die Elternebene geschützt?","Gibt es Sicherheitsrisiken, Gewalt, Stalking oder Zwang?"]
         }
+        clinical_map={
+          "Depressive Beschwerden":{"codes":["F32.- Depressive Episode","F33.- Rezidivierende depressive Störung"],"diff":["Bipolare Symptomatik / frühere Phasen gehobener Stimmung?","Substanz-/Medikamenteneinfluss?","Somatische Ursachen, Trauer oder Anpassungsreaktion?"]},
+          "Angst / Panik":{"codes":["F41.0 Panikstörung","F41.1 Generalisierte Angststörung"],"diff":["Körperliche Ursachen der Symptome ausreichend abgeklärt?","Substanz-/Medikamenteneinfluss?","Agoraphobie, soziale oder spezifische Phobie im Vordergrund?"]},
+          "Soziale Angst":{"codes":["F40.1 Soziale Phobien"],"diff":["Angst primär vor Bewertung oder breitere soziale/kommunikative Problematik?","Depression, Autismus-Spektrum oder traumabezogene Vermeidung mitprüfen."]},
+          "PTBS / Trauma":{"codes":["F43.1 Posttraumatische Belastungsstörung","F43.2 Anpassungsstörungen"],"diff":["Art und Zeitpunkt des Ereignisses klären.","Dissoziation, Depression, Angst und Substanzkonsum mitprüfen.","Aktuelle Sicherheit und Stabilität vor traumafokussierter Arbeit prüfen."]},
+          "ADHS / Aufmerksamkeit":{"codes":["F90.0 Aktivitäts- und Aufmerksamkeitsstörung"],"diff":["Beginn in Kindheit/Jugend und mehrere Lebensbereiche prüfen.","Schlaf, Depression, Angst, Trauma, Substanzen und körperliche Ursachen mitprüfen."]},
+          "Zwänge":{"codes":["F42.- Zwangsstörung"],"diff":["Zwangsgedanken/-handlungen von Sorgen, Psychose und zwanghafter Persönlichkeit abgrenzen.","Zeitaufwand, Einsicht, Vermeidung und Einbezug Angehöriger klären."]},
+          "Schlafprobleme":{"codes":["F51.0 Nichtorganische Insomnie"],"diff":["Organische Schlafstörung, Medikamente/Substanzen, Schmerz und Schichtarbeit prüfen.","Depression, Angst, Trauma oder manische Symptomatik mitprüfen."]},
+          "Somatische Beschwerden":{"codes":["F45.- Somatoforme Störungen"],"diff":["Medizinische Abklärung und Warnzeichen berücksichtigen.","Angst, Depression, Stress, Medikamente und körperliche Erkrankungen mitprüfen."]}
+        }
+        clinicalbox=QFrame(); clinicalbox.setObjectName("formCard"); clv=QVBoxLayout(clinicalbox); clv.addWidget(QLabel("Verdachtsfall → F-Code-Hinweise → Differenzialfragen"))
+        self.clinical_hint=QTextEdit(); self.clinical_hint.setReadOnly(True); self.clinical_hint.setMaximumHeight(155); clv.addWidget(self.clinical_hint); v.addWidget(clinicalbox)
+        def update_clinical_hint():
+            m=clinical_map.get(self.help_topic.currentText())
+            if not m: self.clinical_hint.setPlainText("Für dieses Thema steht keine automatische F-Code-Zuordnung bereit. Klinische Exploration und eigenständige diagnostische Entscheidung erforderlich."); return
+            txt=["Mögliche Dokumentations-/Prüfrichtung (keine Diagnose):"]+["• "+x for x in m["codes"]]+["","Differenzialfragen:"]+["• "+x for x in m["diff"]]
+            self.clinical_hint.setPlainText("\n".join(txt))
         screenbox=QFrame(); screenbox.setObjectName("formCard"); scv=QVBoxLayout(screenbox); sch=QHBoxLayout(); sch.addWidget(QLabel("Fragebogen bei Verdachtsfall")); sch.addStretch(); self.screening_btn=QPushButton("Fragebogen zum Thema laden"); sch.addWidget(self.screening_btn); scv.addLayout(sch)
         self.screening_checks=[]; self.screening_area=QWidget(); self.screening_layout=QVBoxLayout(self.screening_area); self.screening_layout.setContentsMargins(0,0,0,0); scv.addWidget(self.screening_area)
         screenhint=QLabel("Strukturierte Exploration als Arbeitshilfe. Das Ergebnis ist kein Testwert und keine automatische Diagnose."); screenhint.setWordWrap(True); scv.addWidget(screenhint); v.addWidget(screenbox)
@@ -836,12 +853,16 @@ class Main(QMainWindow):
             if hasattr(self,"help_resources") and self.help_resources.text().strip(): parts+=["","RESSOURCEN / SCHUTZFAKTOREN",self.help_resources.text().strip()]
             risks=[x.text() for x in getattr(self,"risk_checks",[]) if x.isChecked()]
             if risks: parts+=["","SICHERHEITSRELEVANTE HINWEISE"]+["• "+x for x in risks]
+            active_risks=[x for x in risks if x!="Kein aktueller Sicherheitshinweis"]
+            if active_risks: parts+=["⚠ Sicherheitsabklärung erforderlich: Akuität, Absicht/Plan, Mittel/Zugang, Schutzfaktoren und notwendige Schutzmaßnahmen eigenständig prüfen und dokumentieren."]
             if hasattr(self,"help_trigger") and self.help_trigger.text().strip(): parts+=["","AUSLÖSER / SITUATIONEN",self.help_trigger.text().strip()]
             if hasattr(self,"help_maintain") and self.help_maintain.text().strip(): parts+=["","AUFRECHTERHALTENDE FAKTOREN",self.help_maintain.text().strip()]
             if hasattr(self,"help_strength") and self.help_strength.text().strip(): parts+=["","AUSNAHMEN / BEREITS HILFREICH",self.help_strength.text().strip()]
             if hasattr(self,"help_support") and self.help_support.text().strip(): parts+=["","UNTERSTÜTZUNGSSYSTEM",self.help_support.text().strip()]
             if hasattr(self,"help_next") and self.help_next.text().strip(): parts+=["","NÄCHSTER SCHRITT / VEREINBARUNG",self.help_next.text().strip()]
             if hasattr(self,"help_note") and self.help_note.text().strip(): parts+=["","EIGENE NOTIZ",self.help_note.text().strip()]
+            m=clinical_map.get(self.help_topic.currentText())
+            if m: parts+=["","F-CODE-PRÜFRICHTUNG (KEINE AUTOMATISCHE DIAGNOSE)"]+["• "+x for x in m["codes"]]+["Differenzialfragen:"]+["• "+x for x in m["diff"]]
             code=self.help_fcode.currentText() if hasattr(self,"help_fcode") else ""
             if " – " in code: parts+=["","AUSGEWÄHLTER F-CODE",code,"Hinweis: Der Code dient als Dokumentations- und Gesprächshilfe; keine automatische Diagnosestellung."]
             parts+=["","FACHLICHER HINWEIS","Arbeitshilfe zur strukturierten Exploration. Sie ersetzt keine eigenständige Diagnostik, Risikoabwägung oder Behandlungsentscheidung."]
@@ -850,6 +871,7 @@ class Main(QMainWindow):
         for box in (self.couple_a_distress,self.couple_b_distress,self.couple_a_hope,self.couple_b_hope): box.valueChanged.connect(lambda _:render())
         for _,a,b in self.couple_question_rows: a.valueChanged.connect(lambda _:render()); b.valueChanged.connect(lambda _:render())
         self.partner_a_view.textChanged.connect(render); self.partner_b_view.textChanged.connect(render); self.couple_mode.toggled.connect(lambda _:render()); self.couple_violence.toggled.connect(lambda _:render()); self.couple_children.toggled.connect(lambda _:render())
+        self.help_topic.currentTextChanged.connect(lambda _:update_clinical_hint()); update_clinical_hint()
         self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); self.symptom_list.itemSelectionChanged.connect(render)
         for box in (self.sym_duration,self.sym_intensity,self.sym_frequency,self.sym_impairment): box.currentTextChanged.connect(lambda _:render())
         def risk_changed(changed):
