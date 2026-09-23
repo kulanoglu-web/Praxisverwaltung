@@ -560,7 +560,7 @@ class Main(QMainWindow):
         for text_,fn,style in buttons:
             b=QPushButton(text_); b.setMinimumHeight(48); b.setStyleSheet(style+";font-weight:800;font-size:13px"); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h)
-        scroll=QScrollArea(); scroll.setObjectName("sessionScroll"); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); page.setMinimumWidth(0); scroll.setWidget(page); return scroll
+        body.setMinimumWidth(0); scroll.setWidget(body); return page
 
     def open_new_client_dialog(self):
         if not self.require_edit(): return
