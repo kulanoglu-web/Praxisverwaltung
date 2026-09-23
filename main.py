@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.54"
+APP_VERSION = "0.11.55"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -369,7 +369,7 @@ class Main(QMainWindow):
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(195); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
         brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
-        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Hilfe · FAQ · Info"]: self.nav.addItem(x)
+        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","♥  Paarakte","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Hilfe · FAQ · Info"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
         foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); sv.addWidget(foot)
         content=QWidget(); contentv=QVBoxLayout(content); contentv.setContentsMargins(0,0,0,0); contentv.setSpacing(0)
@@ -380,7 +380,7 @@ class Main(QMainWindow):
             px=QPixmap(str(logo_path))
             if not px.isNull(): self.top_logo.setPixmap(px.scaled(220,46,Qt.KeepAspectRatio,Qt.SmoothTransformation))
         tb.addWidget(self.top_logo); contentv.addWidget(topbar)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui()); contentv.addWidget(self.pages,1)
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui()); contentv.addWidget(self.pages,1)
         self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(content,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -463,7 +463,7 @@ class Main(QMainWindow):
     def is_admin(self): return self.role()=="Administrator"
     def navigate(self,index):
         # Einstellungen mit Benutzer-/Sicherheitsverwaltung nur für Administratoren.
-        if index==7 and not self.is_admin():
+        if index==8 and not self.is_admin():
             QMessageBox.warning(self,"Keine Berechtigung","Praxiseinstellungen und Benutzerverwaltung sind Administratoren vorbehalten.")
             self.nav.blockSignals(True); self.nav.setCurrentRow(self.pages.currentIndex()); self.nav.blockSignals(False); return
         self.pages.setCurrentIndex(index)
@@ -471,6 +471,43 @@ class Main(QMainWindow):
         if self.can_edit(): return True
         QMessageBox.warning(self,"Nur Lesen","Dieser Benutzer hat nur Leserechte und kann keine Daten verändern.")
         return False
+
+    def couples_ui(self):
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
+        title=QLabel("Paarakte"); title.setProperty("class","pageTitle"); v.addWidget(title)
+        info=QLabel("Partner A und Partner B aus vorhandenen Klientenakten auswählen. Die Paarakte erhält eine feste ID für Verlauf und Assessments.")
+        info.setWordWrap(True); v.addWidget(info)
+        row=QHBoxLayout()
+        self.couple_a=QComboBox(); self.couple_b=QComboBox()
+        self.couple_a.addItem("Partner A auswählen",None); self.couple_b.addItem("Partner B auswählen",None)
+        con=sqlite3.connect(DBFILE)
+        for cid,first,last in con.execute("SELECT id,first,last FROM clients ORDER BY id DESC").fetchall():
+            name=(decrypt_text(first)+" "+decrypt_text(last)).strip()
+            self.couple_a.addItem(name,cid); self.couple_b.addItem(name,cid)
+        con.close()
+        row.addWidget(self.couple_a); row.addWidget(self.couple_b); v.addLayout(row)
+        save=QPushButton("Paarakte anlegen"); v.addWidget(save)
+        self.couple_list=QListWidget(); v.addWidget(self.couple_list,1)
+        def refresh():
+            self.couple_list.clear(); con=sqlite3.connect(DBFILE)
+            rows=con.execute("SELECT id,partner_a_name,partner_b_name,status,created_at FROM couples ORDER BY id DESC").fetchall(); con.close()
+            for cid,a,b,status,created in rows:
+                self.couple_list.addItem(f"#{cid}  {decrypt_text(a)}  +  {decrypt_text(b)}   · {status} · {created[:10]}")
+        def create():
+            if not self.require_edit(): return
+            aid=self.couple_a.currentData(); bid=self.couple_b.currentData()
+            if not aid or not bid:
+                QMessageBox.warning(self,"Paarakte","Bitte beide Partner auswählen."); return
+            if aid==bid:
+                QMessageBox.warning(self,"Paarakte","Partner A und Partner B müssen unterschiedliche Klienten sein."); return
+            an=self.couple_a.currentText(); bn=self.couple_b.currentText()
+            con=sqlite3.connect(DBFILE)
+            exists=con.execute("SELECT id FROM couples WHERE (partner_a_client_id=? AND partner_b_client_id=?) OR (partner_a_client_id=? AND partner_b_client_id=?)",(aid,bid,bid,aid)).fetchone()
+            if exists:
+                con.close(); QMessageBox.information(self,"Paarakte",f"Für dieses Paar besteht bereits Paarakte #{exists[0]}."); return
+            con.execute("INSERT INTO couples(partner_a_client_id,partner_b_client_id,partner_a_name,partner_b_name,status,created_at) VALUES(?,?,?,?,?,?)",(aid,bid,encrypt_text(an),encrypt_text(bn),"aktiv",datetime.now().isoformat(timespec="seconds")))
+            con.commit(); con.close(); audit("COUPLE_CREATE",f"{an} + {bn}",self.current_user.get("username","")); refresh()
+        save.clicked.connect(create); refresh(); return page
 
     def session_ui(self):
         self.session_live_clock=None
