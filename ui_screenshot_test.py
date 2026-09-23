@@ -20,15 +20,19 @@ app.processEvents()
 test_client={"last":"Mustermann","first":"Anna","dob":"14.05.1988","phone":"030 1234567","email":"anna.mustermann@example.test","address":"Musterstraße 12, 13597 Berlin","diagnosis":"F43.2"}
 if not any(x.get("last")==test_client["last"] and x.get("first")==test_client["first"] for x in main.DB["clients"]):
     main.DB["clients"].append(test_client)
-# Die Sitzungsseite wurde beim Main-Aufbau bereits erzeugt; Testklient direkt in die Auswahl laden.
-if hasattr(win,"client_pick"):
+
+# Seiten werden beim Navigieren neu aufgebaut. Deshalb Testklient erst NACH
+# dem Öffnen der Sitzungsseite in deren frisch erzeugte Widgets einsetzen.
+def prepare_session_page():
+    win.nav.setCurrentRow(1)
+    app.processEvents()
     win.client_pick.addItem("Mustermann, Anna",test_client)
     win.client_pick.setCurrentIndex(win.client_pick.count()-1)
-if hasattr(win,"s_start"): win.s_start.setTime(main.QTime(10,0))
-if hasattr(win,"s_end"): win.s_end.setTime(main.QTime(10,45))
-if hasattr(win,"s_type"): win.s_type.setCurrentText("Einzeltherapie")
-if hasattr(win,"session_diag"): win.session_diag.setText("F43.2 – Testeintrag")
-app.processEvents()
+    win.s_start.setTime(main.QTime(10,0))
+    win.s_end.setTime(main.QTime(10,45))
+    win.s_type.setCurrentText("Einzeltherapie")
+    win.session_diag.setText("F43.2 – Testeintrag")
+    app.processEvents()
 
 out=Path("test-artifacts"); out.mkdir(exist_ok=True)
 pages=[
@@ -48,6 +52,8 @@ for index, name in pages:
         continue
     win.nav.setCurrentRow(index)
     app.processEvents()
+    if index == 1:
+        prepare_session_page()
     shot=win.grab()
     if shot.isNull():
         raise SystemExit(f"Screenshot {name} konnte nicht erstellt werden")
