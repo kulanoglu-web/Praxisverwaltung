@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.57"
+APP_VERSION = "0.11.58"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -123,7 +123,7 @@ def init_sqlite():
       partner_a_name TEXT, partner_b_name TEXT, status TEXT DEFAULT 'aktiv', created_at TEXT NOT NULL,
       FOREIGN KEY(partner_a_client_id) REFERENCES clients(id),
       FOREIGN KEY(partner_b_client_id) REFERENCES clients(id));
-    CREATE TABLE IF NOT EXISTS couple_notes(
+    CREATE TABLE IF NOT EXISTS couple_sessions(\n      id INTEGER PRIMARY KEY AUTOINCREMENT, couple_id INTEGER NOT NULL, session_date TEXT NOT NULL,\n      topic TEXT, shared_note TEXT, minutes INTEGER DEFAULT 45, username TEXT, created_at TEXT NOT NULL,\n      FOREIGN KEY(couple_id) REFERENCES couples(id));\n    CREATE TABLE IF NOT EXISTS couple_notes(
       id INTEGER PRIMARY KEY AUTOINCREMENT, couple_id INTEGER NOT NULL, created_at TEXT NOT NULL,
       note_type TEXT NOT NULL, note_text TEXT, username TEXT,
       FOREIGN KEY(couple_id) REFERENCES couples(id));
@@ -494,16 +494,15 @@ class Main(QMainWindow):
         self.couple_note_type.addItems(["Gemeinsame Notiz","Vertraulich – Partner A","Vertraulich – Partner B"])
         note_row.addWidget(self.couple_note_type); note_save=QPushButton("Notiz speichern"); note_row.addWidget(note_save); v.addLayout(note_row)
         self.couple_note=QTextEdit(); self.couple_note.setPlaceholderText("Notiz zur ausgewählten Paarakte …"); self.couple_note.setMaximumHeight(120); v.addWidget(self.couple_note)
-        self.couple_history=QListWidget(); v.addWidget(self.couple_history,1)
-        def selected_id():
+        session_row=QHBoxLayout(); self.couple_session_topic=QLineEdit(); self.couple_session_topic.setPlaceholderText("Sitzungsthema")\n        self.couple_session_minutes=QSpinBox(); self.couple_session_minutes.setRange(5,300); self.couple_session_minutes.setValue(45); self.couple_session_minutes.setSuffix(" Min.")\n        session_save=QPushButton("Paarsitzung speichern"); session_row.addWidget(self.couple_session_topic,1); session_row.addWidget(self.couple_session_minutes); session_row.addWidget(session_save); v.addLayout(session_row)\n        self.couple_session_note=QTextEdit(); self.couple_session_note.setPlaceholderText("Gemeinsame Sitzungsdokumentation …"); self.couple_session_note.setMaximumHeight(100); v.addWidget(self.couple_session_note)\n        self.couple_history=QListWidget(); v.addWidget(self.couple_history,1)\n        def selected_id():
             item=self.couple_list.currentItem()
             return item.data(Qt.UserRole) if item else None
         def refresh_history():
             self.couple_history.clear(); cid=selected_id()
             if not cid: return
             con=sqlite3.connect(DBFILE)
-            rows=con.execute("SELECT created_at,note_type,note_text FROM couple_notes WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall(); con.close()
-            for created,kind,txt in rows:
+            rows=con.execute("SELECT created_at,note_type,note_text FROM couple_notes WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall()\n            sessions=con.execute("SELECT session_date,topic,shared_note,minutes FROM couple_sessions WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall(); con.close()\n            for date,topic,note,mins in sessions:\n                self.couple_history.addItem(f"{date[:16]} · Paarsitzung · {mins} Min. · {decrypt_text(topic)}
+{decrypt_text(note)}")\n            for created,kind,txt in rows:
                 self.couple_history.addItem(f"{created[:16]} · {kind}\n{decrypt_text(txt)}")
         def refresh():
             self.couple_list.clear(); con=sqlite3.connect(DBFILE)
@@ -529,8 +528,7 @@ class Main(QMainWindow):
             kind=self.couple_note_type.currentText(); con=sqlite3.connect(DBFILE)
             con.execute("INSERT INTO couple_notes(couple_id,created_at,note_type,note_text,username) VALUES(?,?,?,?,?)",(cid,datetime.now().isoformat(timespec="seconds"),kind,encrypt_text(txt),self.current_user.get("username","")))
             con.commit(); con.close(); audit("COUPLE_NOTE",f"Paarakte #{cid}: {kind}",self.current_user.get("username","")); self.couple_note.clear(); refresh_history()
-        save.clicked.connect(create); note_save.clicked.connect(save_note); self.couple_list.currentItemChanged.connect(lambda *_: refresh_history()); refresh(); return page
-
+        def save_session():\n            if not self.require_edit(): return\n            cid=selected_id(); topic=self.couple_session_topic.text().strip(); note=self.couple_session_note.toPlainText().strip()\n            if not cid: QMessageBox.warning(self,"Paarakte","Bitte zuerst eine Paarakte auswählen."); return\n            if not topic and not note: QMessageBox.warning(self,"Paarsitzung","Bitte Thema oder Sitzungsnotiz eintragen."); return\n            now=datetime.now().isoformat(timespec="seconds"); con=sqlite3.connect(DBFILE)\n            con.execute("INSERT INTO couple_sessions(couple_id,session_date,topic,shared_note,minutes,username,created_at) VALUES(?,?,?,?,?,?,?)",(cid,now,encrypt_text(topic),encrypt_text(note),self.couple_session_minutes.value(),self.current_user.get("username",""),now))\n            con.commit(); con.close(); audit("COUPLE_SESSION",f"Paarakte #{cid}",self.current_user.get("username","")); self.couple_session_topic.clear(); self.couple_session_note.clear(); refresh_history()\n        save.clicked.connect(create); note_save.clicked.connect(save_note); session_save.clicked.connect(save_session); self.couple_list.currentItemChanged.connect(lambda *_: refresh_history()); refresh(); return page\n
     def session_ui(self):
         self.session_live_clock=None
         page=QWidget(); outer=QVBoxLayout(page); outer.setContentsMargins(0,0,0,0)
