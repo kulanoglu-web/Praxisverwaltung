@@ -472,36 +472,36 @@ class Main(QMainWindow):
         self.session_live_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.session_live_clock.setAlignment(Qt.AlignCenter); self.session_live_clock.setFixedSize(94,36); self.session_live_clock.setToolTip("Aktuelle Uhrzeit – live"); self.session_live_clock.setStyleSheet("font-size:16px;font-weight:800;color:#17324d;background:#e8f0f6;border-radius:10px")
         top.addLayout(head); top.addStretch(); top.addWidget(self.session_live_clock); top.addWidget(self.clock); top.addWidget(timerbtn); v.addLayout(top)
 
-        row=QHBoxLayout(); row.setSpacing(8)
+        row=QHBoxLayout(); row.setSpacing(6); row.setContentsMargins(0,0,0,0)
         session=QFrame(); session.setObjectName("formCard"); sg=QGridLayout(session); sg.setContentsMargins(10,8,10,10); sg.setHorizontalSpacing(7); sg.setVerticalSpacing(6)
         st=QLabel("▤  Sitzungsdaten"); st.setObjectName("sectionTitle"); sg.addWidget(st,0,0,1,3)
         self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("Klient auswählen …")
         for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.client_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
-        newclient=QPushButton("＋ Neuer Klient"); newclient.setMinimumHeight(30); newclient.clicked.connect(self.open_new_client_dialog)
+        newclient=QPushButton("＋ Neu"); newclient.setMinimumHeight(28); newclient.setMaximumWidth(72); newclient.clicked.connect(self.open_new_client_dialog)
         self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
         self.s_start=QTimeEdit(); self.s_end=QTimeEdit(); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
         self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); self.s_red=QCheckBox("Ermäßigter Satz")
-        for x in (self.client_pick,self.s_date,self.s_start,self.s_end,self.s_type): x.setMinimumHeight(30)
+        for x in (self.client_pick,self.s_date,self.s_start,self.s_end,self.s_type): x.setMinimumHeight(28)
         sg.addWidget(QLabel("Klient *"),1,0); sg.addWidget(self.client_pick,1,1); sg.addWidget(newclient,1,2)
         for rr,(lab,field) in enumerate([("Datum *",self.s_date),("Beginn *",self.s_start),("Ende *",self.s_end),("Art *",self.s_type)],2): sg.addWidget(QLabel(lab),rr,0); sg.addWidget(field,rr,1,1,2)
-        sg.addWidget(self.s_red,6,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(0); session.setMinimumHeight(285); row.addWidget(session,4)
+        sg.addWidget(self.s_red,6,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(0); session.setMaximumWidth(410); session.setMinimumHeight(270); row.addWidget(session,4)
 
         details=QFrame(); details.setObjectName("formCard"); dg=QGridLayout(details); dg.setContentsMargins(10,8,10,10); dg.setHorizontalSpacing(7); dg.setVerticalSpacing(6)
         dt=QLabel("●  Klientendaten"); dt.setObjectName("sectionTitle"); dg.addWidget(dt,0,0,1,2)
         self.s_last=QLineEdit(); self.s_first=QLineEdit(); self.s_dob=QLineEdit()
-        for x in (self.s_last,self.s_first,self.s_dob): x.setMinimumHeight(34); x.setReadOnly(True); x.setPlaceholderText("–")
+        for x in (self.s_last,self.s_first,self.s_dob): x.setMinimumHeight(30); x.setReadOnly(True); x.setPlaceholderText("–")
         self.s_phone=QLineEdit(); self.s_email=QLineEdit()
-        for x in (self.s_phone,self.s_email): x.setMinimumHeight(34); x.setReadOnly(True); x.setPlaceholderText("–")
+        for x in (self.s_phone,self.s_email): x.setMinimumHeight(30); x.setReadOnly(True); x.setPlaceholderText("–")
         for rr,(lab,field) in enumerate([("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Telefon",self.s_phone),("E-Mail",self.s_email)],1): dg.addWidget(QLabel(lab),rr,0); dg.addWidget(field,rr,1)
-        details.setMinimumWidth(0); details.setMinimumHeight(285); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(30); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
+        details.setMinimumWidth(0); details.setMaximumWidth(330); details.setMinimumHeight(270); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(30); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
 
         quick=QFrame(); quick.setObjectName("formCard"); qg=QGridLayout(quick); qg.setContentsMargins(10,8,10,10); qg.setHorizontalSpacing(7); qg.setVerticalSpacing(6)
         qt=QLabel("♙＋  Klient schnell anlegen"); qt.setObjectName("sectionTitle"); qg.addWidget(qt,0,0,1,2)
         qlast=QLineEdit(); qfirst=QLineEdit(); qdob=QLineEdit(); qdob.setPlaceholderText("TT.MM.JJJJ"); qphone=QLineEdit(); qmail=QLineEdit()
-        for x in (qlast,qfirst,qdob,qphone,qmail): x.setMinimumHeight(34)
+        for x in (qlast,qfirst,qdob,qphone,qmail): x.setMinimumHeight(30)
         qg.addWidget(QLabel("Nachname *"),1,0); qg.addWidget(QLabel("Vorname *"),1,1); qg.addWidget(qlast,2,0); qg.addWidget(qfirst,2,1)
         qg.addWidget(QLabel("Geburtsdatum"),3,0,1,2); qg.addWidget(qdob,4,0,1,2); qg.addWidget(QLabel("Telefon"),5,0); qg.addWidget(QLabel("E-Mail"),5,1); qg.addWidget(qphone,6,0); qg.addWidget(qmail,6,1)
-        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(30); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(0); quick.setMinimumHeight(285); row.addWidget(quick,3); v.addLayout(row)
+        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(30); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(0); quick.setMaximumWidth(330); quick.setMinimumHeight(270); row.addWidget(quick,3); v.addLayout(row)
 
         def add_quick():
             if not self.require_edit(): return
@@ -518,9 +518,9 @@ class Main(QMainWindow):
         self.client_pick.currentIndexChanged.connect(picked)
         editclient.clicked.connect(self.edit_session_client)
 
-        clinical=QFrame(); clinical.setObjectName("formCard"); cg=QGridLayout(clinical); cg.setContentsMargins(16,12,16,14); cg.setHorizontalSpacing(10); cg.setVerticalSpacing(8)
+        clinical=QFrame(); clinical.setObjectName("formCard"); cg=QGridLayout(clinical); cg.setContentsMargins(10,8,10,10); cg.setHorizontalSpacing(7); cg.setVerticalSpacing(8)
         ct=QLabel("◉  Leistung & Diagnose"); ct.setObjectName("sectionTitle"); cg.addWidget(ct,0,0,1,4)
-        self.session_diag=QLineEdit(); self.session_diag.setPlaceholderText("F-Code oder Diagnose, z. B. F32.1"); self.session_diag.setMinimumHeight(38)
+        self.session_diag=QLineEdit(); self.session_diag.setPlaceholderText("F-Code oder Diagnose, z. B. F32.1"); self.session_diag.setMinimumHeight(30)
         fquick=QComboBox(); fquick.setEditable(True); fquick.addItems(["F-Code auswählen …","F32.0 – Leichte depressive Episode","F32.1 – Mittelgradige depressive Episode","F32.2 – Schwere depressive Episode ohne psychotische Symptome","F33.0 – Rezidivierende depressive Störung, gegenwärtig leichte Episode","F33.1 – Rezidivierende depressive Störung, gegenwärtig mittelgradige Episode","F40.0 – Agoraphobie","F40.1 – Soziale Phobien","F41.0 – Panikstörung","F41.1 – Generalisierte Angststörung","F43.0 – Akute Belastungsreaktion","F43.1 – Posttraumatische Belastungsstörung","F43.2 – Anpassungsstörungen","F51.0 – Nichtorganische Insomnie"])
         def use_fcode(text):
             if " – " in text: self.session_diag.setText(text)
@@ -528,10 +528,10 @@ class Main(QMainWindow):
         cg.addWidget(QLabel("Diagnose / F-Code"),1,0); cg.addWidget(self.session_diag,1,1,1,2); cg.addWidget(fquick,1,3)
         tip=QLabel("Diagnose/F-Code ist optional und wird nicht automatisch aus Notizen abgeleitet."); tip.setObjectName("pageSub"); tip.setWordWrap(True); cg.addWidget(tip,2,1,1,3); v.addWidget(clinical)
 
-        notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(16,12,16,14); nv.setSpacing(10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setMinimumWidth(175); template.setMinimumHeight(40); nhead.addWidget(template); nv.addLayout(nhead)
+        notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(16,12,16,14); nv.setSpacing(10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setMinimumWidth(130); template.setMaximumWidth(160); template.setMinimumHeight(30); nhead.addWidget(template); nv.addLayout(nhead)
         self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …");
         note_tools=QHBoxLayout(); bullet=QPushButton("• Aufzählung"); timestamp=QPushButton("⏱ Zeitmarke"); clear_note=QPushButton("Notiz leeren")
-        for b in (bullet,timestamp,clear_note): b.setMinimumHeight(38); note_tools.addWidget(b)
+        for b in (bullet,timestamp,clear_note): b.setMinimumHeight(30); note_tools.addWidget(b)
         note_tools.addStretch(); nv.addLayout(note_tools)
         def insert_bullet():
             cur=self.notes.textCursor(); cur.insertText("• "); self.notes.setTextCursor(cur); self.notes.setFocus()
@@ -560,7 +560,7 @@ class Main(QMainWindow):
         for text_,fn,style in buttons:
             b=QPushButton(text_); b.setMinimumHeight(48); b.setStyleSheet(style+";font-weight:800;font-size:13px"); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h)
-        body.setMinimumWidth(0); scroll.setWidget(body); outer.addWidget(scroll); return page
+        body.setMinimumWidth(0); body.setMaximumWidth(1180); v.setSizeConstraint(QLayout.SetMinimumSize); scroll.setWidget(body); outer.addWidget(scroll); return page
 
     def open_new_client_dialog(self):
         if not self.require_edit(): return
