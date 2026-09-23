@@ -81,8 +81,6 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Release konnte nicht erstellt werden." }
           }
 
-          $release = gh api "repos/$repo/releases/tags/$tag" | ConvertFrom-Json
-          $uploadBase = ($release.upload_url -replace '\{\?name,label\}$','')
           $files = @()
           $files += Get-ChildItem "test-artifacts/*.png" | ForEach-Object { $_.FullName }
           $files += (Resolve-Path "dist/Praxisverwaltung.exe").Path
@@ -90,13 +88,8 @@ jobs:
 
           foreach ($file in $files) {
             $name = Split-Path $file -Leaf
-            $existing = @($release.assets) | Where-Object { $_.name -eq $name }
-            foreach ($asset in $existing) {
-              gh api --method DELETE "repos/$repo/releases/assets/$($asset.id)"
-              if ($LASTEXITCODE -ne 0) { throw "Altes Release-Asset konnte nicht gelöscht werden: $name" }
-            }
-            $encoded = [uri]::EscapeDataString($name)
-            gh api --method POST -H "Content-Type: application/octet-stream" --input $file "$uploadBase?name=$encoded" > $null
+            Write-Host "Uploading $name"
+            gh release upload $tag $file --repo $repo --clobber
             if ($LASTEXITCODE -ne 0) { throw "Release-Upload fehlgeschlagen: $name" }
           }
 
