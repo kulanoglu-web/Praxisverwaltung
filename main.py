@@ -1,5 +1,5 @@
 import sys
-import subprocess, json, os, re, math, shutil, sqlite3, base64, hashlib
+import subprocess, json, os, re, math, shutil, sqlite3, base64, hashlib, tempfile
 from pathlib import Path
 from datetime import datetime, date
 from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent
@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.51"
+APP_VERSION = "0.11.52"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -550,8 +550,8 @@ class Main(QMainWindow):
 
         self.ink=InkCanvas(); self.current_ink_file=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
-        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
-        for x in (QLabel("Stärke:"),width,eraser,undo,saveink,clearink,fullscreen):
+        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); ocrink=QPushButton("⌨ Handschrift → Text"); ocrink.setToolTip("Lokale Windows-Handschrifterkennung; erkannter Text wird vor Übernahme angezeigt."); ocrink.clicked.connect(self.ink_to_text); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
+        for x in (QLabel("Stärke:"),width,eraser,undo,saveink,ocrink,clearink,fullscreen):
             if hasattr(x,"setMinimumHeight"): x.setMinimumHeight(40)
             inkhead.addWidget(x)
         self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(235); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
@@ -602,14 +602,59 @@ class Main(QMainWindow):
         enc=encrypt_file(tmp); self.current_ink_file=enc; audit("INK_NOTE_SAVED",f"Freihand-Notiz gespeichert: {last}, {first}",self.current_user.get("username","") if self.current_user else "")
         QMessageBox.information(self,"Freihand-Notiz","Die Freihand-Notiz wurde verschlüsselt beim Klienten gespeichert.\n\n"+str(Path(enc).name))
 
+    def ink_to_text(self):
+        """Handschrift lokal mit der Windows-OCR-Engine erkennen; keine Cloud-Übertragung."""
+        if not hasattr(self,"ink") or self.ink.image.isNull(): return QMessageBox.warning(self,"Handschrift erkennen","Keine Handschrift vorhanden.")
+        tmp=Path(tempfile.gettempdir())/f"PraxisPro_OCR_{os.getpid()}.png"
+        if not self.ink.save_png(tmp): return QMessageBox.warning(self,"Handschrift erkennen","Die Zeichenfläche konnte nicht vorbereitet werden.")
+        ps=r'''param([string]$ImagePath)
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
+$null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
+function Await($op,$type) {
+ $m=[System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq "AsTask" -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 } | Select-Object -First 1
+ $t=$m.MakeGenericMethod($type).Invoke($null,@($op)); $t.Wait(); $t.Result
+}
+$f=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($ImagePath)) ([Windows.Storage.StorageFile])
+$s=Await ($f.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+$d=Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($s)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$b=Await ($d.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$lang=New-Object Windows.Globalization.Language("de-DE")
+$e=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)
+if ($null -eq $e) { throw "Deutsche Windows-OCR-Sprachkomponente fehlt." }
+$r=Await ($e.RecognizeAsync($b)) ([Windows.Media.Ocr.OcrResult])
+[Console]::OutputEncoding=[System.Text.Encoding]::UTF8
+$r.Text
+'''
+        try:
+            run=subprocess.run(["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-Command",ps,"-ImagePath",str(tmp)],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
+            recognized=run.stdout.strip()
+            if run.returncode!=0 or not recognized: return QMessageBox.warning(self,"Handschrift erkennen","Windows konnte die Handschrift nicht erkennen.\n\n"+((run.stderr or "Keine Schrift erkannt.").strip()[:700]))
+            dlg=QDialog(self); dlg.setWindowTitle("Handschrift → Text prüfen"); dlg.resize(720,500); v=QVBoxLayout(dlg)
+            info=QLabel("Erkannter Text – bitte prüfen und bei Bedarf korrigieren."); info.setWordWrap(True); v.addWidget(info)
+            edit=QTextEdit(); edit.setPlainText(recognized); v.addWidget(edit,1)
+            buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); buttons.button(QDialogButtonBox.Save).setText("In Therapienotiz übernehmen"); v.addWidget(buttons)
+            def accept_text():
+                cleaned=edit.toPlainText().strip()
+                if cleaned:
+                    existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+cleaned)
+                    audit("INK_OCR_TO_NOTE","Handschrift lokal erkannt und nach Prüfung übernommen.",self.current_user.get("username","") if self.current_user else "")
+                dlg.accept()
+            buttons.accepted.connect(accept_text); buttons.rejected.connect(dlg.reject); dlg.exec()
+        except subprocess.TimeoutExpired: QMessageBox.warning(self,"Handschrift erkennen","Die lokale Handschrifterkennung hat zu lange benötigt.")
+        except Exception as e: QMessageBox.warning(self,"Handschrift erkennen","Die lokale Handschrifterkennung konnte nicht gestartet werden.\n\n"+str(e)[:700])
+        finally:
+            try: tmp.unlink(missing_ok=True)
+            except Exception: pass
+
     def open_ink_fullscreen(self):
         dlg=QDialog(self); dlg.setWindowTitle("Freihand-Notizbuch"); dlg.resize(1280,800); dlg.setMinimumSize(760,520); dlg.setWindowFlag(Qt.WindowMaximizeButtonHint,True)
         v=QVBoxLayout(dlg); bar=QHBoxLayout(); title=QLabel("Handschrift / Stift"); title.setStyleSheet("font-size:22px;font-weight:700"); bar.addWidget(title); bar.addStretch()
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); erase=QCheckBox("Radierer"); erase.setChecked(self.ink.eraser); erase.toggled.connect(self.ink.set_eraser)
         width=QSpinBox(); width.setRange(1,10); width.setValue(self.ink.pen_width); width.valueChanged.connect(self.ink.set_width)
         zoom=QSlider(Qt.Horizontal); zoom.setRange(60,180); zoom.setValue(100); zoom.setFixedWidth(170); zoomlabel=QLabel("100 %")
-        save=QPushButton("💾 Notiz speichern"); save.clicked.connect(self.save_ink_note); clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); full=QPushButton("⛶ Vollbild"); full.setCheckable(True); full.toggled.connect(lambda on: dlg.showFullScreen() if on else dlg.showNormal()); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
-        for x in (undo,erase,QLabel("Stärke"),width,QLabel("Ansicht"),zoom,zoomlabel,save,clear,full,close): bar.addWidget(x)
+        save=QPushButton("💾 Notiz speichern"); save.clicked.connect(self.save_ink_note); ocr=QPushButton("⌨ Handschrift → Text"); ocr.clicked.connect(self.ink_to_text); clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); full=QPushButton("⛶ Vollbild"); full.setCheckable(True); full.toggled.connect(lambda on: dlg.showFullScreen() if on else dlg.showNormal()); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
+        for x in (undo,erase,QLabel("Stärke"),width,QLabel("Ansicht"),zoom,zoomlabel,save,ocr,clear,full,close): bar.addWidget(x)
         v.addLayout(bar); holder=QScrollArea(); holder.setWidgetResizable(False); holder.setAlignment(Qt.AlignCenter); self.ink.setParent(holder); holder.setWidget(self.ink)
         basew,baseh=max(1200,self.ink.image.width()),max(700,self.ink.image.height())
         def scale_ink(value):
