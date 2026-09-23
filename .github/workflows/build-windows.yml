@@ -78,6 +78,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --repo "${{ github.repository }}" --title "PraxisPro v$env:APP_VERSION" --notes "PraxisPro Windows-Release."
           }
-          gh release upload $tag test-artifacts/*.png dist/Praxisverwaltung.exe "installer/PraxisPro_Setup_v$env:APP_VERSION.exe" --repo "${{ github.repository }}" --clobber
+          $files = @()
+          $files += Get-ChildItem "test-artifacts/*.png" | ForEach-Object { $_.FullName }
+          $files += (Resolve-Path "dist/Praxisverwaltung.exe").Path
+          $files += (Resolve-Path "installer/PraxisPro_Setup_v$env:APP_VERSION.exe").Path
+          foreach ($file in $files) {
+            $name = Split-Path $file -Leaf
+            gh release upload $tag $file --repo "${{ github.repository }}" --clobber
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "Clobber für $name fehlgeschlagen; vorhandenes Asset wird gezielt ersetzt."
+              gh release delete-asset $tag $name --repo "${{ github.repository }}" -y 2>$null
+              gh release upload $tag $file --repo "${{ github.repository }}"
+              if ($LASTEXITCODE -ne 0) { throw "Release-Upload fehlgeschlagen: $name" }
+            }
+          }
       # Release assets are the canonical distributables. This avoids failing the
       # whole build when the temporary GitHub Actions artifact quota is exhausted.
