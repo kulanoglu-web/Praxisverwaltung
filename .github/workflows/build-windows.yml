@@ -74,23 +74,38 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v$env:APP_VERSION"
-          gh release view $tag --repo "${{ github.repository }}" 2>$null
+          $repo = "${{ github.repository }}"
+          gh release view $tag --repo $repo 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --repo "${{ github.repository }}" --title "PraxisPro v$env:APP_VERSION" --notes "PraxisPro Windows-Release."
+            gh release create $tag --repo $repo --title "PraxisPro v$env:APP_VERSION" --notes "PraxisPro Windows-Release."
+            if ($LASTEXITCODE -ne 0) { throw "Release konnte nicht erstellt werden." }
           }
+
+          $release = gh api "repos/$repo/releases/tags/$tag" | ConvertFrom-Json
+          $uploadBase = ($release.upload_url -replace '\{\?name,label\}$','')
           $files = @()
           $files += Get-ChildItem "test-artifacts/*.png" | ForEach-Object { $_.FullName }
           $files += (Resolve-Path "dist/Praxisverwaltung.exe").Path
           $files += (Resolve-Path "installer/PraxisPro_Setup_v$env:APP_VERSION.exe").Path
+
           foreach ($file in $files) {
             $name = Split-Path $file -Leaf
-            gh release upload $tag $file --repo "${{ github.repository }}" --clobber
-            if ($LASTEXITCODE -ne 0) {
-              Write-Warning "Clobber für $name fehlgeschlagen; vorhandenes Asset wird gezielt ersetzt."
-              gh release delete-asset $tag $name --repo "${{ github.repository }}" -y 2>$null
-              gh release upload $tag $file --repo "${{ github.repository }}"
-              if ($LASTEXITCODE -ne 0) { throw "Release-Upload fehlgeschlagen: $name" }
+            $existing = @($release.assets) | Where-Object { $_.name -eq $name }
+            foreach ($asset in $existing) {
+              gh api --method DELETE "repos/$repo/releases/assets/$($asset.id)"
+              if ($LASTEXITCODE -ne 0) { throw "Altes Release-Asset konnte nicht gelöscht werden: $name" }
             }
+            $encoded = [uri]::EscapeDataString($name)
+            gh api --method POST -H "Content-Type: application/octet-stream" --input $file "$uploadBase?name=$encoded" > $null
+            if ($LASTEXITCODE -ne 0) { throw "Release-Upload fehlgeschlagen: $name" }
           }
+
+          $check = gh api "repos/$repo/releases/tags/$tag" | ConvertFrom-Json
+          $uploaded = @($check.assets).name
+          foreach ($file in $files) {
+            $name = Split-Path $file -Leaf
+            if ($uploaded -notcontains $name) { throw "Asset nach Upload nicht im Release gefunden: $name" }
+          }
+          Write-Host "Release verifiziert: $($uploaded.Count) Assets vorhanden."
       # Release assets are the canonical distributables. This avoids failing the
       # whole build when the temporary GitHub Actions artifact quota is exhausted.
