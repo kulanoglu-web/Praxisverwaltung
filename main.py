@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.47"
+APP_VERSION = "0.11.48"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -728,7 +728,7 @@ class Main(QMainWindow):
         pair_questions=["Ich fühle mich von meinem Partner verstanden.","Wir können Konflikte beenden, ohne uns gegenseitig abzuwerten.","Ich kann Bedürfnisse und Grenzen offen ansprechen.","Ich erlebe ausreichend emotionale Nähe und Verbundenheit.","Vertrauen ist in unserer Beziehung vorhanden.","Wir finden nach Verletzungen wieder zueinander.","Wir können als Eltern / Bezugspersonen kooperieren, sofern relevant."]
         pq=QGridLayout(); pq.addWidget(QLabel("Getrennter Paarfragebogen · 0 = trifft gar nicht zu · 10 = trifft völlig zu"),0,0,1,3); pq.addWidget(QLabel("A"),1,1); pq.addWidget(QLabel("B"),1,2)
         for n,q in enumerate(pair_questions,2):
-            a=QSpinBox(); b=QSpinBox(); a.setRange(0,10); b.setRange(0,10); a.setSpecialValueText("–"); b.setSpecialValueText("–"); self.couple_question_rows.append((q,a,b)); pq.addWidget(QLabel(q),n,0); pq.addWidget(a,n,1); pq.addWidget(b,n,2)
+            a=QSpinBox(); b=QSpinBox(); a.setRange(-1,10); b.setRange(-1,10); a.setSpecialValueText("–"); b.setSpecialValueText("–"); a.setValue(-1); b.setValue(-1); self.couple_question_rows.append((q,a,b)); pq.addWidget(QLabel(q),n,0); pq.addWidget(a,n,1); pq.addWidget(b,n,2)
         cv.addLayout(pq)
         self.couple_cycle=QLineEdit(); self.couple_cycle.setPlaceholderText("Wiederkehrender Interaktions-/Eskalationskreislauf …"); cv.addWidget(self.couple_cycle)
         self.couple_goal=QLineEdit(); self.couple_goal.setPlaceholderText("Gemeinsames Ziel / Auftrag des Paares …"); cv.addWidget(self.couple_goal)
@@ -869,10 +869,10 @@ class Main(QMainWindow):
                 if self.couple_goal.text().strip(): parts+=["Gemeinsames Ziel: "+self.couple_goal.text().strip()]
                 if self.couple_resources.text().strip(): parts+=["Ressourcen / positive Ausnahmen: "+self.couple_resources.text().strip()]
                 parts+=["Getrennte Einschätzung: Belastung A "+str(self.couple_a_distress.value())+"/10 · B "+str(self.couple_b_distress.value())+"/10","Zuversicht A "+str(self.couple_a_hope.value())+"/10 · B "+str(self.couple_b_hope.value())+"/10"]
-                pair_answers=[(q,a.value(),b.value()) for q,a,b in self.couple_question_rows if a.value()>0 or b.value()>0]
+                pair_answers=[(q,a.value(),b.value()) for q,a,b in self.couple_question_rows if a.value()>=0 or b.value()>=0]
                 if pair_answers:
                     parts+=["","PAARFRAGEBOGEN – A/B-VERGLEICH"]
-                    parts += ["• "+q+" | A: "+("–" if av==0 else str(av)+"/10")+" · B: "+("–" if bv==0 else str(bv)+"/10")+(" · Differenz: "+str(abs(av-bv)) if av>0 and bv>0 else "") for q,av,bv in pair_answers]
+                    parts += ["• "+q+" | A: "+("–" if av<0 else str(av)+"/10")+" · B: "+("–" if bv<0 else str(bv)+"/10")+(" · Differenz: "+str(abs(av-bv)) if av>=0 and bv>=0 else "") for q,av,bv in pair_answers]
                 if self.couple_children.isChecked(): parts+=["☑ Kinder / Elternebene betroffen"]
                 if self.couple_violence.isChecked(): parts+=["⚠ Hinweis auf Gewalt / Drohung / Zwang / Kontrolle","Sicherheit und individuelle Risikoabklärung priorisieren; übliche Paarinterventionen nicht schematisch fortsetzen."]
             details=[]
@@ -924,7 +924,7 @@ class Main(QMainWindow):
             if self.couple_violence.isChecked():
                 answer=QMessageBox.question(self,"Sicherheitsmarkierung","Es ist Gewalt, Drohung, Zwang oder Kontrolle markiert. Wurde die individuelle Sicherheits-/Risikoabklärung dokumentiert?\n\nMit „Ja“ wird der Paarverlauf gespeichert.")
                 if answer!=QMessageBox.Yes: return
-            con=sqlite3.connect(DBFILE); con.execute("""INSERT INTO couple_assessments(created_at,client_label,partner_a,partner_b,topic,perspective_a,perspective_b,interaction_cycle,shared_goal,resources,children_involved,safety_flag,answers_a,answers_b,username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(datetime.now().isoformat(timespec="seconds"),"",encrypt_text(a),encrypt_text(b),self.help_topic.currentText(),encrypt_text(self.partner_a_view.toPlainText()),encrypt_text(self.partner_b_view.toPlainText()),encrypt_text(self.couple_cycle.text()),encrypt_text(self.couple_goal.text()),encrypt_text(self.couple_resources.text()),1 if self.couple_children.isChecked() else 0,1 if self.couple_violence.isChecked() else 0,encrypt_text("Belastung "+str(self.couple_a_distress.value())+"/10; Zuversicht "+str(self.couple_a_hope.value())+"/10; "+"; ".join(q+"="+str(a.value()) for q,a,b in self.couple_question_rows)),encrypt_text("Belastung "+str(self.couple_b_distress.value())+"/10; Zuversicht "+str(self.couple_b_hope.value())+"/10; "+"; ".join(q+"="+str(b.value()) for q,a,b in self.couple_question_rows)),(self.current_user or {}).get("username",""))); con.commit(); con.close(); audit("COUPLE_ASSESSMENT_SAVED","Paarverlauf gespeichert",(self.current_user or {}).get("username","")); QMessageBox.information(self,"Paartherapie","Paarverlauf verschlüsselt gespeichert.")
+            con=sqlite3.connect(DBFILE); con.execute("""INSERT INTO couple_assessments(created_at,client_label,partner_a,partner_b,topic,perspective_a,perspective_b,interaction_cycle,shared_goal,resources,children_involved,safety_flag,answers_a,answers_b,username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(datetime.now().isoformat(timespec="seconds"),"",encrypt_text(a),encrypt_text(b),self.help_topic.currentText(),encrypt_text(self.partner_a_view.toPlainText()),encrypt_text(self.partner_b_view.toPlainText()),encrypt_text(self.couple_cycle.text()),encrypt_text(self.couple_goal.text()),encrypt_text(self.couple_resources.text()),1 if self.couple_children.isChecked() else 0,1 if self.couple_violence.isChecked() else 0,encrypt_text("Belastung "+str(self.couple_a_distress.value())+"/10; Zuversicht "+str(self.couple_a_hope.value())+"/10; +"; ".join(q+"="+("nicht beantwortet" if a.value()<0 else str(a.value())) for q,a,b in self.couple_question_rows)),encrypt_text("Belastung "+str(self.couple_b_distress.value())+"/10; Zuversicht "+str(self.couple_b_hope.value())+"/10; +"; ".join(q+"="+("nicht beantwortet" if b.value()<0 else str(b.value())) for q,a,b in self.couple_question_rows)),(self.current_user or {}).get("username",""))); con.commit(); con.close(); audit("COUPLE_ASSESSMENT_SAVED","Paarverlauf gespeichert",(self.current_user or {}).get("username","")); QMessageBox.information(self,"Paartherapie","Paarverlauf verschlüsselt gespeichert.")
         def show_couple_history():
             a=self.partner_a.text().strip(); b=self.partner_b.text().strip()
             con=sqlite3.connect(DBFILE); rows=con.execute("SELECT created_at,partner_a,partner_b,topic,interaction_cycle,shared_goal,answers_a,answers_b,safety_flag FROM couple_assessments ORDER BY id DESC LIMIT 100").fetchall(); con.close()
@@ -953,7 +953,7 @@ class Main(QMainWindow):
             self.couple_mode.setChecked(False); self.partner_a.clear(); self.partner_b.clear(); self.partner_a_view.clear(); self.partner_b_view.clear()
             self.couple_cycle.clear(); self.couple_goal.clear(); self.couple_resources.clear(); self.couple_children.setChecked(False); self.couple_violence.setChecked(False)
             for box in (self.couple_a_distress,self.couple_b_distress,self.couple_a_hope,self.couple_b_hope): box.setValue(0)
-            for _,a,b in self.couple_question_rows: a.setValue(0); b.setValue(0)
+            for _,a,b in self.couple_question_rows: a.setValue(-1); b.setValue(-1)
             self.help_goal.clear(); self.help_resources.clear(); self.help_trigger.clear(); self.help_maintain.clear(); self.help_strength.clear(); self.help_support.clear(); self.help_next.clear(); self.help_note.clear(); self.sym_scale.setValue(0); self.goal_scale.setValue(0); self.school_filter.setCurrentIndex(0); render()
         resetbtn.clicked.connect(reset_assessment); actions.addWidget(resetbtn)
         tosession=QPushButton("In Sitzungsnotiz übernehmen")
