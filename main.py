@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.55"
+APP_VERSION = "0.11.56"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -123,6 +123,10 @@ def init_sqlite():
       partner_a_name TEXT, partner_b_name TEXT, status TEXT DEFAULT 'aktiv', created_at TEXT NOT NULL,
       FOREIGN KEY(partner_a_client_id) REFERENCES clients(id),
       FOREIGN KEY(partner_b_client_id) REFERENCES clients(id));
+    CREATE TABLE IF NOT EXISTS couple_notes(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, couple_id INTEGER NOT NULL, created_at TEXT NOT NULL,
+      note_type TEXT NOT NULL, note_text TEXT, username TEXT,
+      FOREIGN KEY(couple_id) REFERENCES couples(id));
     CREATE TABLE IF NOT EXISTS couple_assessments(
       id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, client_label TEXT,
       partner_a TEXT, partner_b TEXT, topic TEXT, perspective_a TEXT, perspective_b TEXT,
@@ -475,39 +479,57 @@ class Main(QMainWindow):
     def couples_ui(self):
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
         title=QLabel("Paarakte"); title.setProperty("class","pageTitle"); v.addWidget(title)
-        info=QLabel("Partner A und Partner B aus vorhandenen Klientenakten auswählen. Die Paarakte erhält eine feste ID für Verlauf und Assessments.")
+        info=QLabel("Partner A und Partner B aus vorhandenen Klientenakten auswählen. Gemeinsame und vertrauliche Notizen werden getrennt gespeichert.")
         info.setWordWrap(True); v.addWidget(info)
-        row=QHBoxLayout()
-        self.couple_a=QComboBox(); self.couple_b=QComboBox()
+        row=QHBoxLayout(); self.couple_a=QComboBox(); self.couple_b=QComboBox()
         self.couple_a.addItem("Partner A auswählen",None); self.couple_b.addItem("Partner B auswählen",None)
         con=sqlite3.connect(DBFILE)
         for cid,first,last in con.execute("SELECT id,first,last FROM clients ORDER BY id DESC").fetchall():
             name=(decrypt_text(first)+" "+decrypt_text(last)).strip()
             self.couple_a.addItem(name,cid); self.couple_b.addItem(name,cid)
-        con.close()
-        row.addWidget(self.couple_a); row.addWidget(self.couple_b); v.addLayout(row)
+        con.close(); row.addWidget(self.couple_a); row.addWidget(self.couple_b); v.addLayout(row)
         save=QPushButton("Paarakte anlegen"); v.addWidget(save)
-        self.couple_list=QListWidget(); v.addWidget(self.couple_list,1)
+        self.couple_list=QListWidget(); self.couple_list.setMaximumHeight(150); v.addWidget(self.couple_list)
+        note_row=QHBoxLayout(); self.couple_note_type=QComboBox()
+        self.couple_note_type.addItems(["Gemeinsame Notiz","Vertraulich – Partner A","Vertraulich – Partner B"])
+        note_row.addWidget(self.couple_note_type); note_save=QPushButton("Notiz speichern"); note_row.addWidget(note_save); v.addLayout(note_row)
+        self.couple_note=QTextEdit(); self.couple_note.setPlaceholderText("Notiz zur ausgewählten Paarakte …"); self.couple_note.setMaximumHeight(120); v.addWidget(self.couple_note)
+        self.couple_history=QListWidget(); v.addWidget(self.couple_history,1)
+        def selected_id():
+            item=self.couple_list.currentItem()
+            return item.data(Qt.UserRole) if item else None
+        def refresh_history():
+            self.couple_history.clear(); cid=selected_id()
+            if not cid: return
+            con=sqlite3.connect(DBFILE)
+            rows=con.execute("SELECT created_at,note_type,note_text FROM couple_notes WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall(); con.close()
+            for created,kind,txt in rows:
+                self.couple_history.addItem(f"{created[:16]} · {kind}\n{decrypt_text(txt)}")
         def refresh():
             self.couple_list.clear(); con=sqlite3.connect(DBFILE)
             rows=con.execute("SELECT id,partner_a_name,partner_b_name,status,created_at FROM couples ORDER BY id DESC").fetchall(); con.close()
             for cid,a,b,status,created in rows:
-                self.couple_list.addItem(f"#{cid}  {decrypt_text(a)}  +  {decrypt_text(b)}   · {status} · {created[:10]}")
+                item=QListWidgetItem(f"#{cid}  {decrypt_text(a)}  +  {decrypt_text(b)}   · {status} · {created[:10]}")
+                item.setData(Qt.UserRole,cid); self.couple_list.addItem(item)
         def create():
             if not self.require_edit(): return
             aid=self.couple_a.currentData(); bid=self.couple_b.currentData()
-            if not aid or not bid:
-                QMessageBox.warning(self,"Paarakte","Bitte beide Partner auswählen."); return
-            if aid==bid:
-                QMessageBox.warning(self,"Paarakte","Partner A und Partner B müssen unterschiedliche Klienten sein."); return
-            an=self.couple_a.currentText(); bn=self.couple_b.currentText()
-            con=sqlite3.connect(DBFILE)
+            if not aid or not bid: QMessageBox.warning(self,"Paarakte","Bitte beide Partner auswählen."); return
+            if aid==bid: QMessageBox.warning(self,"Paarakte","Partner A und Partner B müssen unterschiedliche Klienten sein."); return
+            an=self.couple_a.currentText(); bn=self.couple_b.currentText(); con=sqlite3.connect(DBFILE)
             exists=con.execute("SELECT id FROM couples WHERE (partner_a_client_id=? AND partner_b_client_id=?) OR (partner_a_client_id=? AND partner_b_client_id=?)",(aid,bid,bid,aid)).fetchone()
-            if exists:
-                con.close(); QMessageBox.information(self,"Paarakte",f"Für dieses Paar besteht bereits Paarakte #{exists[0]}."); return
+            if exists: con.close(); QMessageBox.information(self,"Paarakte",f"Für dieses Paar besteht bereits Paarakte #{exists[0]}."); return
             con.execute("INSERT INTO couples(partner_a_client_id,partner_b_client_id,partner_a_name,partner_b_name,status,created_at) VALUES(?,?,?,?,?,?)",(aid,bid,encrypt_text(an),encrypt_text(bn),"aktiv",datetime.now().isoformat(timespec="seconds")))
             con.commit(); con.close(); audit("COUPLE_CREATE",f"{an} + {bn}",self.current_user.get("username","")); refresh()
-        save.clicked.connect(create); refresh(); return page
+        def save_note():
+            if not self.require_edit(): return
+            cid=selected_id(); txt=self.couple_note.toPlainText().strip()
+            if not cid: QMessageBox.warning(self,"Paarakte","Bitte zuerst eine Paarakte auswählen."); return
+            if not txt: return
+            kind=self.couple_note_type.currentText(); con=sqlite3.connect(DBFILE)
+            con.execute("INSERT INTO couple_notes(couple_id,created_at,note_type,note_text,username) VALUES(?,?,?,?,?)",(cid,datetime.now().isoformat(timespec="seconds"),kind,encrypt_text(txt),self.current_user.get("username","")))
+            con.commit(); con.close(); audit("COUPLE_NOTE",f"Paarakte #{cid}: {kind}",self.current_user.get("username","")); self.couple_note.clear(); refresh_history()
+        save.clicked.connect(create); note_save.clicked.connect(save_note); self.couple_list.currentItemChanged.connect(lambda *_: refresh_history()); refresh(); return page
 
     def session_ui(self):
         self.session_live_clock=None
