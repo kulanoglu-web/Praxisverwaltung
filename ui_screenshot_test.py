@@ -24,7 +24,15 @@ if not any(x.get("last")==test_client["last"] and x.get("first")==test_client["f
 # Seiten werden beim Navigieren neu aufgebaut. Deshalb Testklient erst NACH
 # dem Öffnen der Sitzungsseite in deren frisch erzeugte Widgets einsetzen.
 def prepare_session_page():
-    win.nav.setCurrentRow(1)
+    # Main erzeugt alle Seiten einmalig; Navigation wechselt nur den Stack.
+    # client_pick kann durch andere Seitenaufbauten als Attribut überschrieben worden sein.
+    # Deshalb die Sitzungsseite gezielt neu erzeugen und in Slot 1 ersetzen.
+    old=win.pages.widget(1)
+    fresh=win.session_ui()
+    win.pages.removeWidget(old)
+    old.deleteLater()
+    win.pages.insertWidget(1,fresh)
+    win.pages.setCurrentIndex(1)
     app.processEvents()
     win.client_pick.addItem("Mustermann, Anna",test_client)
     win.client_pick.setCurrentIndex(win.client_pick.count()-1)
