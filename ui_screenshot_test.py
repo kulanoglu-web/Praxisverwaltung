@@ -16,6 +16,20 @@ win.resize(1600,900)
 win.show()
 app.processEvents()
 
+# Realistische Testdaten nur im isolierten CI-Testprozess: Sitzung nicht leer aufnehmen.
+test_client={"last":"Mustermann","first":"Anna","dob":"14.05.1988","phone":"030 1234567","email":"anna.mustermann@example.test","address":"Musterstraße 12, 13597 Berlin","diagnosis":"F43.2"}
+if not any(x.get("last")==test_client["last"] and x.get("first")==test_client["first"] for x in main.DB["clients"]):
+    main.DB["clients"].append(test_client)
+# Die Sitzungsseite wurde beim Main-Aufbau bereits erzeugt; Testklient direkt in die Auswahl laden.
+if hasattr(win,"client_pick"):
+    win.client_pick.addItem("Mustermann, Anna",test_client)
+    win.client_pick.setCurrentIndex(win.client_pick.count()-1)
+if hasattr(win,"s_start"): win.s_start.setTime(main.QTime(10,0))
+if hasattr(win,"s_end"): win.s_end.setTime(main.QTime(10,45))
+if hasattr(win,"s_type"): win.s_type.setCurrentText("Einzeltherapie")
+if hasattr(win,"session_diag"): win.session_diag.setText("F43.2 – Testeintrag")
+app.processEvents()
+
 out=Path("test-artifacts"); out.mkdir(exist_ok=True)
 pages=[
     (0,"Dashboard"),
