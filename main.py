@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.63"
+APP_VERSION = "0.11.64"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -703,7 +703,9 @@ class Main(QMainWindow):
         """Handschrift lokal mit der Windows-OCR-Engine erkennen; keine Cloud-Übertragung."""
         if not hasattr(self,"ink") or self.ink.image.isNull(): return QMessageBox.warning(self,"Handschrift erkennen","Keine Handschrift vorhanden.")
         tmp=Path(tempfile.gettempdir())/f"PraxisPro_OCR_{os.getpid()}.png"
-        if not self.ink.save_png(tmp): return QMessageBox.warning(self,"Handschrift erkennen","Die Zeichenfläche konnte nicht vorbereitet werden.")
+        src=self.ink.image
+        work=src.convertToFormat(QImage.Format_Grayscale8).scaled(src.width()*2,src.height()*2,Qt.KeepAspectRatio,Qt.SmoothTransformation)
+        if not work.save(str(tmp),"PNG"): return QMessageBox.warning(self,"Handschrift erkennen","Die Zeichenfläche konnte nicht vorbereitet werden.")
         ps=r'''param([string]$ImagePath)
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
@@ -726,9 +728,11 @@ $r.Text
         try:
             run=subprocess.run(["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-Command",ps,"-ImagePath",str(tmp)],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
             recognized=run.stdout.strip()
+            recognized=re.sub(r"(?i)\\bF\\s*([0-9]{2})\\s*[,;:]\\s*([0-9])\\b",r"F\\1.\\2",recognized)
+            recognized=re.sub(r"(?i)\\bF\\s+([0-9]{2}(?:\\.[0-9])?)\\b",r"F\\1",recognized)
             if run.returncode!=0 or not recognized: return QMessageBox.warning(self,"Handschrift erkennen","Windows konnte die Handschrift nicht erkennen.\n\n"+((run.stderr or "Keine Schrift erkannt.").strip()[:700]))
             dlg=QDialog(self); dlg.setWindowTitle("Handschrift → Text prüfen"); dlg.resize(720,500); v=QVBoxLayout(dlg)
-            info=QLabel("Erkannter Text – bitte prüfen und bei Bedarf korrigieren."); info.setWordWrap(True); v.addWidget(info)
+            info=QLabel("Lokale OCR (Deutsch) · Original-Handschrift bleibt erhalten. Erkannter Text bitte prüfen und bei Bedarf korrigieren."); info.setWordWrap(True); v.addWidget(info)
             edit=QTextEdit(); edit.setPlainText(recognized); v.addWidget(edit,1)
             buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); buttons.button(QDialogButtonBox.Save).setText("In Therapienotiz übernehmen"); v.addWidget(buttons)
             def accept_text():
