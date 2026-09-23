@@ -89,7 +89,7 @@ jobs:
           foreach ($file in $files) {
             $name = Split-Path $file -Leaf
             Write-Host "Uploading $name"
-            gh release upload $tag $file --repo $repo --clobber
+            gh release upload $tag "$file" --repo $repo --clobber
             if ($LASTEXITCODE -ne 0) { throw "Release-Upload fehlgeschlagen: $name" }
           }
 
@@ -100,5 +100,6 @@ jobs:
             if ($uploaded -notcontains $name) { throw "Asset nach Upload nicht im Release gefunden: $name" }
           }
           Write-Host "Release verifiziert: $($uploaded.Count) Assets vorhanden."
+          Write-Host ("Assets: " + ($uploaded -join ", "))
       # Release assets are the canonical distributables. This avoids failing the
       # whole build when the temporary GitHub Actions artifact quota is exhausted.
