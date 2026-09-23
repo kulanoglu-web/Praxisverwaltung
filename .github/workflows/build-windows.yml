@@ -68,6 +68,14 @@ jobs:
         shell: pwsh
         run: |
           if ("$env:HAS_SIGNING_CERT" -eq "true") { Write-Host "PraxisPro EXE and installer are Authenticode-signed and verified." } else { Write-Warning "No trusted code-signing certificate configured. Build is unsigned." }
+      - name: Preserve UI screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: PraxisPro-v${{ env.APP_VERSION }}-screenshots
+          path: test-artifacts/*.png
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Publish complete release
         shell: pwsh
         env:
