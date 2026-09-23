@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.61"
+APP_VERSION = "0.11.62"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -506,9 +506,17 @@ class Main(QMainWindow):
             self.couple_history.clear(); cid=selected_id()
             if not cid: return
             con=sqlite3.connect(DBFILE)
-            rows=con.execute("SELECT created_at,note_type,note_text FROM couple_notes WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall()\n            sessions=con.execute("SELECT session_date,topic,shared_note,minutes FROM couple_sessions WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall(); con.close()\n            for date,topic,note,mins in sessions:\n                self.couple_history.addItem(f"{date[:16]} · Paarsitzung · {mins} Min. · {decrypt_text(topic)}
-{decrypt_text(note)}")\n            for created,kind,txt in rows:
-                self.couple_history.addItem(f"{created[:16]} · {kind}\n{decrypt_text(txt)}")
+            rows=con.execute("SELECT created_at,note_type,note_text FROM couple_notes WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall()
+            sessions=con.execute("SELECT session_date,topic,shared_note,minutes FROM couple_sessions WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall()
+            assessments=con.execute("SELECT created_at,topic,interaction_cycle,shared_goal,safety_flag FROM couple_assessments WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall()
+            con.close()
+            for date,topic,note,mins in sessions:
+                self.couple_history.addItem(f"{date[:16]} · Paarsitzung · {mins} Min. · {decrypt_text(topic)}" + chr(10) + decrypt_text(note))
+            for created,topic,cycle,goal,risk in assessments:
+                flag=" · SICHERHEIT" if risk else ""
+                self.couple_history.addItem(f"{created[:16]} · Paar-Assessment · {topic}{flag}" + chr(10) + "Kreislauf: " + decrypt_text(cycle) + " · Ziel: " + decrypt_text(goal))
+            for created,kind,txt in rows:
+                self.couple_history.addItem(f"{created[:16]} · {kind}" + chr(10) + decrypt_text(txt))
         def refresh():
             self.couple_list.clear(); con=sqlite3.connect(DBFILE)
             rows=con.execute("SELECT id,partner_a_name,partner_b_name,status,created_at FROM couples ORDER BY id DESC").fetchall(); con.close()
