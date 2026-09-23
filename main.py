@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.53"
+APP_VERSION = "0.11.54"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -118,11 +118,17 @@ def init_sqlite():
       type TEXT, reduced INTEGER DEFAULT 0, amount REAL,
       FOREIGN KEY(invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
       FOREIGN KEY(session_id) REFERENCES sessions(id));
+    CREATE TABLE IF NOT EXISTS couples(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, partner_a_client_id INTEGER, partner_b_client_id INTEGER,
+      partner_a_name TEXT, partner_b_name TEXT, status TEXT DEFAULT 'aktiv', created_at TEXT NOT NULL,
+      FOREIGN KEY(partner_a_client_id) REFERENCES clients(id),
+      FOREIGN KEY(partner_b_client_id) REFERENCES clients(id));
     CREATE TABLE IF NOT EXISTS couple_assessments(
       id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, client_label TEXT,
       partner_a TEXT, partner_b TEXT, topic TEXT, perspective_a TEXT, perspective_b TEXT,
       interaction_cycle TEXT, shared_goal TEXT, resources TEXT, children_involved INTEGER DEFAULT 0,
-      safety_flag INTEGER DEFAULT 0, answers_a TEXT, answers_b TEXT, username TEXT);
+      safety_flag INTEGER DEFAULT 0, answers_a TEXT, answers_b TEXT, username TEXT,
+      couple_id INTEGER, FOREIGN KEY(couple_id) REFERENCES couples(id));
     CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
     CREATE TABLE IF NOT EXISTS users(
       id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
@@ -146,6 +152,11 @@ def init_sqlite():
     if "phone" not in cols: con.execute("ALTER TABLE clients ADD COLUMN phone TEXT")
     if "email" not in cols: con.execute("ALTER TABLE clients ADD COLUMN email TEXT")
     con.execute("CREATE INDEX IF NOT EXISTS idx_clients_client_key ON clients(client_key)")
+    cacols=[r[1] for r in con.execute("PRAGMA table_info(couple_assessments)").fetchall()]
+    if "couple_id" not in cacols: con.execute("ALTER TABLE couple_assessments ADD COLUMN couple_id INTEGER")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_couple_assessments_couple_id ON couple_assessments(couple_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_couples_partner_a ON couples(partner_a_client_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_couples_partner_b ON couples(partner_b_client_id)")
     defaults={
       "practice_name":"Psychologische Privatpraxis","owner_name":"Erdoğan Kulanoğlu",
       "qualifications":"Psychologe M. Sc. · Sozialarbeiter B.A. · Heilpraktiker für Psychotherapie",
