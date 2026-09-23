@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.60"
+APP_VERSION = "0.11.61"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -494,7 +494,12 @@ class Main(QMainWindow):
         self.couple_note_type.addItems(["Gemeinsame Notiz","Vertraulich – Partner A","Vertraulich – Partner B"])
         note_row.addWidget(self.couple_note_type); note_save=QPushButton("Notiz speichern"); note_row.addWidget(note_save); v.addLayout(note_row)
         self.couple_note=QTextEdit(); self.couple_note.setPlaceholderText("Notiz zur ausgewählten Paarakte …"); self.couple_note.setMaximumHeight(120); v.addWidget(self.couple_note)
-        session_row=QHBoxLayout(); self.couple_session_topic=QLineEdit(); self.couple_session_topic.setPlaceholderText("Sitzungsthema")\n        self.couple_session_minutes=QSpinBox(); self.couple_session_minutes.setRange(5,300); self.couple_session_minutes.setValue(45); self.couple_session_minutes.setSuffix(" Min.")\n        session_save=QPushButton("Paarsitzung speichern"); session_row.addWidget(self.couple_session_topic,1); session_row.addWidget(self.couple_session_minutes); session_row.addWidget(session_save); v.addLayout(session_row)\n        self.couple_session_note=QTextEdit(); self.couple_session_note.setPlaceholderText("Gemeinsame Sitzungsdokumentation …"); self.couple_session_note.setMaximumHeight(100); v.addWidget(self.couple_session_note)\n        self.couple_history=QListWidget(); v.addWidget(self.couple_history,1)\n        def selected_id():
+        session_row=QHBoxLayout(); self.couple_session_topic=QLineEdit(); self.couple_session_topic.setPlaceholderText("Sitzungsthema")
+        self.couple_session_minutes=QSpinBox(); self.couple_session_minutes.setRange(5,300); self.couple_session_minutes.setValue(45); self.couple_session_minutes.setSuffix(" Min.")
+        session_save=QPushButton("Paarsitzung speichern"); session_row.addWidget(self.couple_session_topic,1); session_row.addWidget(self.couple_session_minutes); session_row.addWidget(session_save); v.addLayout(session_row)
+        self.couple_session_note=QTextEdit(); self.couple_session_note.setPlaceholderText("Gemeinsame Sitzungsdokumentation …"); self.couple_session_note.setMaximumHeight(100); v.addWidget(self.couple_session_note)
+        self.couple_history=QListWidget(); v.addWidget(self.couple_history,1)
+        def selected_id():
             item=self.couple_list.currentItem()
             return item.data(Qt.UserRole) if item else None
         def refresh_history():
