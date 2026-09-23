@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.65"
+APP_VERSION = "0.11.66"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -730,7 +730,13 @@ $r.Text
             recognized=run.stdout.strip()
             recognized=re.sub(r"(?i)\\bF\\s*([0-9]{2})\\s*[,;:]\\s*([0-9])\\b",r"F\\1.\\2",recognized)
             recognized=re.sub(r"(?i)\\bF\\s+([0-9]{2}(?:\\.[0-9])?)\\b",r"F\\1",recognized)
-            recognized=re.sub(r"(?i)\\bptbs\\b","PTBS",recognized)\n            recognized=re.sub(r"(?i)\\badhs\\b","ADHS",recognized)\n            recognized=re.sub(r"(?i)\\bangste\\b","Ängste",recognized)\n            recognized=re.sub(r"(?i)\\bschlafstorung\\b","Schlafstörung",recognized)\n            recognized=re.sub(r"(?i)\\bzwange\\b","Zwänge",recognized)\n            recognized="\\n".join(re.sub(r"[ \\t]{2,}"," ",line).strip() for line in recognized.splitlines()).strip()\n            if run.returncode!=0 or not recognized: return QMessageBox.warning(self,"Handschrift erkennen","Windows konnte die Handschrift nicht erkennen.\n\n"+((run.stderr or "Keine Schrift erkannt.").strip()[:700]))
+            recognized=re.sub(r"(?i)\\bptbs\\b","PTBS",recognized)
+            recognized=re.sub(r"(?i)\\badhs\\b","ADHS",recognized)
+            recognized=re.sub(r"(?i)\\bangste\\b","Ängste",recognized)
+            recognized=re.sub(r"(?i)\\bschlafstorung\\b","Schlafstörung",recognized)
+            recognized=re.sub(r"(?i)\\bzwange\\b","Zwänge",recognized)
+            recognized="\\n".join(re.sub(r"[ \\t]{2,}"," ",line).strip() for line in recognized.splitlines()).strip()
+            if run.returncode!=0 or not recognized: return QMessageBox.warning(self,"Handschrift erkennen","Windows konnte die Handschrift nicht erkennen.\\n\\n"+((run.stderr or "Keine Schrift erkannt.").strip()[:700]))
             dlg=QDialog(self); dlg.setWindowTitle("Handschrift → Text prüfen"); dlg.resize(720,500); v=QVBoxLayout(dlg)
             info=QLabel("Lokale OCR (Deutsch) · Original-Handschrift bleibt erhalten. Erkannter Text bitte prüfen und bei Bedarf korrigieren."); info.setWordWrap(True); v.addWidget(info)
             edit=QTextEdit(); edit.setPlainText(recognized); v.addWidget(edit,1)
