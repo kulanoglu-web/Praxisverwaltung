@@ -1217,7 +1217,16 @@ $r.Text
         if mins <= 0: mins=max(1,round(self.elapsed()/60))
         rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
         d=client_dir(c)/"Sitzungen"; inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=encrypt_file(inkfile)
-        rec["ocr_text"]=self.current_ocr_text.strip()\n        if rec["ocr_text"]:\n            ocrfile=d/(rec["date"]+"_"+rec["id"]+"_OCR.txt.enc")\n            ocrfile.write_text(encrypt_text(rec["ocr_text"]),encoding="utf-8")\n            rec["ocr_file"]=str(ocrfile)\n        DB["sessions"].append(rec); save_data(); self.current_ocr_text="" (d/f"{rec['date']}_Sitzung.json.enc").write_text(encrypt_text(json.dumps(rec,ensure_ascii=False,indent=2)),encoding="utf-8")
+        rec["ocr_text"]=self.current_ocr_text.strip()
+        if rec["ocr_text"]:
+            ocrfile=d/(rec["date"]+"_"+rec["id"]+"_OCR.txt.enc")
+            ocrfile.write_text(encrypt_text(rec["ocr_text"]),encoding="utf-8")
+            rec["ocr_file"]=str(ocrfile)
+        DB["sessions"].append(rec)
+        save_data()
+        session_json=d/(rec["date"]+"_Sitzung.json.enc")
+        session_json.write_text(encrypt_text(json.dumps(rec,ensure_ascii=False,indent=2)),encoding="utf-8")
+        self.current_ocr_text=""
         for auto in (ROOT/"Sitzung_Autosave.json.enc",ROOT/"Sitzung_Autosave.json",ROOT/"Sitzung_Autosave_Handschrift.png",ROOT/"Sitzung_Autosave_Handschrift.png.enc"):
             if auto.exists():
                 try:auto.unlink()
