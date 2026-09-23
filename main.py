@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.66"
+APP_VERSION = "0.11.67"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -645,7 +645,7 @@ class Main(QMainWindow):
         template.currentTextChanged.connect(apply_note_template)
         self.notes.setMinimumHeight(145); self.notes.setMaximumHeight(220); self.notes.setStyleSheet("font-size:13px"); nv.addWidget(self.notes); v.addWidget(notesbox)
 
-        self.ink=InkCanvas(); self.current_ink_file=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
+        self.ink=InkCanvas(); self.current_ink_file=""; self.current_ocr_text=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); ocrink=QPushButton("⌨ Handschrift → Text"); ocrink.setToolTip("Lokale Windows-Handschrifterkennung; erkannter Text wird vor Übernahme angezeigt."); ocrink.clicked.connect(self.ink_to_text); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
         for x in (QLabel("Stärke:"),width,eraser,undo,saveink,ocrink,clearink,fullscreen):
@@ -744,7 +744,7 @@ $r.Text
             def accept_text():
                 cleaned=edit.toPlainText().strip()
                 if cleaned:
-                    existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+cleaned)
+                    self.current_ocr_text=cleaned; existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+cleaned)
                     audit("INK_OCR_TO_NOTE","Handschrift lokal erkannt und nach Prüfung übernommen.",self.current_user.get("username","") if self.current_user else "")
                 dlg.accept()
             buttons.accepted.connect(accept_text); buttons.rejected.connect(dlg.reject); dlg.exec()
@@ -1217,7 +1217,7 @@ $r.Text
         if mins <= 0: mins=max(1,round(self.elapsed()/60))
         rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
         d=client_dir(c)/"Sitzungen"; inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=encrypt_file(inkfile)
-        DB["sessions"].append(rec); save_data(); (d/f"{rec['date']}_Sitzung.json.enc").write_text(encrypt_text(json.dumps(rec,ensure_ascii=False,indent=2)),encoding="utf-8")
+        rec["ocr_text"]=self.current_ocr_text.strip()\n        if rec["ocr_text"]:\n            ocrfile=d/(rec["date"]+"_"+rec["id"]+"_OCR.txt.enc")\n            ocrfile.write_text(encrypt_text(rec["ocr_text"]),encoding="utf-8")\n            rec["ocr_file"]=str(ocrfile)\n        DB["sessions"].append(rec); save_data(); self.current_ocr_text="" (d/f"{rec['date']}_Sitzung.json.enc").write_text(encrypt_text(json.dumps(rec,ensure_ascii=False,indent=2)),encoding="utf-8")
         for auto in (ROOT/"Sitzung_Autosave.json.enc",ROOT/"Sitzung_Autosave.json",ROOT/"Sitzung_Autosave_Handschrift.png",ROOT/"Sitzung_Autosave_Handschrift.png.enc"):
             if auto.exists():
                 try:auto.unlink()
