@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.73"
+APP_VERSION = "0.11.74"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -548,7 +548,12 @@ class Main(QMainWindow):
             cid=selected_id(); txt=self.couple_note.toPlainText().strip()
             if not cid: QMessageBox.warning(self,"Paarakte","Bitte zuerst eine Paarakte auswählen."); return
             if not txt: return
-            kind=self.couple_note_type.currentText()\n            if kind.startswith("Vertraulich"):\n                answer=QMessageBox.question(self,"Vertrauliche Partnernotiz","Diese Notiz wird ausschließlich im vertraulichen Bereich gespeichert und nicht im gemeinsamen Verlauf angezeigt. Speichern?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)\n                if answer!=QMessageBox.Yes: return\n            con=sqlite3.connect(DBFILE)
+            kind=self.couple_note_type.currentText()
+            if kind.startswith("Vertraulich"):
+                answer=QMessageBox.question(self,"Vertrauliche Partnernotiz","Diese Notiz wird ausschließlich im vertraulichen Bereich gespeichert und nicht im gemeinsamen Verlauf angezeigt. Speichern?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
+                if answer!=QMessageBox.Yes:
+                    return
+            con=sqlite3.connect(DBFILE)
             con.execute("INSERT INTO couple_notes(couple_id,created_at,note_type,note_text,username) VALUES(?,?,?,?,?)",(cid,datetime.now().isoformat(timespec="seconds"),kind,encrypt_text(txt),self.current_user.get("username","")))
             con.commit(); con.close(); audit("COUPLE_NOTE",f"Paarakte #{cid}: {kind}",self.current_user.get("username","")); self.couple_note.clear(); refresh_history()
         def save_session():
