@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.84"
+APP_VERSION = "0.11.85"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -87,11 +87,13 @@ def bundled_asset(name):
     return base/"assets"/name
 
 def practice_logo_path():
-    custom=get_setting("logo_path","")
-    if custom and Path(custom).exists(): return Path(custom)
-    for name in ("logo.png","logo.jpg"):
+    # Das mit PraxisPro ausgelieferte Praxislogo hat Vorrang. Dadurch bleibt
+    # die Rechnung auch nach Installation auf einem anderen PC vollständig.
+    for name in ("logo.png","logo.jpg","logo.jpeg"):
         bundled=bundled_asset(name)
         if bundled.exists(): return bundled
+    custom=get_setting("logo_path","")
+    if custom and Path(custom).is_file(): return Path(custom)
     return None
 
 DATA=ROOT/"praxisdaten.json.enc"
@@ -858,12 +860,18 @@ class Main(QMainWindow):
 
     def ink_to_text(self):
         """Handschrift lokal mit der Windows-OCR-Engine erkennen; keine Cloud-Übertragung."""
-        if not hasattr(self,"ink") or self.ink.image.isNull(): return QMessageBox.warning(self,"Handschrift erkennen","Keine Handschrift vorhanden.")
-        tmp=Path(tempfile.gettempdir())/f"PraxisPro_OCR_{os.getpid()}.png"
+        if not hasattr(self,"ink") or self.ink.image.isNull():
+            return QMessageBox.warning(self,"Handschrift erkennen","Keine Handschrift vorhanden.")
+        tmp=Path(tempfile.gettempdir())/f"PraxisPro_OCR_{os.getpid()}_{int(time.time()*1000)}.png"
         src=self.ink.image
         work=src.convertToFormat(QImage.Format_Grayscale8).scaled(src.width()*2,src.height()*2,Qt.KeepAspectRatio,Qt.SmoothTransformation)
-        if not work.save(str(tmp),"PNG"): return QMessageBox.warning(self,"Handschrift erkennen","Die Zeichenfläche konnte nicht vorbereitet werden.")
-        ps=r'''param([string]$ImagePath)
+        if not work.save(str(tmp),"PNG") or not tmp.is_file() or tmp.stat().st_size==0:
+            return QMessageBox.warning(self,"Handschrift erkennen","Die Zeichenfläche konnte nicht vorbereitet werden.")
+        ps=r'''$ErrorActionPreference="Stop"
+$ImagePath=$env:PRAXISPRO_OCR_PATH
+if ([string]::IsNullOrWhiteSpace($ImagePath)) { throw "OCR-Bildpfad fehlt." }
+if (-not [System.IO.Path]::IsPathRooted($ImagePath)) { throw "OCR-Bildpfad ist nicht vollständig." }
+if (-not (Test-Path -LiteralPath $ImagePath -PathType Leaf)) { throw "OCR-Bilddatei wurde nicht gefunden." }
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
 $null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
@@ -873,9 +881,7 @@ function Await($op,$type) {
  if ($null -eq $m) { throw "Windows Runtime AsTask-Methode nicht verfügbar." }
  $t=$m.MakeGenericMethod($type).Invoke($null,@($op))
  if ($null -eq $t) { throw "Windows Runtime OCR-Aufgabe konnte nicht erstellt werden." }
- [System.Threading.Tasks.Task]::WaitAll(@([System.Threading.Tasks.Task]$t))
- if ($t.IsFaulted) { throw $t.Exception.GetBaseException().Message }
- $t.GetType().GetProperty("Result").GetValue($t)
+ $t.GetAwaiter().GetResult()
 }
 $f=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($ImagePath)) ([Windows.Storage.StorageFile])
 $s=Await ($f.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
@@ -889,7 +895,8 @@ $r=Await ($e.RecognizeAsync($b)) ([Windows.Media.Ocr.OcrResult])
 $r.Text
 '''
         try:
-            run=subprocess.run(["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-Command",ps,"-ImagePath",str(tmp)],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
+            env=os.environ.copy(); env["PRAXISPRO_OCR_PATH"]=str(tmp.resolve())
+            run=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",ps],env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
             recognized=run.stdout.strip()
             recognized=re.sub(r"(?i)\\bF\\s*([0-9]{2})\\s*[,;:]\\s*([0-9])\\b",r"F\\1.\\2",recognized)
             recognized=re.sub(r"(?i)\\bF\\s+([0-9]{2}(?:\\.[0-9])?)\\b",r"F\\1",recognized)
@@ -899,7 +906,9 @@ $r.Text
             recognized=re.sub(r"(?i)\\bschlafstorung\\b","Schlafstörung",recognized)
             recognized=re.sub(r"(?i)\\bzwange\\b","Zwänge",recognized)
             recognized="\\n".join(re.sub(r"[ \\t]{2,}"," ",line).strip() for line in recognized.splitlines()).strip()
-            if run.returncode!=0 or not recognized: return QMessageBox.warning(self,"Handschrift erkennen","Windows konnte die Handschrift nicht erkennen.\\n\\n"+((run.stderr or "Keine Schrift erkannt.").strip()[:700]))
+            if run.returncode!=0 or not recognized:
+                detail=(run.stderr or "Keine Schrift erkannt.").strip()[:700]
+                return QMessageBox.warning(self,"Handschrift erkennen","Windows konnte die Handschrift nicht erkennen.\\n\\n"+detail)
             dlg=QDialog(self); dlg.setWindowTitle("Handschrift → Text prüfen"); dlg.resize(720,500); v=QVBoxLayout(dlg)
             info=QLabel("Lokale OCR (Deutsch) · Original-Handschrift bleibt erhalten. Erkannter Text bitte prüfen und bei Bedarf korrigieren."); info.setWordWrap(True); v.addWidget(info)
             edit=QTextEdit(); edit.setPlainText(recognized); v.addWidget(edit,1)
@@ -907,12 +916,14 @@ $r.Text
             def accept_text():
                 cleaned=edit.toPlainText().strip()
                 if cleaned:
-                    self.current_ocr_text=cleaned; existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+cleaned)
+                    self.current_ocr_text=cleaned; existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\\n\\n" if existing else "")+cleaned)
                     audit("INK_OCR_TO_NOTE","Handschrift lokal erkannt und nach Prüfung übernommen.",self.current_user.get("username","") if self.current_user else "")
                 dlg.accept()
             buttons.accepted.connect(accept_text); buttons.rejected.connect(dlg.reject); dlg.exec()
-        except subprocess.TimeoutExpired: QMessageBox.warning(self,"Handschrift erkennen","Die lokale Handschrifterkennung hat zu lange benötigt.")
-        except Exception as e: QMessageBox.warning(self,"Handschrift erkennen","Die lokale Handschrifterkennung konnte nicht gestartet werden.\n\n"+str(e)[:700])
+        except subprocess.TimeoutExpired:
+            QMessageBox.warning(self,"Handschrift erkennen","Die lokale Handschrifterkennung hat zu lange benötigt.")
+        except Exception as e:
+            QMessageBox.warning(self,"Handschrift erkennen","Die lokale Handschrifterkennung konnte nicht gestartet werden.\\n\\n"+str(e)[:700])
         finally:
             try: tmp.unlink(missing_ok=True)
             except Exception: pass
