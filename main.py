@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.78"
+APP_VERSION = "0.11.79"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -504,16 +504,22 @@ class Main(QMainWindow):
         self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Interne Terminnotiz – verschlüsselt"); form.addRow("Notiz",self.appt_note); rv.addLayout(form)
         actions=QHBoxLayout(); save=QPushButton("Termin speichern"); edit=QPushButton("Termin bearbeiten"); delete=QPushButton("Termin löschen"); start=QPushButton("▶ Sitzung starten"); actions.addWidget(save); actions.addWidget(edit); actions.addWidget(delete); actions.addWidget(start); rv.addLayout(actions)
         split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); v.addWidget(split)
+        viewrow=QHBoxLayout(); self.appt_view=QComboBox(); self.appt_view.addItems(["Tag","Woche"]); viewrow.addWidget(QLabel("Ansicht")); viewrow.addWidget(self.appt_view); viewrow.addStretch(); v.addLayout(viewrow)
         self.appt_day_title=QLabel(); self.appt_day_title.setProperty("class","sectionTitle"); v.addWidget(self.appt_day_title)
         self.appt_list=QTableWidget(0,6); self.appt_list.setHorizontalHeaderLabels(["Zeit","Dauer","Art","Klient / Paar","Status","Notiz"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.appt_list.setSelectionBehavior(QTableWidget.SelectRows); v.addWidget(self.appt_list,1)
         def refresh():
-            d=self.appt_calendar.selectedDate().toString("yyyy-MM-dd"); self.appt_date.setDate(self.appt_calendar.selectedDate()); self.appt_day_title.setText("Termine am "+self.appt_calendar.selectedDate().toString("dd.MM.yyyy"))
-            con=sqlite3.connect(DBFILE); rows=con.execute("SELECT a.id,a.start_time,a.minutes,a.appointment_type,c.first,c.last,a.couple_id,a.status,a.note FROM appointments a LEFT JOIN clients c ON c.id=a.client_id WHERE a.appointment_date=? ORDER BY a.start_time",(d,)).fetchall(); con.close()
+            selected=self.appt_calendar.selectedDate(); d=selected.toString("yyyy-MM-dd"); self.appt_date.setDate(selected)
+            con=sqlite3.connect(DBFILE)
+            if self.appt_view.currentText()=="Woche":
+                monday=selected.addDays(1-selected.dayOfWeek()); sunday=monday.addDays(6); self.appt_day_title.setText("Woche "+monday.toString("dd.MM.")+" – "+sunday.toString("dd.MM.yyyy")); rows=con.execute("SELECT a.id,a.start_time,a.minutes,a.appointment_type,c.first,c.last,a.couple_id,a.status,a.note,a.appointment_date FROM appointments a LEFT JOIN clients c ON c.id=a.client_id WHERE a.appointment_date BETWEEN ? AND ? ORDER BY a.appointment_date,a.start_time",(monday.toString("yyyy-MM-dd"),sunday.toString("yyyy-MM-dd"))).fetchall()
+            else:
+                self.appt_day_title.setText("Termine am "+selected.toString("dd.MM.yyyy")); rows=[x+(d,) for x in con.execute("SELECT a.id,a.start_time,a.minutes,a.appointment_type,c.first,c.last,a.couple_id,a.status,a.note FROM appointments a LEFT JOIN clients c ON c.id=a.client_id WHERE a.appointment_date=? ORDER BY a.start_time",(d,)).fetchall()]
+            con.close()
             self.appt_list.setRowCount(len(rows))
-            for r,(aid,t,m,typ,first,last,couple,status,note) in enumerate(rows):
+            for r,(aid,t,m,typ,first,last,couple,status,note,rowdate) in enumerate(rows):
                 name=((decrypt_text(first) if first else "")+" "+(decrypt_text(last) if last else "")).strip()
                 if couple: name=(name+" · " if name else "")+"Paarakte #"+str(couple)
-                vals=[t,str(m)+" Min.",typ or "",name,status,decrypt_text(note)]
+                shown_time=(QDate.fromString(rowdate,"yyyy-MM-dd").toString("ddd dd.MM. ") if self.appt_view.currentText()=="Woche" else "")+t; vals=[shown_time,str(m)+" Min.",typ or "",name,status,decrypt_text(note)]
                 for col,val in enumerate(vals): self.appt_list.setItem(r,col,QTableWidgetItem(str(val)))
                 self.appt_list.item(r,0).setData(Qt.UserRole,aid)
         def store():
@@ -557,7 +563,7 @@ class Main(QMainWindow):
             aid=self.appt_list.item(row,0).data(Qt.UserRole)
             if QMessageBox.question(self,"Termin löschen","Ausgewählten Termin wirklich löschen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
             con=sqlite3.connect(DBFILE); con.execute("DELETE FROM appointments WHERE id=?",(aid,)); con.commit(); con.close(); audit("APPOINTMENT_DELETE",str(aid),self.current_user.get("username","")); refresh()
-        save.clicked.connect(store); edit.clicked.connect(edit_selected); delete.clicked.connect(remove); start.clicked.connect(start_session); self.appt_calendar.selectionChanged.connect(refresh)
+        save.clicked.connect(store); edit.clicked.connect(edit_selected); delete.clicked.connect(remove); start.clicked.connect(start_session); self.appt_calendar.selectionChanged.connect(refresh); self.appt_view.currentTextChanged.connect(lambda *_: refresh())
         today.clicked.connect(lambda: self.appt_calendar.setSelectedDate(QDate.currentDate())); prev.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(-1))); nxt.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(1)))
         refresh(); return page
 
