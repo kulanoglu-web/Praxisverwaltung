@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.81"
+APP_VERSION = "0.11.82"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -448,8 +448,53 @@ class Main(QMainWindow):
         QStatusBar { background:#17324d; color:white; }
         QStatusBar QLabel { color:white; font-weight:700; padding:4px 10px; }
         """)
+        self.apply_appearance()
         self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(15000)
         QTimer.singleShot(500,self.restore_draft)
+    def apply_appearance(self):
+        theme=get_setting("ui_theme","PraxisPro Blau")
+        font_size=max(9,min(16,int(get_setting("ui_font_size","12") or 12)))
+        density=get_setting("ui_density","Kompakt")
+        palettes={
+            "PraxisPro Blau":("#132f47","#1f6fb2","#2f7de1","#17324d","#f4f6f8"),
+            "Petrol":("#123c3d","#177b7d","#22999b","#174b4d","#f2f7f7"),
+            "Grün":("#183d2b","#2e7d4f","#3f9b65","#205b39","#f3f7f4"),
+            "Gold":("#493b18","#9a7417","#c59a2c","#6f5314","#faf8f2"),
+            "Violett":("#34234d","#7048a3","#8b5fc1","#513373","#f7f4fa")}
+        side,button,selected,dark,bg=palettes.get(theme,palettes["PraxisPro Blau"])
+        if density=="Groß": pad,minh,navpad=8,26,9
+        elif density=="Normal": pad,minh,navpad=6,22,7
+        else: pad,minh,navpad=4,18,5
+        self.setStyleSheet(f"""
+        QMainWindow {{ background:{bg}; }}
+        #sidebar {{ background:{side}; border:0; }}
+        #brand {{ color:white; font-size:{font_size+5}px; font-weight:800; padding:5px 8px 12px 8px; }}
+        #sidefoot {{ color:#d5dde5; font-size:{max(9,font_size-1)}px; padding:10px; }}
+        #nav {{ background:transparent; border:0; outline:0; color:#e5edf3; font-size:{font_size}px; }}
+        #nav::item {{ padding:{navpad}px 8px; margin:1px 0; border-radius:8px; min-height:{minh}px; }}
+        #nav::item:selected {{ background:{selected}; color:white; font-weight:700; }}
+        #nav::item:hover:!selected {{ background:{dark}; color:white; }}
+        QStackedWidget,#sessionScroll,#sessionScroll > QWidget > QWidget {{ background:{bg}; }}
+        #topBrandBar {{ background:white; border-bottom:1px solid #dce3e9; }}
+        #pageTitle {{ font-size:{font_size+11}px; font-weight:800; color:{dark}; }}
+        #pageSub {{ font-size:{font_size}px; color:#607080; padding-bottom:8px; }}
+        #statCard,#formCard,#clientHeader {{ background:white; border:1px solid #d4e0ea; border-radius:10px; padding:{pad+2}px; }}
+        #sectionTitle {{ color:{dark}; font-size:{font_size+2}px; font-weight:800; }}
+        QLabel,QCheckBox {{ color:#1f2933; font-size:{font_size}px; }}
+        QLineEdit,QTextEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox {{
+          background:white; border:2px solid #b8c7d4; border-radius:9px; padding:{pad}px 7px; min-height:{minh}px; font-size:{font_size}px; selection-background-color:{dark};
+        }}
+        QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QDateEdit:focus,QTimeEdit:focus,QSpinBox:focus {{ border:2px solid {selected}; }}
+        QPushButton {{ background:{button}; color:white; border:0; border-radius:9px; padding:{pad+2}px 10px; font-size:{font_size}px; font-weight:600; }}
+        QPushButton:hover {{ background:{dark}; }} QPushButton:pressed {{ background:{side}; }}
+        QTabBar::tab {{ background:#e9eef3; padding:{pad+6}px 18px; margin:2px; border-radius:8px; font-size:{font_size+1}px; }}
+        QTabBar::tab:selected {{ background:{dark}; color:white; font-weight:700; }}
+        QTableWidget {{ background:white; alternate-background-color:#f6f8fa; border:1px solid #d8e0e7; border-radius:8px; gridline-color:#e6ebef; font-size:{font_size}px; }}
+        QHeaderView::section {{ background:#edf2f6; color:#243746; padding:{pad+2}px; border:0; border-bottom:1px solid #ccd6df; font-weight:700; }}
+        QStatusBar {{ background:{dark}; color:white; }} QStatusBar QLabel {{ color:white; font-weight:700; padding:4px 10px; }}
+        """)
+        QApplication.instance().setFont(QFont(QApplication.instance().font().family(),font_size))
+
     def update_user_badge(self):
         u=self.current_user or {}; self.userbadge.setText("Angemeldet: "+u.get("display_name",u.get("username",""))+" · "+u.get("role",""))
     def update_wallclock(self):
@@ -1989,7 +2034,8 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         def save_settings():
             for k,ed in fields.items(): set_setting(k,ed.text().strip())
             set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value()); set_setting("ui_theme",theme.currentText()); set_setting("ui_font_size",fontsize.value()); set_setting("ui_density",density.currentText())
-            QMessageBox.information(self,"Gespeichert","Die Praxisvorlage wurde gespeichert. Deine bisherigen Daten bleiben die Standardvorlage.")
+            self.apply_appearance()
+            QMessageBox.information(self,"Gespeichert","Praxiseinstellungen gespeichert. Farbschema, Schriftgröße und Darstellungsdichte wurden sofort angewendet.")
         save.clicked.connect(save_settings); gv.addSpacing(8); gv.addWidget(save); gv.addStretch(); tabs.addTab(general,"Praxisdaten")
         billing=QWidget(); bv=QVBoxLayout(billing); bv.setContentsMargins(16,14,16,18); bv.setSpacing(10)
         bf=QFormLayout(); bf.setHorizontalSpacing(18); bf.setVerticalSpacing(8)
