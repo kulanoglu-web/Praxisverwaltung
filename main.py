@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.87"
+APP_VERSION = "0.11.88"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -552,10 +552,10 @@ class Main(QMainWindow):
         self.appt_status=QComboBox(); self.appt_status.addItems(["geplant","erschienen","abgesagt","ausgefallen"]); form.addRow("Status",self.appt_status)
         self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Interne Terminnotiz – verschlüsselt"); form.addRow("Notiz",self.appt_note); rv.addLayout(form)
         actions=QHBoxLayout(); save=QPushButton("Termin speichern"); edit=QPushButton("Termin bearbeiten"); delete=QPushButton("Termin löschen"); start=QPushButton("▶ Sitzung starten"); actions.addWidget(save); actions.addWidget(edit); actions.addWidget(delete); actions.addWidget(start); rv.addLayout(actions)
-        split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); v.addWidget(split)
+        split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); split.setMaximumHeight(455); v.addWidget(split,0)
         viewrow=QHBoxLayout(); self.appt_view=QComboBox(); self.appt_view.addItems(["Tag","Woche"]); viewrow.addWidget(QLabel("Ansicht")); viewrow.addWidget(self.appt_view); viewrow.addStretch(); v.addLayout(viewrow)
         self.appt_day_title=QLabel(); self.appt_day_title.setProperty("class","sectionTitle"); v.addWidget(self.appt_day_title)
-        self.appt_list=QTableWidget(0,6); self.appt_list.setHorizontalHeaderLabels(["Zeit","Dauer","Art","Klient / Paar","Status","Notiz"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.appt_list.setSelectionBehavior(QTableWidget.SelectRows); v.addWidget(self.appt_list,1)
+        self.appt_list=QTableWidget(0,6); self.appt_list.setHorizontalHeaderLabels(["Zeit","Dauer","Art","Klient / Paar","Status","Notiz"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.appt_list.setSelectionBehavior(QTableWidget.SelectRows); self.appt_list.setAlternatingRowColors(True); self.appt_list.setMinimumHeight(190); v.addWidget(self.appt_list,1)
         def refresh():
             selected=self.appt_calendar.selectedDate(); d=selected.toString("yyyy-MM-dd"); self.appt_date.setDate(selected)
             con=sqlite3.connect(DBFILE)
@@ -569,7 +569,13 @@ class Main(QMainWindow):
                 name=((decrypt_text(first) if first else "")+" "+(decrypt_text(last) if last else "")).strip()
                 if couple: name=(name+" · " if name else "")+"Paarakte #"+str(couple)
                 shown_time=(QDate.fromString(rowdate,"yyyy-MM-dd").toString("ddd dd.MM. ") if self.appt_view.currentText()=="Woche" else "")+t; vals=[shown_time,str(m)+" Min.",typ or "",name,status,decrypt_text(note)]
-                for col,val in enumerate(vals): self.appt_list.setItem(r,col,QTableWidgetItem(str(val)))
+                for col,val in enumerate(vals):
+                    item=QTableWidgetItem(str(val))
+                    # Terminarten sofort visuell unterscheiden.
+                    tint={"Einzeltherapie":"#e8f2ff","Paargespräch":"#fff1dc","Onlinegespräch":"#e8f8ee","Notfalltelefonat":"#ffe9e9","Hausbesuch":"#f1eaff","Sonstiger Termin":"#f1f3f5"}.get(typ or "","#ffffff")
+                    item.setBackground(QColor(tint))
+                    if status in ("abgesagt","ausgefallen"): item.setForeground(QColor("#8a8f96"))
+                    self.appt_list.setItem(r,col,item)
                 self.appt_list.item(r,0).setData(Qt.UserRole,aid)
         def store():
             if not self.require_edit(): return
