@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.92"
+APP_VERSION = "0.11.93"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -535,7 +535,11 @@ class Main(QMainWindow):
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
         title=QLabel("Terminkalender"); title.setProperty("class","pageTitle"); v.addWidget(title)
         split=QSplitter(); left=QWidget(); lv=QVBoxLayout(left); right=QWidget(); rv=QVBoxLayout(right)
-        self.appt_calendar=QCalendarWidget(); self.appt_calendar.setGridVisible(True); lv.addWidget(self.appt_calendar)
+        self.appt_calendar=QCalendarWidget(); self.appt_calendar.setGridVisible(True)
+        # Termine werden direkt im Monatskalender markiert. Bei mehreren Terminarten
+        # erhält der Tag eine Mischmarkierung; Details bleiben in der Liste darunter.
+        self.appt_calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        lv.addWidget(self.appt_calendar)
         quick=QHBoxLayout(); prev=QPushButton("‹ Tag"); today=QPushButton("Heute"); nxt=QPushButton("Tag ›"); quick.addWidget(prev); quick.addWidget(today); quick.addWidget(nxt); lv.addLayout(quick)
         self.appt_date=QDateEdit(QDate.currentDate()); self.appt_date.setCalendarPopup(True); self.appt_date.setDisplayFormat("dd.MM.yyyy")
         self.appt_time=QTimeEdit(QTime.currentTime()); self.appt_time.setDisplayFormat("HH:mm")
@@ -564,6 +568,23 @@ class Main(QMainWindow):
             else:
                 self.appt_day_title.setText("Termine am "+selected.toString("dd.MM.yyyy")); rows=[x+(d,) for x in con.execute("SELECT a.id,a.start_time,a.minutes,a.appointment_type,c.first,c.last,a.couple_id,a.status,a.note FROM appointments a LEFT JOIN clients c ON c.id=a.client_id WHERE a.appointment_date=? ORDER BY a.start_time",(d,)).fetchall()]
             con.close()
+            # Monatsansicht: Tage mit Terminen farbig markieren.
+            first=QDate(selected.year(),selected.month(),1); last=first.addMonths(1).addDays(-1)
+            con2=sqlite3.connect(DBFILE)
+            month_rows=con2.execute("SELECT appointment_date,appointment_type,status FROM appointments WHERE appointment_date BETWEEN ? AND ?",(first.toString("yyyy-MM-dd"),last.toString("yyyy-MM-dd"))).fetchall(); con2.close()
+            day_types={}
+            for adate,atype,astatus in month_rows:
+                if astatus in ("abgesagt","ausgefallen"): continue
+                day_types.setdefault(adate,[]).append(atype or "Sonstiger Termin")
+            for day in range(1,last.day()+1):
+                qd=QDate(selected.year(),selected.month(),day); fmt=QTextCharFormat()
+                types=day_types.get(qd.toString("yyyy-MM-dd"),[])
+                if types:
+                    palette={"Einzeltherapie":"#8fc2ff","Paargespräch":"#ffc978","Onlinegespräch":"#8bd6a7","Notfalltelefonat":"#ff9b9b","Hausbesuch":"#c2a5ff","Sonstiger Termin":"#c6ccd2"}
+                    unique=list(dict.fromkeys(types)); color=palette.get(unique[0],"#c6ccd2") if len(unique)==1 else "#ffd966"
+                    fmt.setBackground(QColor(color)); fmt.setForeground(QColor("#17324d")); fmt.setFontWeight(700)
+                    fmt.setToolTip(str(len(types))+" Termin"+("" if len(types)==1 else "e")+" · "+", ".join(unique))
+                self.appt_calendar.setDateTextFormat(qd,fmt)
             self.appt_list.setRowCount(len(rows))
             for r,(aid,t,m,typ,first,last,couple,status,note,rowdate) in enumerate(rows):
                 name=((decrypt_text(first) if first else "")+" "+(decrypt_text(last) if last else "")).strip()
