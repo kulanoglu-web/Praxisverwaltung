@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.91"
+APP_VERSION = "0.11.92"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -2090,21 +2090,22 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         tabs.setStyleSheet("QTabBar::tab { min-width: 105px; padding-left: 10px; padding-right: 10px; }")
         v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
         general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(16,14,16,20); gv.setSpacing(10)
-        form=QFormLayout(); form.setHorizontalSpacing(18); form.setVerticalSpacing(8); form.setLabelAlignment(Qt.AlignLeft|Qt.AlignVCenter)
-        # Feste, großzügige Beschriftungsspalte verhindert Überlagerungen in den Praxiseinstellungen.
+        form=QFormLayout(); form.setHorizontalSpacing(18); form.setVerticalSpacing(10); form.setLabelAlignment(Qt.AlignLeft|Qt.AlignTop)
+        # Praxisdaten bewusst kompakt halten: jede Zeile bekommt feste Höhe und Abstand.
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         form.setRowWrapPolicy(QFormLayout.DontWrapRows)
+        form.setFormAlignment(Qt.AlignTop)
         fields={}
         labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("address","Anschrift"),("phone","Telefon"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
         for key,label in labels:
-            ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(32); fields[key]=ed; form.addRow(label,ed)
-        logo=QLineEdit(get_setting("logo_path")); logo.setMinimumHeight(32); fields["logo_path"]=logo; choose=QPushButton("Logo auswählen …"); choose.setMinimumHeight(32)
+            ed=QLineEdit(get_setting(key)); ed.setFixedHeight(34); ed.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); fields[key]=ed; form.addRow(label,ed)
+        logo=QLineEdit(get_setting("logo_path")); logo.setFixedHeight(34); logo.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); fields["logo_path"]=logo; choose=QPushButton("Logo auswählen …"); choose.setFixedHeight(34)
         def pick_logo():
             p,_=QFileDialog.getOpenFileName(self,"Praxislogo auswählen","","Bilder (*.png *.jpg *.jpeg)")
             if p: logo.setText(p)
         choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
         gv.addLayout(form)
-        appearance=QFrame(); appearance.setObjectName("formCard"); af=QFormLayout(appearance)
+        appearance=QFrame(); appearance.setObjectName("formCard"); appearance.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); af=QFormLayout(appearance); af.setVerticalSpacing(10)
         theme=QComboBox(); theme.addItems(["PraxisPro Blau","Petrol","Grün","Gold","Violett"]); theme.setCurrentText(get_setting("ui_theme","PraxisPro Blau"))
         fontsize=QSpinBox(); fontsize.setRange(9,16); fontsize.setValue(int(get_setting("ui_font_size","12"))); fontsize.setSuffix(" px")
         density=QComboBox(); density.addItems(["Kompakt","Normal","Groß"]); density.setCurrentText(get_setting("ui_density","Kompakt"))
