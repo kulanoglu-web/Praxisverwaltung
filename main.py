@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.80"
+APP_VERSION = "0.11.81"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -821,8 +821,14 @@ Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
 $null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
 function Await($op,$type) {
- $m=[System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq "AsTask" -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 } | Select-Object -First 1
- $t=$m.MakeGenericMethod($type).Invoke($null,@($op)); $t.Wait(); $t.Result
+ $methods=[System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq "AsTask" -and $_.IsGenericMethod }
+ $m=$methods | Where-Object { $_.GetParameters().Count -eq 1 -and $_.GetGenericArguments().Count -eq 1 } | Select-Object -First 1
+ if ($null -eq $m) { throw "Windows Runtime AsTask-Methode nicht verfügbar." }
+ $t=$m.MakeGenericMethod($type).Invoke($null,@($op))
+ if ($null -eq $t) { throw "Windows Runtime OCR-Aufgabe konnte nicht erstellt werden." }
+ [System.Threading.Tasks.Task]::WaitAll(@([System.Threading.Tasks.Task]$t))
+ if ($t.IsFaulted) { throw $t.Exception.GetBaseException().Message }
+ $t.GetType().GetProperty("Result").GetValue($t)
 }
 $f=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($ImagePath)) ([Windows.Storage.StorageFile])
 $s=Await ($f.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
