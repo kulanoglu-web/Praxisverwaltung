@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.67"
+APP_VERSION = "0.11.68"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1538,7 +1538,7 @@ $r.Text
                 s=next((x for x in rows if x.get("date")==date and x.get("start")==start),None)
                 if not s:return
                 nd=QDialog(dlg); nd.setWindowTitle(f"Sitzungsnotiz {date}"); nd.resize(900,700); nv=QVBoxLayout(nd)
-                tx=QTextEdit(); tx.setReadOnly(True); tx.setPlainText(s.get("notes","")); nv.addWidget(tx)
+                tabs=QTabWidget(); tx=QTextEdit(); tx.setReadOnly(True); tx.setPlainText(s.get("notes","")); tabs.addTab(tx,"Therapienotiz")\n                ocr=QTextEdit(); ocr.setReadOnly(True); ocr_text=s.get("ocr_text","")\n                if not ocr_text and s.get("ocr_file") and Path(s.get("ocr_file")).exists():\n                    try: ocr_text=decrypt_text(Path(s.get("ocr_file")).read_text(encoding="utf-8"))\n                    except Exception: ocr_text=""\n                ocr.setPlainText(ocr_text or "Für diese Sitzung ist kein geprüfter OCR-Text gespeichert."); tabs.addTab(ocr,"OCR-Text"); nv.addWidget(tabs,1)
                 ink=s.get("ink_file","")
                 if ink and Path(ink).exists():
                     lab=QLabel(); pix=QPixmap(); pix.loadFromData(decrypt_file_bytes(ink)); lab.setPixmap(pix.scaled(820,380,Qt.KeepAspectRatio,Qt.SmoothTransformation)); lab.setAlignment(Qt.AlignCenter); nv.addWidget(lab)
