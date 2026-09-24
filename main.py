@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.69"
+APP_VERSION = "0.11.70"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -498,17 +498,22 @@ class Main(QMainWindow):
         self.couple_session_minutes=QSpinBox(); self.couple_session_minutes.setRange(5,300); self.couple_session_minutes.setValue(45); self.couple_session_minutes.setSuffix(" Min.")
         session_save=QPushButton("Paarsitzung speichern"); session_row.addWidget(self.couple_session_topic,1); session_row.addWidget(self.couple_session_minutes); session_row.addWidget(session_save); v.addLayout(session_row)
         self.couple_session_note=QTextEdit(); self.couple_session_note.setPlaceholderText("Gemeinsame Sitzungsdokumentation …"); self.couple_session_note.setMaximumHeight(100); v.addWidget(self.couple_session_note)
-        self.couple_history=QListWidget(); v.addWidget(self.couple_history,1)
+        self.couple_history_filter=QComboBox(); self.couple_history_filter.addItems(["Gemeinsamer Verlauf","Vertraulich – Partner A","Vertraulich – Partner B"]); self.couple_history_filter.setToolTip("Vertrauliche Partnernotizen werden niemals im gemeinsamen Verlauf angezeigt."); v.addWidget(self.couple_history_filter)\n        self.couple_history=QListWidget(); v.addWidget(self.couple_history,1)
         def selected_id():
             item=self.couple_list.currentItem()
             return item.data(Qt.UserRole) if item else None
         def refresh_history():
             self.couple_history.clear(); cid=selected_id()
             if not cid: return
+            view=self.couple_history_filter.currentText()
             con=sqlite3.connect(DBFILE)
-            rows=con.execute("SELECT created_at,note_type,note_text FROM couple_notes WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall()
-            sessions=con.execute("SELECT session_date,topic,shared_note,minutes FROM couple_sessions WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall()
-            assessments=con.execute("SELECT created_at,topic,interaction_cycle,shared_goal,safety_flag FROM couple_assessments WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall()
+            if view=="Gemeinsamer Verlauf":
+                rows=con.execute("SELECT created_at,note_type,note_text FROM couple_notes WHERE couple_id=? AND note_type=? ORDER BY id DESC",(cid,"Gemeinsame Notiz")).fetchall()
+                sessions=con.execute("SELECT session_date,topic,shared_note,minutes FROM couple_sessions WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall()
+                assessments=con.execute("SELECT created_at,topic,interaction_cycle,shared_goal,safety_flag FROM couple_assessments WHERE couple_id=? ORDER BY id DESC",(cid,)).fetchall()
+            else:
+                rows=con.execute("SELECT created_at,note_type,note_text FROM couple_notes WHERE couple_id=? AND note_type=? ORDER BY id DESC",(cid,view)).fetchall()
+                sessions=[]; assessments=[]
             con.close()
             for date,topic,note,mins in sessions:
                 self.couple_history.addItem(f"{date[:16]} · Paarsitzung · {mins} Min. · {decrypt_text(topic)}" + chr(10) + decrypt_text(note))
