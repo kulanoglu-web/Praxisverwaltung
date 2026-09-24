@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.89"
+APP_VERSION = "0.11.90"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1435,6 +1435,15 @@ $r.Text
         self.i_date=QDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_date.setDisplayFormat("dd.MM.yyyy"); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstige"])
         self.i_min=QSpinBox(); self.i_min.setRange(1,1000); self.i_min.setValue(45); self.i_red=QCheckBox("Ermäßigter Satz")
         self.i_start=QTimeEdit(); self.i_start.setDisplayFormat("HH:mm"); self.i_end=QTimeEdit(); self.i_end.setDisplayFormat("HH:mm")
+        # Zeitfelder direkt überschreibbar: Klick/Fokus markiert sofort die komplette Uhrzeit.
+        for te in (self.i_start,self.i_end):
+            te.setKeyboardTracking(False)
+            te.setAccelerated(True)
+            te.setWrapping(True)
+            te.setToolTip("Zeit direkt eingeben, z. B. 1430 für 14:30")
+            te.lineEdit().setInputMask("99:99;_")
+            te.lineEdit().setPlaceholderText("HH:MM")
+            te.lineEdit().installEventFilter(self)
         for ed in (self.i_date,self.i_type,self.i_min,self.i_start,self.i_end): ed.setMinimumHeight(40)
         for a,b in [("Rechnungsnummer",self.i_no),("Nachname",self.i_last),("Vorname",self.i_first),("Adresse (optional)",self.i_addr),("Diagnose (optional)",self.i_diag),("Leistungsdatum",self.i_date),("Beginn",self.i_start),("Ende",self.i_end),("Leistung",self.i_type),("Dauer Minuten",self.i_min)]:f.addRow(a,b)
         def invoice_times():
@@ -1529,6 +1538,13 @@ $r.Text
         QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\n\n{details}\n\nGesamt: {total:.2f} €\n\nBitte vor PDF-Erstellung kontrollieren.")
     def make_invoice(self):
         if not self.require_edit(): return
+        # Eingaben zuerst sauber übernehmen; ungültige Zeiten verständlich melden.
+        for label,te in (("Beginn",self.i_start),("Ende",self.i_end)):
+            raw=te.lineEdit().text().strip().replace("_","")
+            parsed=QTime.fromString(raw,"HH:mm")
+            if not parsed.isValid():
+                return QMessageBox.warning(self,"Zeitangabe",f"{label}: Bitte eine gültige Uhrzeit im Format HH:MM eingeben.")
+            te.setTime(parsed)
         no=self.i_no.text().strip()
         if not no:return QMessageBox.warning(self,"Fehlt","Eine Rechnungsnummer ist erforderlich.")
         if not re.fullmatch(r"[A-Za-z0-9._-]+",no):return QMessageBox.warning(self,"Rechnungsnummer","Bitte nur Buchstaben, Zahlen, Punkt, Bindestrich oder Unterstrich verwenden.")
