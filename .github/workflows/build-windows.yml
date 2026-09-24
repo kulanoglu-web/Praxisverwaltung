@@ -24,7 +24,11 @@ jobs:
       - run: pip install -r requirements.txt pyinstaller
       - name: UI screenshot test (1600x900)
         run: python ui_screenshot_test.py
-      - run: pyinstaller --noconfirm --clean --onefile --windowed --add-data "assets/logo.jpg;assets" --name Praxisverwaltung main.py
+      - name: Create app icon from practice logo
+        shell: pwsh
+        run: |
+          python -c "from PIL import Image; im=Image.open('assets/logo.jpg').convert('RGBA'); im.thumbnail((256,256)); bg=Image.new('RGBA',(256,256),'white'); bg.alpha_composite(im,((256-im.width)//2,(256-im.height)//2)); bg.save('assets/PraxisPro.ico',sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+      - run: pyinstaller --noconfirm --clean --onefile --windowed --icon "assets/PraxisPro.ico" --add-data "assets/logo.jpg;assets" --name Praxisverwaltung main.py
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Detect signing certificate
