@@ -11,9 +11,10 @@ from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
+from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.94"
+APP_VERSION = "0.11.95"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
