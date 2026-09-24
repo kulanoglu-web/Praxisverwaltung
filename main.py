@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.70"
+APP_VERSION = "0.11.71"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -498,7 +498,12 @@ class Main(QMainWindow):
         self.couple_session_minutes=QSpinBox(); self.couple_session_minutes.setRange(5,300); self.couple_session_minutes.setValue(45); self.couple_session_minutes.setSuffix(" Min.")
         session_save=QPushButton("Paarsitzung speichern"); session_row.addWidget(self.couple_session_topic,1); session_row.addWidget(self.couple_session_minutes); session_row.addWidget(session_save); v.addLayout(session_row)
         self.couple_session_note=QTextEdit(); self.couple_session_note.setPlaceholderText("Gemeinsame Sitzungsdokumentation …"); self.couple_session_note.setMaximumHeight(100); v.addWidget(self.couple_session_note)
-        self.couple_history_filter=QComboBox(); self.couple_history_filter.addItems(["Gemeinsamer Verlauf","Vertraulich – Partner A","Vertraulich – Partner B"]); self.couple_history_filter.setToolTip("Vertrauliche Partnernotizen werden niemals im gemeinsamen Verlauf angezeigt."); v.addWidget(self.couple_history_filter)\n        self.couple_history=QListWidget(); v.addWidget(self.couple_history,1)
+        self.couple_history_filter=QComboBox()
+        self.couple_history_filter.addItems(["Gemeinsamer Verlauf","Vertraulich – Partner A","Vertraulich – Partner B"])
+        self.couple_history_filter.setToolTip("Vertrauliche Partnernotizen werden niemals im gemeinsamen Verlauf angezeigt.")
+        v.addWidget(self.couple_history_filter)
+        self.couple_history=QListWidget()
+        v.addWidget(self.couple_history,1)
         def selected_id():
             item=self.couple_list.currentItem()
             return item.data(Qt.UserRole) if item else None
