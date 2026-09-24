@@ -1,5 +1,5 @@
 #define MyAppName "PraxisPro"
-#define MyAppVersion "0.11.94"
+#define MyAppVersion "0.11.95"
 #define MyAppPublisher "Erdoğan Kulanoğlu"
 #define MyAppExeName "PraxisPro.exe"
 [Setup]
