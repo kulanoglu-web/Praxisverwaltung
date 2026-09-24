@@ -8,10 +8,12 @@ from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap, QDesktopServices
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.82"
+APP_VERSION = "0.11.83"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1518,25 +1520,32 @@ $r.Text
             if self.i_diag.text().strip(): c["diagnosis"]=self.i_diag.text().strip()
         d=client_dir(c)/"Rechnungen"; pdf=d/f"Rechnung_{no}.pdf"
         can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
-        # Layout nach der bisherigen Praxis-Rechnungsvorlage
+        # Rechnungslayout nach der freigegebenen Praxisvorlage (20260060).
+        regular,bold="Helvetica","Helvetica-Bold"
+        try:
+            arial=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arial.ttf"; arial_b=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arialbd.ttf"
+            if arial.exists():
+                if "PraxisArial" not in pdfmetrics.getRegisteredFontNames(): pdfmetrics.registerFont(TTFont("PraxisArial",str(arial)))
+                regular="PraxisArial"
+            if arial_b.exists():
+                if "PraxisArialBold" not in pdfmetrics.getRegisteredFontNames(): pdfmetrics.registerFont(TTFont("PraxisArialBold",str(arial_b)))
+                bold="PraxisArialBold"
+        except Exception: pass
         logo_path=practice_logo_path()
         if logo_path:
-            try: can.drawImage(str(logo_path),W-230,H-110,width=180,height=72,preserveAspectRatio=True,mask="auto")
+            try: can.drawImage(str(logo_path),W/2-115,H-128,width=230,height=82,preserveAspectRatio=True,anchor="c",mask="auto")
             except Exception: pass
         owner=get_setting("owner_name","Erdoğan Kulanoğlu"); address=get_setting("address","")
-        can.setFillColor(HexColor("#000000")); can.setFont("Helvetica",7)
-        can.drawString(50,H-125,f"{owner} · {address}")
-        y=H-145; can.setFont("Helvetica",10); can.drawString(50,y,f"{first} {last}"); y-=14
+        can.setFillColor(HexColor("#000000")); can.setFont(regular,7)
+        sender=f"{owner} · {address}"; can.drawString(50,H-158,sender); can.line(50,H-160,50+can.stringWidth(sender,regular,7),H-160)
+        y=H-178; can.setFont(regular,10); can.drawString(50,y,f"{first} {last}"); y-=14
         if self.i_addr.text().strip():
             for line in self.i_addr.text().strip().splitlines(): can.drawString(50,y,line); y-=13
-        can.setFont("Helvetica",10); can.drawRightString(W-50,H-235,datetime.now().strftime("%d.%m.%Y"))
-        can.setFont("Helvetica-Bold",11); can.drawCentredString(W/2,H-270,f"Rechnungsnummer {no}")
-        can.setFont("Helvetica",10); can.drawString(50,H-300,"Für meine Bemühungen erlaube ich mir Ihnen folgende Leistungen in Rechnung zu stellen:")
-        if self.i_diag.text().strip():
-            can.drawString(50,H-320,"Diagnose: "+self.i_diag.text().strip())
-            table_y=H-350
-        else: table_y=H-335
-        can.setFont("Helvetica-Bold",10); can.drawString(50,table_y+18,"Leistungen:")
+        can.setFont(regular,10); can.drawRightString(W-50,H-286,datetime.now().strftime("%d.%m.%Y"))
+        can.setFont(bold,11); can.drawCentredString(W/2,H-322,f"Rechnungsnummer {no}")
+        can.setFont(regular,10); can.drawString(50,H-358,"Für meine Bemühungen erlaube ich mir Ihnen folgende Leistungen in Rechnung zu stellen:")
+        table_y=H-410
+        can.setFont(bold,10); can.drawString(50,table_y+24,"Leistungen:"); can.line(50,table_y+22,102,table_y+22)
         items=[]
         if rows:
             for s in rows:
@@ -1546,29 +1555,28 @@ $r.Text
         def display_date(value):
             try:return datetime.strptime(str(value),"%Y-%m-%d").strftime("%d.%m.%Y")
             except:return str(value)
-        x=[50,112,198,286,394,456,W-50]; rowh=18
+        x=[50,116,206,326,421,485,W-50]; rowh=18
         headers=["Datum","Anfang–Ende","Dauer in Minuten","Leistung","Ermäßigt","Betrag"]
-        can.setLineWidth(.5); can.setFont("Helvetica-Bold",8)
+        can.setLineWidth(.45); can.setFont(bold,8)
         for j,h in enumerate(headers): can.drawString(x[j]+3,table_y-12,h)
         can.line(x[0],table_y,x[-1],table_y); can.line(x[0],table_y-rowh,x[-1],table_y-rowh)
         for xx in x: can.line(xx,table_y,xx,table_y-rowh*(len(items)+2))
-        cy=table_y-rowh
-        can.setFont("Helvetica",8)
+        cy=table_y-rowh; can.setFont(regular,8)
         for it in items:
             vals=[display_date(it["date"]),f'{it["start"]}–{it["end"]}',str(it["minutes"]),it["type"],"Ja" if it["reduced"] else "Nein",f'{it["amount"]:.2f} €'.replace(".",",")]
             for j,val in enumerate(vals):
                 if j==5: can.drawRightString(x[j+1]-4,cy-12,val)
                 else: can.drawString(x[j]+3,cy-12,val)
             cy-=rowh; can.line(x[0],cy,x[-1],cy)
-        can.setFont("Helvetica-Bold",8); can.drawString(x[0]+3,cy-12,"Rechnungssumme:"); can.drawRightString(x[-1]-4,cy-12,f'{amt:.2f} €'.replace(".",","))
+        can.setFont(bold,8); can.drawString(x[0]+3,cy-12,"Rechnungssumme:"); can.drawRightString(x[-1]-4,cy-12,f'{amt:.2f} €'.replace(".",","))
         cy-=rowh; can.line(x[0],cy,x[-1],cy)
-        pay_y=cy-42; can.setFont("Helvetica",9)
+        pay_y=cy-44; can.setFont(regular,9)
         iban=get_setting("iban",""); bic=get_setting("bic",""); paypal=get_setting("paypal","")
         text=f"Bitte überweisen Sie den o.g. Betrag in den nächsten 14 Tagen auf die folgende Bankverbindung: IBAN: {iban} - BIC: {bic} mit dem Verwendungszweck: {no}."
         words=text.split(); line=""; lines=[]
         for word in words:
             test=(line+" "+word).strip()
-            if can.stringWidth(test,"Helvetica",9)>W-100: lines.append(line); line=word
+            if can.stringWidth(test,regular,9)>W-100: lines.append(line); line=word
             else: line=test
         if line: lines.append(line)
         for line in lines: can.drawString(50,pay_y,line); pay_y-=13
@@ -1576,17 +1584,20 @@ $r.Text
         else: pay_y-=25
         can.drawString(50,pay_y,"Mit freundlichen Grüßen"); pay_y-=35
         can.drawString(50,pay_y,owner); pay_y-=18
-        can.setFont("Helvetica-Bold",9); can.drawString(50,pay_y,"Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift und Stempel gültig.")
-        footer_y=58; can.setFont("Helvetica",6.5)
+        can.setFont(bold,9); can.drawString(50,pay_y,"Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift und Stempel gültig.")
+        footer_y=72; can.setFont(regular,6.2)
+        qual=get_setting("qualifications","Psychologe M. Sc. · Sozialarbeiter B.A. · Heilpraktiker für Psychotherapie")
         footer=[
-          f'{owner} - {get_setting("qualifications","")}',
-          get_setting("address","")+" - Steuernummer: "+get_setting("tax_number",""),
+          f"{owner} - {qual}",
+          "Ehe-, Familien- und Lebensberater",
+          "Zertifizierter Systemischer Berater und Therapeut nach dem SIT-Modell",
+          f'{address} - Steuernummer: {get_setting("tax_number","")}',
           "Tel.: "+get_setting("phone","")+" - Fax: "+get_setting("fax","")+" - "+get_setting("email","")+" - "+get_setting("website",""),
           "Bankverbindung: IBAN: "+iban+" - BIC: "+bic,
           "Die Leistungen als Heilpraktiker sind nach § 4 Nr. 14 Buchstabe a UStG von der Umsatzsteuer befreit."
         ]
         for line in footer:
-            can.drawCentredString(W/2,footer_y,line); footer_y-=9
+            can.drawCentredString(W/2,footer_y,line); footer_y-=8
         can.save()
         invoice_items=[]
         if rows:
