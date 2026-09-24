@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.79"
+APP_VERSION = "0.11.80"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -526,8 +526,13 @@ class Main(QMainWindow):
             if not self.require_edit(): return
             d=self.appt_date.date().toString("yyyy-MM-dd"); t=self.appt_time.time().toString("HH:mm"); cid=self.appt_client.currentData(); couple=self.appt_couple.currentData()
             if cid and couple: QMessageBox.warning(self,"Termin","Bitte entweder Klient oder Paarakte zuordnen, nicht beides."); return
-            con=sqlite3.connect(DBFILE); conflict=con.execute("SELECT id FROM appointments WHERE appointment_date=? AND start_time=? AND status='geplant'",(d,t)).fetchone()
-            if conflict: con.close(); QMessageBox.warning(self,"Terminkonflikt","Zu dieser Uhrzeit besteht bereits ein geplanter Termin."); return
+            con=sqlite3.connect(DBFILE)
+            requested_start=QTime.fromString(t,"HH:mm"); requested_end=requested_start.addSecs(self.appt_minutes.value()*60); conflict=None
+            for eid,estart,eminutes in con.execute("SELECT id,start_time,minutes FROM appointments WHERE appointment_date=? AND status='geplant'",(d,)).fetchall():
+                existing_start=QTime.fromString(estart,"HH:mm"); existing_end=existing_start.addSecs(int(eminutes)*60)
+                if requested_start < existing_end and requested_end > existing_start:
+                    conflict=(eid,estart,eminutes); break
+            if conflict: con.close(); QMessageBox.warning(self,"Terminkonflikt","Der Termin überschneidet sich mit einem bestehenden Termin um "+str(conflict[1])+" Uhr."); return
             con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,couple_id,appointment_type,status,note,created_at,username) VALUES(?,?,?,?,?,?,?,?,?,?)",(d,t,self.appt_minutes.value(),cid,couple,self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),datetime.now().isoformat(timespec="seconds"),self.current_user.get("username",""))); con.commit(); con.close()
             audit("APPOINTMENT_CREATE",d+" "+t,self.current_user.get("username","")); self.appt_note.clear(); self.appt_calendar.setSelectedDate(self.appt_date.date()); refresh()
         def selected_id():
