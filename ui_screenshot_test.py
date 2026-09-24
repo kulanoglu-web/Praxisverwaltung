@@ -49,10 +49,12 @@ pages=[
     (2,"Sitzungsassistent"),
     (3,"Klienten"),
     (4,"Neuer-Klient"),
-    (5,"Neue-Rechnung"),
-    (6,"Rechnungen"),
-    (7,"Praxiseinstellungen"),
-    (8,"Benutzerhandbuch"),
+    (5,"Paarakte"),
+    (6,"Terminkalender"),
+    (7,"Neue-Rechnung"),
+    (8,"Rechnungen"),
+    (9,"Praxiseinstellungen"),
+    (10,"Benutzerhandbuch"),
 ]
 saved=0
 for index, name in pages:
@@ -73,7 +75,7 @@ for index, name in pages:
     print("UI screenshot OK", name, shot.width(), shot.height())
     saved += 1
 
-if saved < 9:
+if saved < 11:
     raise SystemExit(f"Zu wenige Seiten-Screenshots erstellt: {saved}")
 QTimer.singleShot(100, app.quit)
 app.exec()
