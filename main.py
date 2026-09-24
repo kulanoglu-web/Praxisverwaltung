@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.98"
+APP_VERSION = "0.11.99"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -394,6 +394,7 @@ class Main(QMainWindow):
         if logo_path:
             px=QPixmap(str(logo_path))
             if not px.isNull(): self.top_logo.setPixmap(px.scaled(220,46,Qt.KeepAspectRatio,Qt.SmoothTransformation))
+        lockbtn=QPushButton("🔒 Bildschirm sperren"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_screen); tb.insertWidget(0,lockbtn)
         tb.addWidget(self.top_logo); contentv.addWidget(topbar)
         self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui()); contentv.addWidget(self.pages,1)
         self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
@@ -454,6 +455,7 @@ class Main(QMainWindow):
         QStatusBar QLabel { color:white; font-weight:700; padding:4px 10px; }
         """)
         self.apply_appearance()
+        QShortcut(QKeySequence("Ctrl+L"),self,activated=self.lock_screen)
         self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(15000)
         QTimer.singleShot(500,self.restore_draft)
     def apply_appearance(self):
@@ -510,12 +512,22 @@ class Main(QMainWindow):
     def event(self,e):
         if e.type() in (QEvent.MouseButtonPress,QEvent.KeyPress,QEvent.TouchBegin): self.last_activity=datetime.now()
         return super().event(e)
+    def lock_screen(self):
+        """PraxisPro sofort verdecken und erst nach erneuter Anmeldung freigeben."""
+        if getattr(self,"_screen_locked",False): return
+        self._screen_locked=True
+        self.locktimer.stop()
+        audit("LOCK","Bildschirm manuell gesperrt",(self.current_user or {}).get("username",""))
+        dlg=LoginDialog(); dlg.setWindowTitle("PraxisPro – Bildschirm gesperrt"); dlg.setModal(True)
+        if dlg.exec()!=QDialog.Accepted:
+            QApplication.quit(); return
+        self.current_user=dlg.user; self.update_user_badge(); self.last_activity=datetime.now(); self._screen_locked=False; self.locktimer.start(30000)
+        audit("UNLOCK","Bildschirm entsperrt",self.current_user.get("username",""))
+
     def check_autolock(self):
         mins=int(get_setting("auto_lock_minutes","15") or 15)
         if mins>0 and (datetime.now()-self.last_activity).total_seconds()>=mins*60:
-            self.locktimer.stop(); dlg=LoginDialog()
-            if dlg.exec()!=QDialog.Accepted: QApplication.quit(); return
-            self.current_user=dlg.user; self.update_user_badge(); self.last_activity=datetime.now(); self.locktimer.start(30000); audit("UNLOCK","Anwendung entsperrt",self.current_user.get("username",""))
+            self.lock_screen()
 
     def role(self):
         return (self.current_user or {}).get("role","Therapeut")
