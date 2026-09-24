@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.85"
+APP_VERSION = "0.11.86"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1544,7 +1544,13 @@ $r.Text
         except Exception: pass
         logo_path=practice_logo_path()
         if logo_path:
-            try: can.drawImage(str(logo_path),W/2-115,H-128,width=230,height=82,preserveAspectRatio=True,anchor="c",mask="auto")
+            try: from reportlab.lib.utils import ImageReader
+                logo_img=ImageReader(str(logo_path))
+                iw,ih=logo_img.getSize()
+                max_w,max_h=230,82
+                scale=min(max_w/max(1,iw),max_h/max(1,ih))
+                dw,dh=iw*scale,ih*scale
+                can.drawImage(logo_img,(W-dw)/2,H-42-dh,width=dw,height=dh,preserveAspectRatio=True,mask="auto")
             except Exception: pass
         owner=get_setting("owner_name","Erdoğan Kulanoğlu"); address=get_setting("address","")
         can.setFillColor(HexColor("#000000")); can.setFont(regular,7)
@@ -1579,7 +1585,10 @@ $r.Text
                 if j==5: can.drawRightString(x[j+1]-4,cy-12,val)
                 else: can.drawString(x[j]+3,cy-12,val)
             cy-=rowh; can.line(x[0],cy,x[-1],cy)
-        can.setFont(bold,8); can.drawString(x[0]+3,cy-12,"Rechnungssumme:"); can.drawRightString(x[-1]-4,cy-12,f'{amt:.2f} €'.replace(".",","))
+        can.setFont(bold,8)
+        # Summenzeile: Beschriftung nur in der Leistungsspalte, Betrag sauber in der letzten Spalte.
+        can.drawString(x[3]+3,cy-12,"Rechnungssumme:")
+        can.drawRightString(x[-1]-4,cy-12,f'{amt:.2f} €'.replace(".",","))
         cy-=rowh; can.line(x[0],cy,x[-1],cy)
         pay_y=cy-44; can.setFont(regular,9)
         iban=get_setting("iban",""); bic=get_setting("bic",""); paypal=get_setting("paypal","")
