@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.77"
+APP_VERSION = "0.11.78"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -502,7 +502,7 @@ class Main(QMainWindow):
         form.addRow("Klient",self.appt_client); form.addRow("Paarakte",self.appt_couple)
         self.appt_status=QComboBox(); self.appt_status.addItems(["geplant","erschienen","abgesagt","ausgefallen"]); form.addRow("Status",self.appt_status)
         self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Interne Terminnotiz – verschlüsselt"); form.addRow("Notiz",self.appt_note); rv.addLayout(form)
-        actions=QHBoxLayout(); save=QPushButton("Termin speichern"); delete=QPushButton("Termin löschen"); actions.addWidget(save); actions.addWidget(delete); rv.addLayout(actions)
+        actions=QHBoxLayout(); save=QPushButton("Termin speichern"); edit=QPushButton("Termin bearbeiten"); delete=QPushButton("Termin löschen"); start=QPushButton("▶ Sitzung starten"); actions.addWidget(save); actions.addWidget(edit); actions.addWidget(delete); actions.addWidget(start); rv.addLayout(actions)
         split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); v.addWidget(split)
         self.appt_day_title=QLabel(); self.appt_day_title.setProperty("class","sectionTitle"); v.addWidget(self.appt_day_title)
         self.appt_list=QTableWidget(0,6); self.appt_list.setHorizontalHeaderLabels(["Zeit","Dauer","Art","Klient / Paar","Status","Notiz"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.appt_list.setSelectionBehavior(QTableWidget.SelectRows); v.addWidget(self.appt_list,1)
@@ -524,6 +524,32 @@ class Main(QMainWindow):
             if conflict: con.close(); QMessageBox.warning(self,"Terminkonflikt","Zu dieser Uhrzeit besteht bereits ein geplanter Termin."); return
             con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,couple_id,appointment_type,status,note,created_at,username) VALUES(?,?,?,?,?,?,?,?,?,?)",(d,t,self.appt_minutes.value(),cid,couple,self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),datetime.now().isoformat(timespec="seconds"),self.current_user.get("username",""))); con.commit(); con.close()
             audit("APPOINTMENT_CREATE",d+" "+t,self.current_user.get("username","")); self.appt_note.clear(); self.appt_calendar.setSelectedDate(self.appt_date.date()); refresh()
+        def selected_id():
+            row=self.appt_list.currentRow()
+            return self.appt_list.item(row,0).data(Qt.UserRole) if row>=0 and self.appt_list.item(row,0) else None
+        def edit_selected():
+            if not self.require_edit(): return
+            aid=selected_id()
+            if not aid: return
+            con=sqlite3.connect(DBFILE); row=con.execute("SELECT appointment_date,start_time,minutes,client_id,couple_id,appointment_type,status,note FROM appointments WHERE id=?",(aid,)).fetchone(); con.close()
+            if not row: return
+            d,t,m,cid,couple,typ,status,note=row; self.appt_date.setDate(QDate.fromString(d,"yyyy-MM-dd")); self.appt_time.setTime(QTime.fromString(t,"HH:mm")); self.appt_minutes.setValue(m); self.appt_type.setCurrentText(typ or "Einzeltherapie"); self.appt_status.setCurrentText(status or "geplant"); self.appt_note.setText(decrypt_text(note));
+            for box,val in ((self.appt_client,cid),(self.appt_couple,couple)):
+                for n in range(box.count()):
+                    if box.itemData(n)==val: box.setCurrentIndex(n); break
+            con=sqlite3.connect(DBFILE); con.execute("UPDATE appointments SET appointment_date=?,start_time=?,minutes=?,client_id=?,couple_id=?,appointment_type=?,status=?,note=? WHERE id=?",(self.appt_date.date().toString("yyyy-MM-dd"),self.appt_time.time().toString("HH:mm"),self.appt_minutes.value(),self.appt_client.currentData(),self.appt_couple.currentData(),self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),aid)); con.commit(); con.close(); audit("APPOINTMENT_UPDATE",str(aid),self.current_user.get("username","")); refresh()
+        def start_session():
+            aid=selected_id()
+            if not aid: return
+            con=sqlite3.connect(DBFILE); row=con.execute("SELECT appointment_date,start_time,minutes,client_id,appointment_type FROM appointments WHERE id=?",(aid,)).fetchone(); con.close()
+            if not row: return
+            d,t,m,cid,typ=row
+            self.nav.setCurrentRow(1); app=QApplication.instance(); app.processEvents() if app else None
+            if hasattr(self,"s_date"): self.s_date.setDate(QDate.fromString(d,"yyyy-MM-dd")); self.s_start.setTime(QTime.fromString(t,"HH:mm")); self.s_end.setTime(QTime.fromString(t,"HH:mm").addSecs(int(m)*60)); self.s_type.setCurrentText(typ if typ in ["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"] else "Einzeltherapie")
+            if cid and hasattr(self,"client_pick"):
+                for n in range(self.client_pick.count()):
+                    data=self.client_pick.itemData(n)
+                    if isinstance(data,dict) and data.get("id")==cid: self.client_pick.setCurrentIndex(n); break
         def remove():
             if not self.require_edit(): return
             row=self.appt_list.currentRow()
@@ -531,7 +557,7 @@ class Main(QMainWindow):
             aid=self.appt_list.item(row,0).data(Qt.UserRole)
             if QMessageBox.question(self,"Termin löschen","Ausgewählten Termin wirklich löschen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
             con=sqlite3.connect(DBFILE); con.execute("DELETE FROM appointments WHERE id=?",(aid,)); con.commit(); con.close(); audit("APPOINTMENT_DELETE",str(aid),self.current_user.get("username","")); refresh()
-        save.clicked.connect(store); delete.clicked.connect(remove); self.appt_calendar.selectionChanged.connect(refresh)
+        save.clicked.connect(store); edit.clicked.connect(edit_selected); delete.clicked.connect(remove); start.clicked.connect(start_session); self.appt_calendar.selectionChanged.connect(refresh)
         today.clicked.connect(lambda: self.appt_calendar.setSelectedDate(QDate.currentDate())); prev.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(-1))); nxt.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(1)))
         refresh(); return page
 
