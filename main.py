@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.90"
+APP_VERSION = "0.11.91"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -2086,9 +2086,15 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); body=QWidget(); body.setMinimumWidth(0); v=QVBoxLayout(body); v.setContentsMargins(18,12,18,18); v.setSpacing(9)
         title=QLabel("Praxiseinstellungen"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Praxisdaten, Abrechnung, Honorare und Benutzer übersichtlich verwalten."); sub.setObjectName("pageSub"); v.addWidget(sub)
-        tabs=QTabWidget(); tabs.setDocumentMode(True); tabs.setMinimumHeight(440); v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
+        tabs=QTabWidget(); tabs.setDocumentMode(True); tabs.setMinimumHeight(440)
+        tabs.setStyleSheet("QTabBar::tab { min-width: 105px; padding-left: 10px; padding-right: 10px; }")
+        v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
         general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(16,14,16,20); gv.setSpacing(10)
-        form=QFormLayout(); form.setHorizontalSpacing(18); form.setVerticalSpacing(8); form.setLabelAlignment(Qt.AlignLeft|Qt.AlignVCenter); fields={}
+        form=QFormLayout(); form.setHorizontalSpacing(18); form.setVerticalSpacing(8); form.setLabelAlignment(Qt.AlignLeft|Qt.AlignVCenter)
+        # Feste, großzügige Beschriftungsspalte verhindert Überlagerungen in den Praxiseinstellungen.
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QFormLayout.DontWrapRows)
+        fields={}
         labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("address","Anschrift"),("phone","Telefon"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
         for key,label in labels:
             ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(32); fields[key]=ed; form.addRow(label,ed)
