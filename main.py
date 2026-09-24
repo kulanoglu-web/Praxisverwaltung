@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.95"
+APP_VERSION = "0.11.96"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -759,7 +759,7 @@ class Main(QMainWindow):
         row=QHBoxLayout(); row.setSpacing(6); row.setContentsMargins(0,0,0,0)
         session=QFrame(); session.setObjectName("formCard"); sg=QGridLayout(session); sg.setContentsMargins(10,8,10,10); sg.setHorizontalSpacing(7); sg.setVerticalSpacing(6)
         st=QLabel("▤  Sitzungsdaten"); st.setObjectName("sectionTitle"); sg.addWidget(st,0,0,1,3)
-        self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("Klient auswählen …")
+        self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("Klient auswählen …",None)
         for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.client_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
         newclient=QPushButton("＋ Neu"); newclient.setMinimumHeight(28); newclient.setMaximumWidth(72); newclient.clicked.connect(self.open_new_client_dialog)
         self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
@@ -800,6 +800,9 @@ class Main(QMainWindow):
                 self.s_last.setText(cc.get("last","")); self.s_first.setText(cc.get("first","")); self.s_dob.setText(cc.get("dob","")); self.s_phone.setText(cc.get("phone","")); self.s_email.setText(cc.get("email",""))
                 if hasattr(self,"session_diag"): self.session_diag.setText(cc.get("diagnosis",""))
         self.client_pick.currentIndexChanged.connect(picked)
+        # Beim Programmstart/Sitzungsformular niemals automatisch einen Klienten laden.
+        self.client_pick.blockSignals(True); self.client_pick.setCurrentIndex(0); self.client_pick.setEditText("Klient auswählen …"); self.client_pick.blockSignals(False)
+        for field in (self.s_last,self.s_first,self.s_dob,self.s_phone,self.s_email): field.clear()
         editclient.clicked.connect(self.edit_session_client)
 
         clinical=QFrame(); clinical.setObjectName("formCard"); cg=QGridLayout(clinical); cg.setContentsMargins(10,8,10,10); cg.setHorizontalSpacing(7); cg.setVerticalSpacing(8)
@@ -887,81 +890,58 @@ class Main(QMainWindow):
         QMessageBox.information(self,"Freihand-Notiz","Die Freihand-Notiz wurde verschlüsselt beim Klienten gespeichert.\n\n"+str(Path(enc).name))
 
     def ink_to_text(self):
-        """Handschrift lokal mit der Windows-OCR-Engine erkennen; keine Cloud-Übertragung."""
+        """Handschrift lokal mit Windows OCR erkennen."""
         if not hasattr(self,"ink") or self.ink.image.isNull():
             return QMessageBox.warning(self,"Handschrift erkennen","Keine Handschrift vorhanden.")
         tmp=Path(tempfile.gettempdir())/f"PraxisPro_OCR_{os.getpid()}_{int(time.time()*1000)}.png"
         src=self.ink.image
         work=src.convertToFormat(QImage.Format_Grayscale8).scaled(src.width()*2,src.height()*2,Qt.KeepAspectRatio,Qt.SmoothTransformation)
-        if not work.save(str(tmp),"PNG") or not tmp.is_file() or tmp.stat().st_size==0:
+        if not work.save(str(tmp),"PNG"):
             return QMessageBox.warning(self,"Handschrift erkennen","Die Zeichenfläche konnte nicht vorbereitet werden.")
         ps=r'''$ErrorActionPreference="Stop"
-$ImagePath=$env:PRAXISPRO_OCR_PATH
-if ([string]::IsNullOrWhiteSpace($ImagePath)) { throw "OCR-Bildpfad fehlt." }
-if (-not [System.IO.Path]::IsPathRooted($ImagePath)) { throw "OCR-Bildpfad ist nicht vollständig." }
-if (-not (Test-Path -LiteralPath $ImagePath -PathType Leaf)) { throw "OCR-Bilddatei wurde nicht gefunden." }
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
+$null=[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
 $null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
 function Await($op,$type) {
- $methods=[System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq "AsTask" -and $_.IsGenericMethod }
- $m=$methods | Where-Object { $_.GetParameters().Count -eq 1 -and $_.GetGenericArguments().Count -eq 1 } | Select-Object -First 1
- if ($null -eq $m) { throw "Windows Runtime AsTask-Methode nicht verfügbar." }
- $t=$m.MakeGenericMethod($type).Invoke($null,@($op))
- if ($null -eq $t) { throw "Windows Runtime OCR-Aufgabe konnte nicht erstellt werden." }
- while (-not $t.IsCompleted) { Start-Sleep -Milliseconds 15 }
- if ($t.IsFaulted) { throw $t.Exception.GetBaseException().Message }
- if ($t.IsCanceled) { throw "Windows Runtime OCR-Aufgabe wurde abgebrochen." }
- $t.GetType().GetProperty("Result").GetValue($t)
+  $asTask=([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {$_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1} | Select-Object -First 1)
+  $task=$asTask.MakeGenericMethod($type).Invoke($null,@($op))
+  $task.Wait()
+  return $task.Result
 }
-$f=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($ImagePath)) ([Windows.Storage.StorageFile])
-$s=Await ($f.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
-$d=Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($s)) ([Windows.Graphics.Imaging.BitmapDecoder])
-$b=Await ($d.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-$lang=New-Object Windows.Globalization.Language("de-DE")
-$e=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)
-if ($null -eq $e) { throw "Deutsche Windows-OCR-Sprachkomponente fehlt." }
-$r=Await ($e.RecognizeAsync($b)) ([Windows.Media.Ocr.OcrResult])
-[Console]::OutputEncoding=[System.Text.Encoding]::UTF8
-$r.Text
+$path=$env:PRAXISPRO_OCR_PATH
+$file=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
+$stream=Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+$decoder=Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$bitmap=Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$engine=[Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+if ($null -eq $engine) { throw 'Windows OCR ist auf diesem PC nicht verfügbar. Bitte unter Windows Sprache die OCR-/Handschriftkomponente installieren.' }
+$result=Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+[Console]::OutputEncoding=[Text.Encoding]::UTF8
+$result.Text
 '''
         try:
             env=os.environ.copy(); env["PRAXISPRO_OCR_PATH"]=str(tmp.resolve())
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            QApplication.processEvents()
-            run=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",ps],env=env,capture_output=True,text=True,encoding="utf-8-sig",errors="replace",timeout=45)
-            QApplication.restoreOverrideCursor()
+            QApplication.setOverrideCursor(Qt.WaitCursor); QApplication.processEvents()
+            run=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",ps],env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
             recognized=run.stdout.strip()
-            recognized=re.sub(r"(?i)\\bF\\s*([0-9]{2})\\s*[,;:]\\s*([0-9])\\b",r"F\\1.\\2",recognized)
-            recognized=re.sub(r"(?i)\\bF\\s+([0-9]{2}(?:\\.[0-9])?)\\b",r"F\\1",recognized)
-            recognized=re.sub(r"(?i)\\bptbs\\b","PTBS",recognized)
-            recognized=re.sub(r"(?i)\\badhs\\b","ADHS",recognized)
-            recognized=re.sub(r"(?i)\\bangste\\b","Ängste",recognized)
-            recognized=re.sub(r"(?i)\\bschlafstorung\\b","Schlafstörung",recognized)
-            recognized=re.sub(r"(?i)\\bzwange\\b","Zwänge",recognized)
-            recognized="\\n".join(re.sub(r"[ \\t]{2,}"," ",line).strip() for line in recognized.splitlines()).strip()
             if run.returncode!=0 or not recognized:
-                detail=(run.stderr or run.stdout or "Keine Schrift erkannt.").strip()[:700]
-                audit("INK_OCR_ERROR",f"returncode={run.returncode}; {detail}",self.current_user.get("username","") if self.current_user else "")
-                return QMessageBox.warning(self,"Handschrift erkennen","Windows konnte die Handschrift nicht erkennen.\\n\\n"+detail)
+                detail=(run.stderr or "Keine Schrift erkannt.").strip()[:900]
+                audit("INK_OCR_ERROR",detail,self.current_user.get("username","") if self.current_user else "")
+                return QMessageBox.warning(self,"Handschrift erkennen","OCR konnte keinen Text liefern.\n\n"+detail)
             dlg=QDialog(self); dlg.setWindowTitle("Handschrift → Text prüfen"); dlg.resize(720,500); v=QVBoxLayout(dlg)
-            info=QLabel("Lokale OCR (Deutsch) · Original-Handschrift bleibt erhalten. Erkannter Text bitte prüfen und bei Bedarf korrigieren."); info.setWordWrap(True); v.addWidget(info)
+            v.addWidget(QLabel("Erkannten Text prüfen und bei Bedarf korrigieren:"))
             edit=QTextEdit(); edit.setPlainText(recognized); v.addWidget(edit,1)
             buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); buttons.button(QDialogButtonBox.Save).setText("In Therapienotiz übernehmen"); v.addWidget(buttons)
             def accept_text():
                 cleaned=edit.toPlainText().strip()
                 if cleaned:
-                    self.current_ocr_text=cleaned; existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\\n\\n" if existing else "")+cleaned)
-                    audit("INK_OCR_TO_NOTE","Handschrift lokal erkannt und nach Prüfung übernommen.",self.current_user.get("username","") if self.current_user else "")
+                    existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+cleaned)
                 dlg.accept()
             buttons.accepted.connect(accept_text); buttons.rejected.connect(dlg.reject); dlg.exec()
-        except subprocess.TimeoutExpired:
-            if QApplication.overrideCursor() is not None: QApplication.restoreOverrideCursor()
-            QMessageBox.warning(self,"Handschrift erkennen","Die lokale Handschrifterkennung hat zu lange benötigt.")
         except Exception as e:
-            if QApplication.overrideCursor() is not None: QApplication.restoreOverrideCursor()
-            audit("INK_OCR_EXCEPTION",str(e)[:700],self.current_user.get("username","") if self.current_user else "")
-            QMessageBox.warning(self,"Handschrift erkennen","Die lokale Handschrifterkennung konnte nicht gestartet werden.\\n\\n"+str(e)[:700])
+            audit("INK_OCR_EXCEPTION",str(e)[:900],self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.warning(self,"Handschrift erkennen","OCR-Fehler:\n\n"+str(e)[:900])
         finally:
             if QApplication.overrideCursor() is not None: QApplication.restoreOverrideCursor()
             try: tmp.unlink(missing_ok=True)
