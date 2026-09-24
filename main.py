@@ -551,8 +551,7 @@ class Main(QMainWindow):
             kind=self.couple_note_type.currentText()
             if kind.startswith("Vertraulich"):
                 answer=QMessageBox.question(self,"Vertrauliche Partnernotiz","Diese Notiz wird ausschließlich im vertraulichen Bereich gespeichert und nicht im gemeinsamen Verlauf angezeigt. Speichern?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
-                if answer!=QMessageBox.Yes:
-                    return
+                if answer!=QMessageBox.Yes: return
             con=sqlite3.connect(DBFILE)
             con.execute("INSERT INTO couple_notes(couple_id,created_at,note_type,note_text,username) VALUES(?,?,?,?,?)",(cid,datetime.now().isoformat(timespec="seconds"),kind,encrypt_text(txt),self.current_user.get("username","")))
             con.commit(); con.close(); audit("COUPLE_NOTE",f"Paarakte #{cid}: {kind}",self.current_user.get("username","")); self.couple_note.clear(); refresh_history()
