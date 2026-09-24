@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.88"
+APP_VERSION = "0.11.89"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1559,16 +1559,25 @@ $r.Text
                 if "PraxisArialBold" not in pdfmetrics.getRegisteredFontNames(): pdfmetrics.registerFont(TTFont("PraxisArialBold",str(arial_b)))
                 bold="PraxisArialBold"
         except Exception: pass
+        # DIN-5008-Falzmarken für DIN-lang-Briefumschläge: drei kurze Marken links.
+        can.saveState()
+        can.setStrokeColor(HexColor("#6f7f8c")); can.setLineWidth(.55)
+        for fold_y in (H-105*mm, H-148.5*mm, H-210*mm):
+            can.line(8*mm,fold_y,13*mm,fold_y)
+        can.restoreState()
         logo_path=practice_logo_path()
         if logo_path:
-            try: from reportlab.lib.utils import ImageReader
+            try:
+                from reportlab.lib.utils import ImageReader
                 logo_img=ImageReader(str(logo_path))
                 iw,ih=logo_img.getSize()
-                max_w,max_h=230,82
+                max_w,max_h=58*mm,27*mm
                 scale=min(max_w/max(1,iw),max_h/max(1,ih))
                 dw,dh=iw*scale,ih*scale
-                can.drawImage(logo_img,(W-dw)/2,H-42-dh,width=dw,height=dh,preserveAspectRatio=True,mask="auto")
-            except Exception: pass
+                # Praxislogo oben rechts statt mittig.
+                can.drawImage(logo_img,W-18*mm-dw,H-12*mm-dh,width=dw,height=dh,preserveAspectRatio=True,mask="auto")
+            except Exception as logo_error:
+                audit("INVOICE_LOGO_ERROR",str(logo_error)[:500],self.current_user.get("username","") if self.current_user else "")
         owner=get_setting("owner_name","Erdoğan Kulanoğlu"); address=get_setting("address","")
         can.setFillColor(HexColor("#000000")); can.setFont(regular,7)
         sender=f"{owner} · {address}"; can.drawString(50,H-158,sender); can.line(50,H-160,50+can.stringWidth(sender,regular,7),H-160)
