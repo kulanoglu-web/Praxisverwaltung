@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.96"
+APP_VERSION = "0.11.97"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1059,27 +1059,30 @@ $result.Text
         }
         # Verdachtsfall-Screening: eigene strukturierte Explorationsfragen, keine automatische Diagnose.
         # Paartherapie: zwei getrennte Perspektiven, gemeinsame Ziele und Sicherheitsklärung.
-        couple=QFrame(); couple.setObjectName("formCard"); cv=QVBoxLayout(couple); ch=QHBoxLayout(); ch.addWidget(QLabel("Paartherapie – getrennte Perspektiven")); ch.addStretch()
+        couple=QFrame(); couple.setObjectName("formCard"); cv=QVBoxLayout(couple); cv.setContentsMargins(14,12,14,12); cv.setSpacing(10)
+        ch=QHBoxLayout(); pair_title=QLabel("Paartherapie"); pair_title.setProperty("class","sectionTitle"); ch.addWidget(pair_title); ch.addStretch()
         self.couple_mode=QCheckBox("Paarmodus aktiv"); ch.addWidget(self.couple_mode); cv.addLayout(ch)
-        names=QHBoxLayout(); self.partner_a=QLineEdit(); self.partner_a.setPlaceholderText("Partner A / Name"); self.partner_b=QLineEdit(); self.partner_b.setPlaceholderText("Partner B / Name"); names.addWidget(self.partner_a); names.addWidget(self.partner_b); cv.addLayout(names)
-        cols=QHBoxLayout(); self.partner_a_view=QTextEdit(); self.partner_a_view.setPlaceholderText("Sicht Partner A: Anliegen, Wünsche, Verletzungen, Ressourcen …"); self.partner_b_view=QTextEdit(); self.partner_b_view.setPlaceholderText("Sicht Partner B: Anliegen, Wünsche, Verletzungen, Ressourcen …"); self.partner_a_view.setMaximumHeight(115); self.partner_b_view.setMaximumHeight(115); cols.addWidget(self.partner_a_view); cols.addWidget(self.partner_b_view); cv.addLayout(cols)
+        pair_intro=QLabel("Getrennte Perspektiven nur bei Bedarf einblenden."); pair_intro.setObjectName("pageSub"); cv.addWidget(pair_intro)
+        pair_body=QWidget(); pair_body.setVisible(False); pair_body_layout=QVBoxLayout(pair_body); pair_body_layout.setContentsMargins(0,0,0,0); pair_body_layout.setSpacing(10)
+        names=QHBoxLayout(); self.partner_a=QLineEdit(); self.partner_a.setPlaceholderText("Partner A / Name"); self.partner_b=QLineEdit(); self.partner_b.setPlaceholderText("Partner B / Name"); names.addWidget(self.partner_a); names.addWidget(self.partner_b); pair_body_layout.addLayout(names)
+        cols=QHBoxLayout(); self.partner_a_view=QTextEdit(); self.partner_a_view.setPlaceholderText("Sicht Partner A: Anliegen, Wünsche, Verletzungen, Ressourcen …"); self.partner_b_view=QTextEdit(); self.partner_b_view.setPlaceholderText("Sicht Partner B: Anliegen, Wünsche, Verletzungen, Ressourcen …"); self.partner_a_view.setMaximumHeight(115); self.partner_b_view.setMaximumHeight(115); cols.addWidget(self.partner_a_view); cols.addWidget(self.partner_b_view); pair_body_layout.addLayout(cols)
         ratings=QGridLayout(); ratings.addWidget(QLabel("Getrennte Einschätzung (0–10)"),0,0,1,5)
         self.couple_a_distress=QSpinBox(); self.couple_a_distress.setRange(0,10); self.couple_b_distress=QSpinBox(); self.couple_b_distress.setRange(0,10)
         self.couple_a_hope=QSpinBox(); self.couple_a_hope.setRange(0,10); self.couple_b_hope=QSpinBox(); self.couple_b_hope.setRange(0,10)
         ratings.addWidget(QLabel("Belastung"),1,0); ratings.addWidget(QLabel("A"),1,1); ratings.addWidget(self.couple_a_distress,1,2); ratings.addWidget(QLabel("B"),1,3); ratings.addWidget(self.couple_b_distress,1,4)
-        ratings.addWidget(QLabel("Zuversicht"),2,0); ratings.addWidget(QLabel("A"),2,1); ratings.addWidget(self.couple_a_hope,2,2); ratings.addWidget(QLabel("B"),2,3); ratings.addWidget(self.couple_b_hope,2,4); cv.addLayout(ratings)
+        ratings.addWidget(QLabel("Zuversicht"),2,0); ratings.addWidget(QLabel("A"),2,1); ratings.addWidget(self.couple_a_hope,2,2); ratings.addWidget(QLabel("B"),2,3); ratings.addWidget(self.couple_b_hope,2,4); pair_body_layout.addLayout(ratings)
         # Getrennte A/B-Paarfragebögen: dieselben Dimensionen unabhängig einschätzen.
         self.couple_question_rows=[]
         pair_questions=["Ich fühle mich von meinem Partner verstanden.","Wir können Konflikte beenden, ohne uns gegenseitig abzuwerten.","Ich kann Bedürfnisse und Grenzen offen ansprechen.","Ich erlebe ausreichend emotionale Nähe und Verbundenheit.","Vertrauen ist in unserer Beziehung vorhanden.","Wir finden nach Verletzungen wieder zueinander.","Wir können als Eltern / Bezugspersonen kooperieren, sofern relevant."]
         pq=QGridLayout(); pq.addWidget(QLabel("Getrennter Paarfragebogen · 0 = trifft gar nicht zu · 10 = trifft völlig zu"),0,0,1,3); pq.addWidget(QLabel("A"),1,1); pq.addWidget(QLabel("B"),1,2)
         for n,q in enumerate(pair_questions,2):
             a=QSpinBox(); b=QSpinBox(); a.setRange(-1,10); b.setRange(-1,10); a.setSpecialValueText("–"); b.setSpecialValueText("–"); a.setValue(-1); b.setValue(-1); self.couple_question_rows.append((q,a,b)); pq.addWidget(QLabel(q),n,0); pq.addWidget(a,n,1); pq.addWidget(b,n,2)
-        cv.addLayout(pq)
-        self.couple_cycle=QLineEdit(); self.couple_cycle.setPlaceholderText("Wiederkehrender Interaktions-/Eskalationskreislauf …"); cv.addWidget(self.couple_cycle)
-        self.couple_goal=QLineEdit(); self.couple_goal.setPlaceholderText("Gemeinsames Ziel / Auftrag des Paares …"); cv.addWidget(self.couple_goal)
-        self.couple_resources=QLineEdit(); self.couple_resources.setPlaceholderText("Gemeinsame Ressourcen / positive Ausnahmen …"); cv.addWidget(self.couple_resources)
-        cr=QHBoxLayout(); self.couple_violence=QCheckBox("Hinweis auf Gewalt / Drohung / Zwang / Kontrolle"); self.couple_children=QCheckBox("Kinder / Elternebene betroffen"); cr.addWidget(self.couple_violence); cr.addWidget(self.couple_children); cr.addStretch(); cv.addLayout(cr)
-        couplehint=QLabel("Bei Gewalt, Zwang oder akuter Gefährdung: Sicherheit und getrennte Risikoabklärung vor üblichen Paarinterventionen priorisieren."); couplehint.setWordWrap(True); cv.addWidget(couplehint); v.addWidget(couple)
+        pair_body_layout.addLayout(pq)
+        self.couple_cycle=QLineEdit(); self.couple_cycle.setPlaceholderText("Wiederkehrender Interaktions-/Eskalationskreislauf …"); pair_body_layout.addWidget(self.couple_cycle)
+        self.couple_goal=QLineEdit(); self.couple_goal.setPlaceholderText("Gemeinsames Ziel / Auftrag des Paares …"); pair_body_layout.addWidget(self.couple_goal)
+        self.couple_resources=QLineEdit(); self.couple_resources.setPlaceholderText("Gemeinsame Ressourcen / positive Ausnahmen …"); pair_body_layout.addWidget(self.couple_resources)
+        cr=QHBoxLayout(); self.couple_violence=QCheckBox("Hinweis auf Gewalt / Drohung / Zwang / Kontrolle"); self.couple_children=QCheckBox("Kinder / Elternebene betroffen"); cr.addWidget(self.couple_violence); cr.addWidget(self.couple_children); cr.addStretch(); pair_body_layout.addLayout(cr)
+        couplehint=QLabel("Bei Gewalt, Zwang oder akuter Gefährdung: Sicherheit und getrennte Risikoabklärung vor üblichen Paarinterventionen priorisieren."); couplehint.setWordWrap(True); pair_body_layout.addWidget(couplehint); pair_body_layout.addWidget(couplehint); cv.addWidget(pair_body); self.couple_mode.toggled.connect(pair_body.setVisible); v.addWidget(couple)
         screening_catalog={
           "Depressive Beschwerden":["Besteht seit mindestens zwei Wochen an den meisten Tagen eine deutlich gedrückte Stimmung?","Besteht deutlich weniger Interesse oder Freude an sonst wichtigen Aktivitäten?","Sind Antrieb oder Energie deutlich vermindert?","Bestehen Schlaf-, Appetit- oder Konzentrationsveränderungen?","Bestehen Hoffnungslosigkeit, starke Schuldgefühle oder Gedanken, nicht mehr leben zu wollen?"],
           "Angst / Panik":["Treten wiederholt plötzlich starke Angstspitzen auf?","Bestehen dabei deutliche körperliche Symptome wie Herzrasen, Atemnot, Zittern oder Schwindel?","Besteht anhaltende Sorge vor weiteren Anfällen?","Werden Situationen aus Angst vermieden?","Wie stark beeinträchtigt dies Alltag, Arbeit oder Beziehungen?"],
