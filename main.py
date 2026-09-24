@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.74"
+APP_VERSION = "0.11.75"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -118,6 +118,12 @@ def init_sqlite():
       type TEXT, reduced INTEGER DEFAULT 0, amount REAL,
       FOREIGN KEY(invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
       FOREIGN KEY(session_id) REFERENCES sessions(id));
+    CREATE TABLE IF NOT EXISTS appointments(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, appointment_date TEXT NOT NULL, start_time TEXT NOT NULL,
+      minutes INTEGER DEFAULT 45, client_id INTEGER, couple_id INTEGER, appointment_type TEXT,
+      status TEXT DEFAULT 'geplant', note TEXT, created_at TEXT NOT NULL, username TEXT,
+      FOREIGN KEY(client_id) REFERENCES clients(id));
+    CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(appointment_date,start_time);
     CREATE TABLE IF NOT EXISTS couples(
       id INTEGER PRIMARY KEY AUTOINCREMENT, partner_a_client_id INTEGER, partner_b_client_id INTEGER,
       partner_a_name TEXT, partner_b_name TEXT, status TEXT DEFAULT 'aktiv', created_at TEXT NOT NULL,
@@ -373,7 +379,7 @@ class Main(QMainWindow):
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(195); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
         brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
-        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","♥  Paarakte","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Hilfe · FAQ · Info"]: self.nav.addItem(x)
+        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","♥  Paarakte","▦  Terminkalender","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Hilfe · FAQ · Info"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
         foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); sv.addWidget(foot)
         content=QWidget(); contentv=QVBoxLayout(content); contentv.setContentsMargins(0,0,0,0); contentv.setSpacing(0)
@@ -384,7 +390,7 @@ class Main(QMainWindow):
             px=QPixmap(str(logo_path))
             if not px.isNull(): self.top_logo.setPixmap(px.scaled(220,46,Qt.KeepAspectRatio,Qt.SmoothTransformation))
         tb.addWidget(self.top_logo); contentv.addWidget(topbar)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui()); contentv.addWidget(self.pages,1)
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui()); contentv.addWidget(self.pages,1)
         self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(content,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -467,7 +473,7 @@ class Main(QMainWindow):
     def is_admin(self): return self.role()=="Administrator"
     def navigate(self,index):
         # Einstellungen mit Benutzer-/Sicherheitsverwaltung nur für Administratoren.
-        if index==8 and not self.is_admin():
+        if index==9 and not self.is_admin():
             QMessageBox.warning(self,"Keine Berechtigung","Praxiseinstellungen und Benutzerverwaltung sind Administratoren vorbehalten.")
             self.nav.blockSignals(True); self.nav.setCurrentRow(self.pages.currentIndex()); self.nav.blockSignals(False); return
         self.pages.setCurrentIndex(index)
@@ -475,6 +481,38 @@ class Main(QMainWindow):
         if self.can_edit(): return True
         QMessageBox.warning(self,"Nur Lesen","Dieser Benutzer hat nur Leserechte und kann keine Daten verändern.")
         return False
+
+    def calendar_ui(self):
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
+        title=QLabel("Terminkalender"); title.setProperty("class","pageTitle"); v.addWidget(title)
+        form=QHBoxLayout()
+        self.appt_date=QDateEdit(QDate.currentDate()); self.appt_date.setCalendarPopup(True); self.appt_date.setDisplayFormat("dd.MM.yyyy")
+        self.appt_time=QTimeEdit(QTime.currentTime()); self.appt_time.setDisplayFormat("HH:mm")
+        self.appt_minutes=QSpinBox(); self.appt_minutes.setRange(5,300); self.appt_minutes.setValue(45); self.appt_minutes.setSuffix(" Min.")
+        self.appt_type=QComboBox(); self.appt_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstiger Termin"])
+        form.addWidget(self.appt_date); form.addWidget(self.appt_time); form.addWidget(self.appt_minutes); form.addWidget(self.appt_type); v.addLayout(form)
+        row=QHBoxLayout(); self.appt_client=QComboBox(); self.appt_client.addItem("Klient optional",None)
+        con=sqlite3.connect(DBFILE)
+        for cid,first,last in con.execute("SELECT id,first,last FROM clients ORDER BY id DESC").fetchall():
+            self.appt_client.addItem((decrypt_text(first)+" "+decrypt_text(last)).strip(),cid)
+        con.close(); row.addWidget(self.appt_client,1)
+        self.appt_status=QComboBox(); self.appt_status.addItems(["geplant","erschienen","abgesagt","ausgefallen"]); row.addWidget(self.appt_status); v.addLayout(row)
+        self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Kurze interne Terminnotiz (verschlüsselt)"); v.addWidget(self.appt_note)
+        actions=QHBoxLayout(); save=QPushButton("Termin speichern"); today=QPushButton("Heute"); actions.addWidget(save); actions.addWidget(today); actions.addStretch(); v.addLayout(actions)
+        self.appt_list=QTableWidget(0,5); self.appt_list.setHorizontalHeaderLabels(["Datum","Zeit","Dauer","Klient","Status"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); v.addWidget(self.appt_list,1)
+        def refresh():
+            con=sqlite3.connect(DBFILE); rows=con.execute("SELECT a.appointment_date,a.start_time,a.minutes,c.first,c.last,a.status FROM appointments a LEFT JOIN clients c ON c.id=a.client_id ORDER BY a.appointment_date,a.start_time").fetchall(); con.close()
+            self.appt_list.setRowCount(len(rows))
+            for r,(d,t,m,first,last,status) in enumerate(rows):
+                name=((decrypt_text(first) if first else "")+" "+(decrypt_text(last) if last else "")).strip()
+                for col,val in enumerate([d,t,str(m)+" Min.",name,status]): self.appt_list.setItem(r,col,QTableWidgetItem(str(val)))
+        def store():
+            if not self.require_edit(): return
+            d=self.appt_date.date().toString("yyyy-MM-dd"); t=self.appt_time.time().toString("HH:mm"); cid=self.appt_client.currentData()
+            con=sqlite3.connect(DBFILE); con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,appointment_type,status,note,created_at,username) VALUES(?,?,?,?,?,?,?,?,?)",(d,t,self.appt_minutes.value(),cid,self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),datetime.now().isoformat(timespec="seconds"),self.current_user.get("username",""))); con.commit(); con.close()
+            audit("APPOINTMENT_CREATE",d+" "+t,self.current_user.get("username","")); self.appt_note.clear(); refresh()
+        save.clicked.connect(store); today.clicked.connect(lambda: self.appt_date.setDate(QDate.currentDate())); refresh()
+        return page
 
     def couples_ui(self):
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
