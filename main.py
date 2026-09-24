@@ -3,7 +3,7 @@ import subprocess, json, os, re, math, shutil, sqlite3, base64, hashlib, tempfil
 from pathlib import Path
 from datetime import datetime, date
 from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent
-from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider,QSizePolicy)
+from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider,QSizePolicy,QCalendarWidget)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QImage, QPainter, QPen, QPixmap, QDesktopServices
 from reportlab.lib.pagesizes import A4
@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.76"
+APP_VERSION = "0.11.77"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -485,34 +485,55 @@ class Main(QMainWindow):
     def calendar_ui(self):
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
         title=QLabel("Terminkalender"); title.setProperty("class","pageTitle"); v.addWidget(title)
-        form=QHBoxLayout()
+        split=QSplitter(); left=QWidget(); lv=QVBoxLayout(left); right=QWidget(); rv=QVBoxLayout(right)
+        self.appt_calendar=QCalendarWidget(); self.appt_calendar.setGridVisible(True); lv.addWidget(self.appt_calendar)
+        quick=QHBoxLayout(); prev=QPushButton("‹ Tag"); today=QPushButton("Heute"); nxt=QPushButton("Tag ›"); quick.addWidget(prev); quick.addWidget(today); quick.addWidget(nxt); lv.addLayout(quick)
         self.appt_date=QDateEdit(QDate.currentDate()); self.appt_date.setCalendarPopup(True); self.appt_date.setDisplayFormat("dd.MM.yyyy")
         self.appt_time=QTimeEdit(QTime.currentTime()); self.appt_time.setDisplayFormat("HH:mm")
         self.appt_minutes=QSpinBox(); self.appt_minutes.setRange(5,300); self.appt_minutes.setValue(45); self.appt_minutes.setSuffix(" Min.")
         self.appt_type=QComboBox(); self.appt_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstiger Termin"])
-        form.addWidget(self.appt_date); form.addWidget(self.appt_time); form.addWidget(self.appt_minutes); form.addWidget(self.appt_type); v.addLayout(form)
-        row=QHBoxLayout(); self.appt_client=QComboBox(); self.appt_client.addItem("Klient optional",None)
+        form=QFormLayout(); form.addRow("Datum",self.appt_date); form.addRow("Beginn",self.appt_time); form.addRow("Dauer",self.appt_minutes); form.addRow("Terminart",self.appt_type)
+        self.appt_client=QComboBox(); self.appt_client.addItem("Klient optional",None)
+        self.appt_couple=QComboBox(); self.appt_couple.addItem("Paarakte optional",None)
         con=sqlite3.connect(DBFILE)
-        for cid,first,last in con.execute("SELECT id,first,last FROM clients ORDER BY id DESC").fetchall():
-            self.appt_client.addItem((decrypt_text(first)+" "+decrypt_text(last)).strip(),cid)
-        con.close(); row.addWidget(self.appt_client,1)
-        self.appt_status=QComboBox(); self.appt_status.addItems(["geplant","erschienen","abgesagt","ausgefallen"]); row.addWidget(self.appt_status); v.addLayout(row)
-        self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Kurze interne Terminnotiz (verschlüsselt)"); v.addWidget(self.appt_note)
-        actions=QHBoxLayout(); save=QPushButton("Termin speichern"); today=QPushButton("Heute"); actions.addWidget(save); actions.addWidget(today); actions.addStretch(); v.addLayout(actions)
-        self.appt_list=QTableWidget(0,5); self.appt_list.setHorizontalHeaderLabels(["Datum","Zeit","Dauer","Klient","Status"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); v.addWidget(self.appt_list,1)
+        for cid,first,last in con.execute("SELECT id,first,last FROM clients ORDER BY id DESC").fetchall(): self.appt_client.addItem((decrypt_text(first)+" "+decrypt_text(last)).strip(),cid)
+        for cid,a,b in con.execute("SELECT id,partner_a_name,partner_b_name FROM couples WHERE status='aktiv' ORDER BY id DESC").fetchall(): self.appt_couple.addItem("#"+str(cid)+" "+decrypt_text(a)+" + "+decrypt_text(b),cid)
+        con.close()
+        form.addRow("Klient",self.appt_client); form.addRow("Paarakte",self.appt_couple)
+        self.appt_status=QComboBox(); self.appt_status.addItems(["geplant","erschienen","abgesagt","ausgefallen"]); form.addRow("Status",self.appt_status)
+        self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Interne Terminnotiz – verschlüsselt"); form.addRow("Notiz",self.appt_note); rv.addLayout(form)
+        actions=QHBoxLayout(); save=QPushButton("Termin speichern"); delete=QPushButton("Termin löschen"); actions.addWidget(save); actions.addWidget(delete); rv.addLayout(actions)
+        split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); v.addWidget(split)
+        self.appt_day_title=QLabel(); self.appt_day_title.setProperty("class","sectionTitle"); v.addWidget(self.appt_day_title)
+        self.appt_list=QTableWidget(0,6); self.appt_list.setHorizontalHeaderLabels(["Zeit","Dauer","Art","Klient / Paar","Status","Notiz"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.appt_list.setSelectionBehavior(QTableWidget.SelectRows); v.addWidget(self.appt_list,1)
         def refresh():
-            con=sqlite3.connect(DBFILE); rows=con.execute("SELECT a.appointment_date,a.start_time,a.minutes,c.first,c.last,a.status FROM appointments a LEFT JOIN clients c ON c.id=a.client_id ORDER BY a.appointment_date,a.start_time").fetchall(); con.close()
+            d=self.appt_calendar.selectedDate().toString("yyyy-MM-dd"); self.appt_date.setDate(self.appt_calendar.selectedDate()); self.appt_day_title.setText("Termine am "+self.appt_calendar.selectedDate().toString("dd.MM.yyyy"))
+            con=sqlite3.connect(DBFILE); rows=con.execute("SELECT a.id,a.start_time,a.minutes,a.appointment_type,c.first,c.last,a.couple_id,a.status,a.note FROM appointments a LEFT JOIN clients c ON c.id=a.client_id WHERE a.appointment_date=? ORDER BY a.start_time",(d,)).fetchall(); con.close()
             self.appt_list.setRowCount(len(rows))
-            for r,(d,t,m,first,last,status) in enumerate(rows):
+            for r,(aid,t,m,typ,first,last,couple,status,note) in enumerate(rows):
                 name=((decrypt_text(first) if first else "")+" "+(decrypt_text(last) if last else "")).strip()
-                for col,val in enumerate([d,t,str(m)+" Min.",name,status]): self.appt_list.setItem(r,col,QTableWidgetItem(str(val)))
+                if couple: name=(name+" · " if name else "")+"Paarakte #"+str(couple)
+                vals=[t,str(m)+" Min.",typ or "",name,status,decrypt_text(note)]
+                for col,val in enumerate(vals): self.appt_list.setItem(r,col,QTableWidgetItem(str(val)))
+                self.appt_list.item(r,0).setData(Qt.UserRole,aid)
         def store():
             if not self.require_edit(): return
-            d=self.appt_date.date().toString("yyyy-MM-dd"); t=self.appt_time.time().toString("HH:mm"); cid=self.appt_client.currentData()
-            con=sqlite3.connect(DBFILE); con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,appointment_type,status,note,created_at,username) VALUES(?,?,?,?,?,?,?,?,?)",(d,t,self.appt_minutes.value(),cid,self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),datetime.now().isoformat(timespec="seconds"),self.current_user.get("username",""))); con.commit(); con.close()
-            audit("APPOINTMENT_CREATE",d+" "+t,self.current_user.get("username","")); self.appt_note.clear(); refresh()
-        save.clicked.connect(store); today.clicked.connect(lambda: self.appt_date.setDate(QDate.currentDate())); refresh()
-        return page
+            d=self.appt_date.date().toString("yyyy-MM-dd"); t=self.appt_time.time().toString("HH:mm"); cid=self.appt_client.currentData(); couple=self.appt_couple.currentData()
+            if cid and couple: QMessageBox.warning(self,"Termin","Bitte entweder Klient oder Paarakte zuordnen, nicht beides."); return
+            con=sqlite3.connect(DBFILE); conflict=con.execute("SELECT id FROM appointments WHERE appointment_date=? AND start_time=? AND status='geplant'",(d,t)).fetchone()
+            if conflict: con.close(); QMessageBox.warning(self,"Terminkonflikt","Zu dieser Uhrzeit besteht bereits ein geplanter Termin."); return
+            con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,couple_id,appointment_type,status,note,created_at,username) VALUES(?,?,?,?,?,?,?,?,?,?)",(d,t,self.appt_minutes.value(),cid,couple,self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),datetime.now().isoformat(timespec="seconds"),self.current_user.get("username",""))); con.commit(); con.close()
+            audit("APPOINTMENT_CREATE",d+" "+t,self.current_user.get("username","")); self.appt_note.clear(); self.appt_calendar.setSelectedDate(self.appt_date.date()); refresh()
+        def remove():
+            if not self.require_edit(): return
+            row=self.appt_list.currentRow()
+            if row<0: return
+            aid=self.appt_list.item(row,0).data(Qt.UserRole)
+            if QMessageBox.question(self,"Termin löschen","Ausgewählten Termin wirklich löschen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            con=sqlite3.connect(DBFILE); con.execute("DELETE FROM appointments WHERE id=?",(aid,)); con.commit(); con.close(); audit("APPOINTMENT_DELETE",str(aid),self.current_user.get("username","")); refresh()
+        save.clicked.connect(store); delete.clicked.connect(remove); self.appt_calendar.selectionChanged.connect(refresh)
+        today.clicked.connect(lambda: self.appt_calendar.setSelectedDate(QDate.currentDate())); prev.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(-1))); nxt.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(1)))
+        refresh(); return page
 
     def couples_ui(self):
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
