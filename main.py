@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import HexColor
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.11.93"
+APP_VERSION = "0.11.94"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1697,7 +1697,16 @@ $r.Text
         self.manual_items=[]; self.iteminfo.setText("Noch keine zusätzlichen Leistungen")
         if hasattr(self,"itemtable"): self.itemtable.setRowCount(0)
         save_data(); update_excel(); self.i_no.setText(next_no())
-        QMessageBox.information(self,"Fertig",f"PDF gespeichert:\n{pdf}")
+        done=QMessageBox(self); done.setIcon(QMessageBox.Information); done.setWindowTitle("Rechnung erstellt")
+        done.setText("Die PDF-Rechnung wurde erfolgreich erstellt.")
+        done.setInformativeText(str(pdf))
+        open_folder=done.addButton("Ordner öffnen",QMessageBox.ActionRole)
+        open_pdf=done.addButton("PDF öffnen",QMessageBox.ActionRole)
+        done.addButton("Schließen",QMessageBox.RejectRole); done.exec()
+        if done.clickedButton()==open_folder:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(pdf).parent)))
+        elif done.clickedButton()==open_pdf:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(pdf)))
     def new_client_page(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(16)
         title=QLabel("Neuen Klienten anlegen"); title.setObjectName("pageTitle"); v.addWidget(title)
