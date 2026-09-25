@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.12.2"
+APP_VERSION = "0.12.3"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1175,7 +1175,7 @@ $result.Text
         self.screening_btn.clicked.connect(load_screening)
         symptom_box=QFrame(); symptom_box.setObjectName("formCard"); symptom_box.setMinimumWidth(0); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
         self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(105); self.symptom_list.setMaximumHeight(170); self.symptom_list.setAlternatingRowColors(True); self.symptom_list.setToolTip("Mehrere Symptome mit Strg/Klick oder durch Ziehen auswählen. Doppelklick übernimmt ein einzelnes Symptom direkt in die Therapienotiz."); sb.addWidget(self.symptom_list)
-        sr=QHBoxLayout(); self.sym_custom=QLineEdit(); self.sym_custom.setPlaceholderText("Weiteres Symptom ergänzen …"); add_sym=QPushButton("＋ Symptom"); transfer_sym=QPushButton("✓ Auswahl in Therapienotiz übernehmen"); sr.addWidget(self.sym_custom,1); sr.addWidget(add_sym); sr.addWidget(transfer_sym); sb.addLayout(sr)
+        sr=QHBoxLayout(); self.sym_custom=QLineEdit(); self.sym_custom.setPlaceholderText("Weiteres Symptom ergänzen …"); add_sym=QPushButton("＋ Symptom"); transfer_sym=QPushButton("✓ Auswahl in Therapienotiz übernehmen"); transfer_all=QPushButton("↗ Zusammenfassung übernehmen"); sr.addWidget(self.sym_custom,1); sr.addWidget(add_sym); sr.addWidget(transfer_sym); sr.addWidget(transfer_all); sb.addLayout(sr)
         def add_custom_symptom():
             t=self.sym_custom.text().strip()
             if t: self.symptom_list.addItem(t); self.symptom_list.item(self.symptom_list.count()-1).setSelected(True); self.sym_custom.clear()
@@ -1188,7 +1188,16 @@ $result.Text
             if hasattr(self,"notes"):
                 existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+block)
                 QMessageBox.information(self,"Therapienotiz","Die ausgewählten Symptome wurden in die Therapienotiz übernommen.")
-        transfer_sym.clicked.connect(transfer_selected_symptoms); v.addWidget(symptom_box)
+        transfer_sym.clicked.connect(transfer_selected_symptoms)
+        def transfer_assistant_summary():
+            if not hasattr(self,"notes") or not hasattr(self,"help_text"): return
+            summary=self.help_text.toPlainText().strip()
+            if not summary: return QMessageBox.information(self,"Sitzungsassistent","Noch keine Zusammenfassung vorhanden.")
+            existing=self.notes.toPlainText().rstrip()
+            self.notes.setPlainText((existing+"\n\n" if existing else "")+"--- Sitzungsassistent ---\n"+summary)
+            self.notes.moveCursor(self.notes.textCursor().End)
+            QMessageBox.information(self,"Therapienotiz","Die Zusammenfassung wurde an die Therapienotiz angehängt.")
+        transfer_all.clicked.connect(transfer_assistant_summary); v.addWidget(symptom_box)
         def load_symptoms():
             self.symptom_list.clear(); vals=symptom_catalog.get(self.help_topic.currentText(),[])
             if not vals: vals=["Aktuelle Belastung","Beeinträchtigung im Alltag","Schlaf / Erholung","Körperliche Beschwerden","Rückzug / Vermeidung","Beziehungsbelastung","Ressourcen / Schutzfaktoren"]
@@ -1207,6 +1216,7 @@ $result.Text
             load_symptoms(); load_screening(); render()
         self.help_topic.currentTextChanged.connect(lambda _: (load_symptoms(), load_screening()))
         self.help_fcode.currentTextChanged.connect(apply_fcode_context)
+        self.symptom_list.itemSelectionChanged.connect(lambda: render())
         load_symptoms()
         severity=QFrame(); severity.setObjectName("formCard"); severity.setMinimumWidth(0); sf=QGridLayout(severity); sf.addWidget(QLabel("Vertiefung der Symptomabfrage"),0,0,1,4)
         self.sym_duration=QComboBox(); self.sym_duration.addItems(["Dauer nicht angegeben","< 2 Wochen","2–4 Wochen","1–3 Monate","3–6 Monate","> 6 Monate","> 1 Jahr"])
