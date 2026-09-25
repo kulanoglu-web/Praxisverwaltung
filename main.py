@@ -518,10 +518,18 @@ class Main(QMainWindow):
         self._screen_locked=True
         self.locktimer.stop()
         audit("LOCK","Bildschirm manuell gesperrt",(self.current_user or {}).get("username",""))
+        # Patientendaten während der Sperre vollständig ausblenden.
+        central=self.centralWidget()
+        old_title=self.windowTitle()
+        if central: central.setVisible(False)
+        self.setWindowTitle("PraxisPro – Bildschirm gesperrt")
         dlg=LoginDialog(); dlg.setWindowTitle("PraxisPro – Bildschirm gesperrt"); dlg.setModal(True)
         if dlg.exec()!=QDialog.Accepted:
             QApplication.quit(); return
-        self.current_user=dlg.user; self.update_user_badge(); self.last_activity=datetime.now(); self._screen_locked=False; self.locktimer.start(30000)
+        self.current_user=dlg.user
+        if central: central.setVisible(True)
+        self.setWindowTitle(old_title)
+        self.update_user_badge(); self.last_activity=datetime.now(); self._screen_locked=False; self.locktimer.start(30000)
         audit("UNLOCK","Bildschirm entsperrt",self.current_user.get("username",""))
 
     def check_autolock(self):
