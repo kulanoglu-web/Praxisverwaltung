@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.12.3"
+APP_VERSION = "0.12.4"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -88,13 +88,19 @@ def bundled_asset(name):
     return base/"assets"/name
 
 def practice_logo_path():
-    # Das mit PraxisPro ausgelieferte Praxislogo hat Vorrang. Dadurch bleibt
-    # die Rechnung auch nach Installation auf einem anderen PC vollständig.
+    """Nur ein tatsächlich lesbares Praxislogo zurückgeben; defekte Dateien nie an PDF/GUI weiterreichen."""
+    candidates=[]
+    custom=get_setting("logo_path","")
+    if custom and Path(custom).is_file(): candidates.append(Path(custom))
     for name in ("logo.png","logo.jpg","logo.jpeg"):
         bundled=bundled_asset(name)
-        if bundled.exists(): return bundled
-    custom=get_setting("logo_path","")
-    if custom and Path(custom).is_file(): return Path(custom)
+        if bundled.exists(): candidates.append(bundled)
+    for candidate in candidates:
+        try:
+            img=QImage(str(candidate))
+            if not img.isNull(): return candidate
+        except Exception:
+            pass
     return None
 
 DATA=ROOT/"praxisdaten.json.enc"
@@ -510,7 +516,8 @@ class Main(QMainWindow):
             try: self.session_live_clock.setText(now.toString("HH:mm:ss"))
             except RuntimeError: pass
     def event(self,e):
-        if e.type() in (QEvent.MouseButtonPress,QEvent.KeyPress,QEvent.TouchBegin): self.last_activity=datetime.now()
+        if e.type() in (QEvent.MouseButtonPress,QEvent.MouseButtonDblClick,QEvent.KeyPress,QEvent.TouchBegin,QEvent.Wheel):
+            self.last_activity=datetime.now()
         return super().event(e)
     def lock_screen(self):
         """PraxisPro sofort verdecken und erst nach erneuter Anmeldung freigeben."""
@@ -526,6 +533,13 @@ class Main(QMainWindow):
         dlg=LoginDialog(); dlg.setWindowTitle("PraxisPro – Bildschirm gesperrt"); dlg.setModal(True)
         if dlg.exec()!=QDialog.Accepted:
             QApplication.quit(); return
+        # Sperre ist kein Benutzerwechsel: standardmäßig denselben Benutzer verlangen.
+        locked_user=(self.current_user or {}).get("username","")
+        if locked_user and (dlg.user or {}).get("username","")!=locked_user:
+            if central: central.setVisible(True)
+            self.setWindowTitle(old_title)
+            self._screen_locked=False; self.locktimer.start(30000)
+            return QMessageBox.warning(self,"Bildschirm gesperrt","Bitte mit demselben Benutzer entsperren. Für einen Benutzerwechsel PraxisPro regulär neu anmelden.")
         self.current_user=dlg.user
         if central: central.setVisible(True)
         self.setWindowTitle(old_title)
