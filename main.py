@@ -1573,7 +1573,7 @@ $result.Text
                 except Exception:pass
         answer=QMessageBox.question(self,"Sitzung gespeichert",f"Sitzung gespeichert: {mins} Minuten.\n\nJetzt direkt eine Rechnung aus dieser Sitzung erstellen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.Yes)
         if answer==QMessageBox.Yes:
-            self.nav.setCurrentRow(5); QApplication.processEvents()
+            self.nav.setCurrentRow(7); QApplication.processEvents()
             self.i_last.setText(last); self.i_first.setText(first); self.fill_invoice_client()
             self.pending_sessions=[rec]; self.manual_items=[]
             self.i_date.setDate(QDate.fromString(rec["date"],"yyyy-MM-dd")); self.i_start.setTime(QTime.fromString(rec["start"],"HH:mm")); self.i_end.setTime(QTime.fromString(rec["end"],"HH:mm")); self.i_min.setValue(rec["minutes"]); self.i_type.setCurrentText(rec["type"]); self.i_red.setChecked(bool(rec["reduced"]))
@@ -1972,7 +1972,7 @@ $result.Text
             view.clicked.connect(open_selected)
             invoice=QPushButton("Neue Rechnung für diesen Klienten")
             def invoice_from_record():
-                self.i_last.setText(last); self.i_first.setText(first); self.i_addr.setText(cc.get("address","")); self.i_diag.setText(cc.get("diagnosis","")); dlg.accept(); self.nav.setCurrentRow(5)
+                self.i_last.setText(last); self.i_first.setText(first); self.i_addr.setText(cc.get("address","")); self.i_diag.setText(cc.get("diagnosis","")); dlg.accept(); self.nav.setCurrentRow(7)
             invoice.clicked.connect(invoice_from_record)
             open_invoice=QPushButton("Ausgewählte Rechnung öffnen")
             def open_client_invoice():
@@ -2035,7 +2035,7 @@ $result.Text
         def client_to_invoice():
             x=selected_client()
             if not x:return
-            self.i_last.setText(x.get("last","")); self.i_first.setText(x.get("first","")); self.i_addr.setText(x.get("address","")); self.i_diag.setText(x.get("diagnosis","")); self.nav.setCurrentRow(5)
+            self.i_last.setText(x.get("last","")); self.i_first.setText(x.get("first","")); self.i_addr.setText(x.get("address","")); self.i_diag.setText(x.get("diagnosis","")); self.nav.setCurrentRow(7)
         tosession.clicked.connect(client_to_session); toinvoice.clicked.connect(client_to_invoice); clientactions.addWidget(tosession); clientactions.addWidget(toinvoice); v.addLayout(clientactions)
         openink=QPushButton("Letzte Handschrift des ausgewählten Klienten anzeigen"); openink.setMinimumHeight(45)
         def show_ink():
