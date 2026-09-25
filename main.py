@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.12.5"
+APP_VERSION = "0.12.6"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -58,7 +58,13 @@ def encrypt_file(path):
 class InkCanvas(QWidget):
     def __init__(self):
         super().__init__(); self.setMinimumHeight(220); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False; self.pen_width=3; self.eraser=False; self.history=[]
-    def paintEvent(self,e): QPainter(self).drawImage(self.rect(),self.image)
+    def paintEvent(self,e):
+        p=QPainter(self); p.drawImage(self.rect(),self.image)
+        # Live-Uhr direkt auf der Handschriftfläche; wird nicht in die gespeicherte Notiz eingebrannt.
+        stamp=QTime.currentTime().toString("HH:mm:ss")
+        p.setPen(QColor("#17324d")); font=QFont(); font.setPointSize(14); font.setBold(True); p.setFont(font)
+        p.drawText(self.rect().adjusted(0,10,-14,0),Qt.AlignTop|Qt.AlignRight,stamp)
+        p.end()
     def pointer(self,e):
         return QPoint(int(e.position().x()*self.image.width()/max(1,self.width())),int(e.position().y()*self.image.height()/max(1,self.height())))
     def mousePressEvent(self,e):
@@ -989,10 +995,10 @@ $result.Text
         zoom=QSlider(Qt.Horizontal); zoom.setRange(60,180); zoom.setValue(100); zoom.setFixedWidth(170); zoomlabel=QLabel("100 %")
         save=QPushButton("💾 Notiz speichern"); save.clicked.connect(self.save_ink_note); ocr=QPushButton("⌨ Handschrift → Text"); ocr.clicked.connect(self.ink_to_text); clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); full=QPushButton("⛶ Vollbild"); full.setCheckable(True); full.toggled.connect(lambda on: dlg.showFullScreen() if on else dlg.showNormal()); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
         for x in (undo,erase,QLabel("Stärke"),width,QLabel("Ansicht"),zoom,zoomlabel,save,ocr,clear,full,close): bar.addWidget(x)
-        v.addLayout(bar); holder=QScrollArea(); holder.setWidgetResizable(False); holder.setAlignment(Qt.AlignCenter); self.ink.setParent(holder); holder.setWidget(self.ink)
-        basew,baseh=max(1200,self.ink.image.width()),max(700,self.ink.image.height())
+        v.addLayout(bar); holder=QScrollArea(); holder.setWidgetResizable(True); holder.setAlignment(Qt.AlignCenter); self.ink.setMinimumSize(360,240); self.ink.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding); self.ink.setParent(holder); holder.setWidget(self.ink)
+        basew,baseh=max(360,holder.viewport().width()),max(240,holder.viewport().height())
         def scale_ink(value):
-            zoomlabel.setText(f"{value} %"); self.ink.resize(int(basew*value/100),int(baseh*value/100))
+            zoomlabel.setText(f"{value} %"); self.ink.setMinimumSize(max(360,int(basew*value/100)),max(240,int(baseh*value/100)))
         zoom.valueChanged.connect(scale_ink); scale_ink(100); v.addWidget(holder,1)
         dlg.exec()
         self.ink.setParent(self.inkbox); self.inkv.addWidget(self.ink); self.ink.show()
