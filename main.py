@@ -587,7 +587,12 @@ class Main(QMainWindow):
         self.appt_minutes=QSpinBox(); self.appt_minutes.setRange(5,300); self.appt_minutes.setValue(45); self.appt_minutes.setSuffix(" Min.")
         self.appt_type=QComboBox(); self.appt_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstiger Termin"])
         form=QFormLayout(); form.addRow("Datum",self.appt_date); form.addRow("Beginn",self.appt_time); form.addRow("Dauer",self.appt_minutes); form.addRow("Terminart",self.appt_type)
-        self.appt_client=QComboBox(); self.appt_couple=QComboBox()
+        self.appt_client=QComboBox(); self.appt_client.setEditable(True); self.appt_client.setInsertPolicy(QComboBox.NoInsert); self.appt_client.setMaxVisibleItems(18)
+        self.appt_client.lineEdit().setPlaceholderText("Klient suchen – Name eingeben …")
+        self.appt_client.completer().setCompletionMode(QCompleter.PopupCompletion); self.appt_client.completer().setCaseSensitivity(Qt.CaseInsensitive); self.appt_client.completer().setFilterMode(Qt.MatchContains)
+        self.appt_couple=QComboBox(); self.appt_couple.setEditable(True); self.appt_couple.setInsertPolicy(QComboBox.NoInsert); self.appt_couple.setMaxVisibleItems(18)
+        self.appt_couple.lineEdit().setPlaceholderText("Paarakte suchen …")
+        self.appt_couple.completer().setCompletionMode(QCompleter.PopupCompletion); self.appt_couple.completer().setCaseSensitivity(Qt.CaseInsensitive); self.appt_couple.completer().setFilterMode(Qt.MatchContains)
         def refresh_calendar_people():
             old_client=self.appt_client.currentData(); old_couple=self.appt_couple.currentData()
             self.appt_client.clear(); self.appt_couple.clear()
