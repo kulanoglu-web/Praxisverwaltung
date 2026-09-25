@@ -805,10 +805,18 @@ class Main(QMainWindow):
         self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
         self.s_start=QTimeEdit(); self.s_end=QTimeEdit(); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
         self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); self.s_red=QCheckBox("Ermäßigter Satz")
-        for x in (self.client_pick,self.s_date,self.s_start,self.s_end,self.s_type): x.setMinimumHeight(28)
+        self.partner_pick=QComboBox(); self.partner_pick.setEditable(True); self.partner_pick.setInsertPolicy(QComboBox.NoInsert); self.partner_pick.addItem("Zweiten Partner auswählen …",None)
+        for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.partner_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
+        self.partner_label=QLabel("2. Partner *"); self.partner_label.setVisible(False); self.partner_pick.setVisible(False)
+        def update_partner_choice(text):
+            is_pair=(text=="Paargespräch"); self.partner_label.setVisible(is_pair); self.partner_pick.setVisible(is_pair)
+            if not is_pair: self.partner_pick.setCurrentIndex(0)
+        self.s_type.currentTextChanged.connect(update_partner_choice)
+        for x in (self.client_pick,self.s_date,self.s_start,self.s_end,self.s_type,self.partner_pick): x.setMinimumHeight(28)
         sg.addWidget(QLabel("Klient *"),1,0); sg.addWidget(self.client_pick,1,1); sg.addWidget(newclient,1,2)
         for rr,(lab,field) in enumerate([("Datum *",self.s_date),("Beginn *",self.s_start),("Ende *",self.s_end),("Art *",self.s_type)],2): sg.addWidget(QLabel(lab),rr,0); sg.addWidget(field,rr,1,1,2)
-        sg.addWidget(self.s_red,6,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(0); session.setMaximumWidth(410); session.setMinimumHeight(270); row.addWidget(session,4)
+        sg.addWidget(self.partner_label,6,0); sg.addWidget(self.partner_pick,6,1,1,2)
+        sg.addWidget(self.s_red,7,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(0); session.setMaximumWidth(410); session.setMinimumHeight(270); row.addWidget(session,4)
 
         details=QFrame(); details.setObjectName("formCard"); dg=QGridLayout(details); dg.setContentsMargins(10,8,10,10); dg.setHorizontalSpacing(7); dg.setVerticalSpacing(6)
         dt=QLabel("●  Klientendaten"); dt.setObjectName("sectionTitle"); dg.addWidget(dt,0,0,1,2)
@@ -1484,6 +1492,13 @@ $result.Text
         if not self.require_edit(): return
         last=self.s_last.text().strip(); first=self.s_first.text().strip()
         if not last or not first:return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
+        partner=None
+        if self.s_type.currentText()=="Paargespräch":
+            partner=self.partner_pick.currentData()
+            if not isinstance(partner,dict): return QMessageBox.warning(self,"Paargespräch","Bitte den zweiten Partner auswählen.")
+            primary=self.client_pick.currentData()
+            if partner is primary or (isinstance(primary,dict) and partner.get("last")==primary.get("last") and partner.get("first")==primary.get("first") and partner.get("dob")==primary.get("dob")):
+                return QMessageBox.warning(self,"Paargespräch","Bitte zwei unterschiedliche Klienten auswählen.")
         if self.s_start.time()==self.s_end.time() and self.elapsed()==0:return QMessageBox.warning(self,"Zeitangabe","Bitte Beginn und Ende prüfen oder den Sitzungstimer verwenden.")
         c=next((x for x in DB["clients"] if x["last"].lower()==last.lower() and x["first"].lower()==first.lower()),None)
         if not c:c={"last":last,"first":first,"dob":self.s_dob.text().strip(),"address":"","diagnosis":""}; DB["clients"].append(c)
@@ -1494,6 +1509,8 @@ $result.Text
         mins=start_t.secsTo(end_t)//60 if start_t.isValid() and end_t.isValid() else 0
         if mins <= 0: mins=max(1,round(self.elapsed()/60))
         rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
+        if partner:
+            rec["partner"]={"last":partner.get("last",""),"first":partner.get("first",""),"dob":partner.get("dob","")}
         d=client_dir(c)/"Sitzungen"; inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=encrypt_file(inkfile)
         rec["ocr_text"]=self.current_ocr_text.strip()
         if rec["ocr_text"]:
