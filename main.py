@@ -1751,7 +1751,8 @@ $result.Text
             if self.i_diag.text().strip(): c["diagnosis"]=self.i_diag.text().strip()
         d=client_dir(c)/"Rechnungen"; pdf=d/f"Rechnung_{no}.pdf"
         can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
-        # Rechnungslayout nach der freigegebenen Praxisvorlage (20260060).
+        # Freigegebene Rechnungsvorlage: weiß, schwarz, ohne Schatten/Unterschrift,
+        # Original-Praxislogo, klarer Kopfbereich, Leistungstabelle und Zahlungsblöcke.
         regular,bold="Helvetica","Helvetica-Bold"
         try:
             arial=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arial.ttf"; arial_b=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arialbd.ttf"
@@ -1762,79 +1763,68 @@ $result.Text
                 if "PraxisArialBold" not in pdfmetrics.getRegisteredFontNames(): pdfmetrics.registerFont(TTFont("PraxisArialBold",str(arial_b)))
                 bold="PraxisArialBold"
         except Exception: pass
-        # DIN-5008-Falzmarken für DIN-lang-Briefumschläge: drei kurze Marken links.
-        can.saveState()
-        can.setStrokeColor(HexColor("#6f7f8c")); can.setLineWidth(.55)
-        for fold_y in (H-105*mm, H-148.5*mm, H-210*mm):
-            can.line(8*mm,fold_y,13*mm,fold_y)
-        can.restoreState()
+        can.setFillColor(HexColor("#000000")); can.setStrokeColor(HexColor("#000000"))
+        owner=get_setting("owner_name","Erdoğan Kulanoğlu"); address=get_setting("address","")
         logo_path=practice_logo_path()
         if logo_path:
             try:
                 from reportlab.lib.utils import ImageReader
-                logo_img=ImageReader(str(logo_path))
-                iw,ih=logo_img.getSize()
-                max_w,max_h=58*mm,27*mm
-                scale=min(max_w/max(1,iw),max_h/max(1,ih))
-                dw,dh=iw*scale,ih*scale
-                # Praxislogo oben rechts statt mittig.
-                can.drawImage(logo_img,W-18*mm-dw,H-12*mm-dh,width=dw,height=dh,preserveAspectRatio=True,mask="auto")
+                logo_img=ImageReader(str(logo_path)); iw,ih=logo_img.getSize()
+                max_w,max_h=67*mm,25*mm; scale=min(max_w/max(1,iw),max_h/max(1,ih)); dw,dh=iw*scale,ih*scale
+                can.drawImage(logo_img,W-18*mm-dw,H-15*mm-dh,width=dw,height=dh,preserveAspectRatio=True,mask="auto")
             except Exception as logo_error:
                 audit("INVOICE_LOGO_ERROR",str(logo_error)[:500],self.current_user.get("username","") if self.current_user else "")
-        owner=get_setting("owner_name","Erdoğan Kulanoğlu"); address=get_setting("address","")
-        can.setFillColor(HexColor("#000000")); can.setFont(regular,7)
-        sender=f"{owner} · {address}"; can.drawString(50,H-158,sender); can.line(50,H-160,50+can.stringWidth(sender,regular,7),H-160)
-        y=H-178; can.setFont(regular,10); can.drawString(50,y,f"{first} {last}"); y-=14
+        can.setFont(bold,10); can.drawString(18*mm,H-21*mm,owner)
+        can.setFont(regular,8.5); can.drawString(18*mm,H-27*mm,"Psychologische Privatpraxis")
+        can.drawString(18*mm,H-33*mm,address)
+        can.setLineWidth(.65); can.line(18*mm,H-41*mm,W-18*mm,H-41*mm)
+        can.setFont(regular,7.5); sender=f"{owner} · {address}"; can.drawString(18*mm,H-52*mm,sender)
+        can.line(18*mm,H-53.2*mm,18*mm+can.stringWidth(sender,regular,7.5),H-53.2*mm)
+        y=H-61*mm; can.setFont(regular,10.5); can.drawString(18*mm,y,f"{first} {last}"); y-=5*mm
         if self.i_addr.text().strip():
-            for line in self.i_addr.text().strip().splitlines(): can.drawString(50,y,line); y-=13
-        can.setFont(regular,10); can.drawRightString(W-50,H-286,datetime.now().strftime("%d.%m.%Y"))
-        can.setFont(bold,11); can.drawCentredString(W/2,H-322,f"Rechnungsnummer {no}")
-        can.setFont(regular,10); can.drawString(50,H-358,"Für meine Bemühungen erlaube ich mir Ihnen folgende Leistungen in Rechnung zu stellen:")
-        table_y=H-410
-        can.setFont(bold,10); can.drawString(50,table_y+24,"Leistungen:"); can.line(50,table_y+22,102,table_y+22)
+            for line in self.i_addr.text().strip().splitlines(): can.drawString(18*mm,y,line); y-=5*mm
+        can.setFont(regular,9.5); can.drawRightString(W-18*mm,H-76*mm,datetime.now().strftime("%d.%m.%Y"))
+        can.setFont(bold,15); can.drawString(18*mm,H-91*mm,f"Rechnung {no}")
+        can.setFont(regular,9.5); can.drawString(18*mm,H-101*mm,"Für meine Bemühungen erlaube ich mir, Ihnen folgende Leistungen in Rechnung zu stellen:")
         items=[]
         if rows:
-            for s in rows:
-                items.append({"date":s.get("date",""),"start":s.get("start",""),"end":s.get("end",""),"minutes":int(s.get("minutes",0)),"type":s.get("type",""),"reduced":bool(s.get("reduced",False)),"amount":float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))))})
+            for ss in rows:
+                items.append({"date":ss.get("date",""),"start":ss.get("start",""),"end":ss.get("end",""),"minutes":int(ss.get("minutes",0)),"type":ss.get("type",""),"reduced":bool(ss.get("reduced",False)),"amount":float(ss.get("amount",amount_for(int(ss.get("minutes",0)),ss.get("type","Einzeltherapie"),bool(ss.get("reduced",False)))))})
         else:
             items=[{"date":self.i_date.date().toString("dd.MM.yyyy"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amt}]
         def display_date(value):
             try:return datetime.strptime(str(value),"%Y-%m-%d").strftime("%d.%m.%Y")
             except:return str(value)
-        x=[50,116,206,326,421,485,W-50]; rowh=18
-        headers=["Datum","Anfang–Ende","Dauer in Minuten","Leistung","Ermäßigt","Betrag"]
-        can.setLineWidth(.45); can.setFont(bold,8)
-        for j,h in enumerate(headers): can.drawString(x[j]+3,table_y-12,h)
-        can.line(x[0],table_y,x[-1],table_y); can.line(x[0],table_y-rowh,x[-1],table_y-rowh)
-        for xx in x: can.line(xx,table_y,xx,table_y-rowh*(len(items)+2))
-        cy=table_y-rowh; can.setFont(regular,8)
+        table_top=H-116*mm; x=[18*mm,42*mm,75*mm,111*mm,151*mm,171*mm,W-18*mm]; rowh=8*mm
+        headers=["Datum","Anfang-Ende","Dauer Min.","Leistung","Ermäßigt","Betrag"]
+        can.setLineWidth(.45); can.setFont(bold,7.8)
+        for j,h in enumerate(headers): can.drawString(x[j]+1.5*mm,table_top-5.2*mm,h)
+        can.line(x[0],table_top,x[-1],table_top); can.line(x[0],table_top-rowh,x[-1],table_top-rowh)
+        for xx in x: can.line(xx,table_top,xx,table_top-rowh*(len(items)+2))
+        cy=table_top-rowh; can.setFont(regular,8)
         for it in items:
-            vals=[display_date(it["date"]),f'{it["start"]}–{it["end"]}',str(it["minutes"]),it["type"],"Ja" if it["reduced"] else "Nein",f'{it["amount"]:.2f} €'.replace(".",",")]
+            vals=[display_date(it["date"]),f'{it["start"]}-{it["end"]}',str(it["minutes"]),it["type"],"Ja" if it["reduced"] else "Nein",f'{it["amount"]:.2f} €'.replace(".",",")]
             for j,val in enumerate(vals):
-                if j==5: can.drawRightString(x[j+1]-4,cy-12,val)
-                else: can.drawString(x[j]+3,cy-12,val)
+                if j==5: can.drawRightString(x[j+1]-1.5*mm,cy-5.2*mm,val)
+                else: can.drawString(x[j]+1.5*mm,cy-5.2*mm,val)
             cy-=rowh; can.line(x[0],cy,x[-1],cy)
-        can.setFont(bold,8)
-        # Summenzeile: Beschriftung nur in der Leistungsspalte, Betrag sauber in der letzten Spalte.
-        can.drawString(x[3]+3,cy-12,"Rechnungssumme:")
-        can.drawRightString(x[-1]-4,cy-12,f'{amt:.2f} €'.replace(".",","))
+        can.setFont(bold,8.3); can.drawString(x[3]+1.5*mm,cy-5.2*mm,"Rechnungssumme:")
+        can.drawRightString(x[-1]-1.5*mm,cy-5.2*mm,f'{amt:.2f} €'.replace(".",","))
         cy-=rowh; can.line(x[0],cy,x[-1],cy)
-        pay_y=cy-44; can.setFont(regular,9)
         iban=get_setting("iban",""); bic=get_setting("bic",""); paypal=get_setting("paypal","")
-        text=f"Bitte überweisen Sie den o.g. Betrag in den nächsten 14 Tagen auf die folgende Bankverbindung: IBAN: {iban} - BIC: {bic} mit dem Verwendungszweck: {no}."
-        words=text.split(); line=""; lines=[]
-        for word in words:
-            test=(line+" "+word).strip()
-            if can.stringWidth(test,regular,9)>W-100: lines.append(line); line=word
-            else: line=test
-        if line: lines.append(line)
-        for line in lines: can.drawString(50,pay_y,line); pay_y-=13
-        if paypal: can.drawString(50,pay_y,f"Sie können den Betrag auch per PayPal an {paypal} senden."); pay_y-=38
-        else: pay_y-=25
-        can.drawString(50,pay_y,"Mit freundlichen Grüßen"); pay_y-=35
-        can.drawString(50,pay_y,owner); pay_y-=18
-        can.setFont(bold,9); can.drawString(50,pay_y,"Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift und Stempel gültig.")
-        footer_y=72; can.setFont(regular,6.2)
+        box_y=cy-34*mm; box_h=26*mm; gap=5*mm; box_w=(W-36*mm-gap)/2
+        can.setLineWidth(.6); can.rect(18*mm,box_y,box_w,box_h,stroke=1,fill=0); can.rect(18*mm+box_w+gap,box_y,box_w,box_h,stroke=1,fill=0)
+        can.setFont(bold,9); can.drawString(22*mm,box_y+19*mm,"Überweisung")
+        can.setFont(regular,7.8); can.drawString(22*mm,box_y+14*mm,f"IBAN: {iban}"); can.drawString(22*mm,box_y+10*mm,f"BIC: {bic}"); can.drawString(22*mm,box_y+6*mm,f"Verwendungszweck: {no}")
+        px=18*mm+box_w+gap+4*mm; can.setFont(bold,9); can.drawString(px,box_y+19*mm,"PayPal")
+        can.setFont(regular,7.8); can.drawString(px,box_y+14*mm,"Alternativ ist die Zahlung per PayPal möglich.")
+        if paypal: can.drawString(px,box_y+9*mm,paypal)
+        note_y=box_y-10*mm; can.setFont(regular,8.5)
+        can.drawString(18*mm,note_y,"Bitte begleichen Sie den Rechnungsbetrag innerhalb von 14 Tagen.")
+        can.drawString(18*mm,note_y-7*mm,"Mit freundlichen Grüßen")
+        can.setFont(regular,9); can.drawString(18*mm,note_y-14*mm,owner)
+        can.setFont(bold,8.3); can.drawString(18*mm,note_y-23*mm,"Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift und Stempel gültig.")
+        footer_y=20*mm; can.setLineWidth(.45); can.line(18*mm,footer_y+25*mm,W-18*mm,footer_y+25*mm); can.setFont(regular,6.2)
         qual=get_setting("qualifications","Psychologe M. Sc. · Sozialarbeiter B.A. · Heilpraktiker für Psychotherapie")
         footer=[
           f"{owner} - {qual}",
@@ -1846,7 +1836,7 @@ $result.Text
           "Die Leistungen als Heilpraktiker sind nach § 4 Nr. 14 Buchstabe a UStG von der Umsatzsteuer befreit."
         ]
         for line in footer:
-            can.drawCentredString(W/2,footer_y,line); footer_y-=8
+            can.drawCentredString(W/2,footer_y+20*mm,line); footer_y-=2.7*mm
         can.save()
         invoice_items=[]
         if rows:
