@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.12.11"
+APP_VERSION = "0.12.12"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1763,28 +1763,30 @@ $result.Text
                 if "PraxisArialBold" not in pdfmetrics.getRegisteredFontNames(): pdfmetrics.registerFont(TTFont("PraxisArialBold",str(arial_b)))
                 bold="PraxisArialBold"
         except Exception: pass
-        can.setFillColor(HexColor("#000000")); can.setStrokeColor(HexColor("#000000"))
+        BROWN=HexColor("#5A2D0C"); GOLD=HexColor("#D8B52A"); PALE_GOLD=HexColor("#F8F1D5"); LIGHT=HexColor("#FAF8F3"); BLACK=HexColor("#111111")
+        can.setFillColor(BLACK); can.setStrokeColor(BROWN)
         owner=get_setting("owner_name","Erdoğan Kulanoğlu"); address=get_setting("address","")
         logo_path=practice_logo_path()
         if logo_path:
             try:
                 from reportlab.lib.utils import ImageReader
                 logo_img=ImageReader(str(logo_path)); iw,ih=logo_img.getSize()
-                max_w,max_h=67*mm,25*mm; scale=min(max_w/max(1,iw),max_h/max(1,ih)); dw,dh=iw*scale,ih*scale
+                max_w,max_h=82*mm,27*mm; scale=min(max_w/max(1,iw),max_h/max(1,ih)); dw,dh=iw*scale,ih*scale
                 can.drawImage(logo_img,W-18*mm-dw,H-15*mm-dh,width=dw,height=dh,preserveAspectRatio=True,mask="auto")
             except Exception as logo_error:
                 audit("INVOICE_LOGO_ERROR",str(logo_error)[:500],self.current_user.get("username","") if self.current_user else "")
-        can.setFont(bold,10); can.drawString(18*mm,H-21*mm,owner)
-        can.setFont(regular,8.5); can.drawString(18*mm,H-27*mm,"Psychologische Privatpraxis")
+        can.setFillColor(BROWN); can.setFont(bold,10.5); can.drawString(18*mm,H-21*mm,owner)
+        can.setFillColor(BLACK); can.setFont(regular,8.5); can.drawString(18*mm,H-27*mm,"Psychologische Privatpraxis")
         can.drawString(18*mm,H-33*mm,address)
-        can.setLineWidth(.65); can.line(18*mm,H-41*mm,W-18*mm,H-41*mm)
+        can.setStrokeColor(GOLD); can.setLineWidth(1.2); can.line(18*mm,H-41*mm,W-18*mm,H-41*mm)
         can.setFont(regular,7.5); sender=f"{owner} · {address}"; can.drawString(18*mm,H-52*mm,sender)
         can.line(18*mm,H-53.2*mm,18*mm+can.stringWidth(sender,regular,7.5),H-53.2*mm)
         y=H-61*mm; can.setFont(regular,10.5); can.drawString(18*mm,y,f"{first} {last}"); y-=5*mm
         if self.i_addr.text().strip():
             for line in self.i_addr.text().strip().splitlines(): can.drawString(18*mm,y,line); y-=5*mm
         can.setFont(regular,9.5); can.drawRightString(W-18*mm,H-76*mm,datetime.now().strftime("%d.%m.%Y"))
-        can.setFont(bold,15); can.drawString(18*mm,H-91*mm,f"Rechnung {no}")
+        can.setFillColor(BROWN); can.setFont(bold,16); can.drawString(18*mm,H-91*mm,f"Rechnung {no}")
+        can.setFillColor(BLACK)
         can.setFont(regular,9.5); can.drawString(18*mm,H-101*mm,"Für meine Bemühungen erlaube ich mir, Ihnen folgende Leistungen in Rechnung zu stellen:")
         items=[]
         if rows:
@@ -1797,8 +1799,10 @@ $result.Text
             except:return str(value)
         table_top=H-116*mm; x=[18*mm,42*mm,75*mm,111*mm,151*mm,171*mm,W-18*mm]; rowh=8*mm
         headers=["Datum","Anfang-Ende","Dauer Min.","Leistung","Ermäßigt","Betrag"]
-        can.setLineWidth(.45); can.setFont(bold,7.8)
+        can.setFillColor(PALE_GOLD); can.setStrokeColor(BROWN); can.rect(x[0],table_top-rowh,x[-1]-x[0],rowh,stroke=0,fill=1)
+        can.setFillColor(BROWN); can.setLineWidth(.55); can.setFont(bold,7.8)
         for j,h in enumerate(headers): can.drawString(x[j]+1.5*mm,table_top-5.2*mm,h)
+        can.setFillColor(BLACK)
         can.line(x[0],table_top,x[-1],table_top); can.line(x[0],table_top-rowh,x[-1],table_top-rowh)
         for xx in x: can.line(xx,table_top,xx,table_top-rowh*(len(items)+2))
         cy=table_top-rowh; can.setFont(regular,8)
@@ -1813,10 +1817,12 @@ $result.Text
         cy-=rowh; can.line(x[0],cy,x[-1],cy)
         iban=get_setting("iban",""); bic=get_setting("bic",""); paypal=get_setting("paypal","")
         box_y=cy-34*mm; box_h=26*mm; gap=5*mm; box_w=(W-36*mm-gap)/2
-        can.setLineWidth(.6); can.rect(18*mm,box_y,box_w,box_h,stroke=1,fill=0); can.rect(18*mm+box_w+gap,box_y,box_w,box_h,stroke=1,fill=0)
-        can.setFont(bold,9); can.drawString(22*mm,box_y+19*mm,"Überweisung")
+        can.setStrokeColor(BROWN); can.setLineWidth(.8); can.rect(18*mm,box_y,box_w,box_h,stroke=1,fill=0); can.rect(18*mm+box_w+gap,box_y,box_w,box_h,stroke=1,fill=0)
+        can.setFillColor(PALE_GOLD); can.rect(18*mm,box_y+17*mm,box_w,9*mm,stroke=0,fill=1); can.rect(18*mm+box_w+gap,box_y+17*mm,box_w,9*mm,stroke=0,fill=1)
+        can.setFillColor(BROWN); can.setFont(bold,9); can.drawString(22*mm,box_y+20*mm,"Überweisung")
+        can.setFillColor(BLACK)
         can.setFont(regular,7.8); can.drawString(22*mm,box_y+14*mm,f"IBAN: {iban}"); can.drawString(22*mm,box_y+10*mm,f"BIC: {bic}"); can.drawString(22*mm,box_y+6*mm,f"Verwendungszweck: {no}")
-        px=18*mm+box_w+gap+4*mm; can.setFont(bold,9); can.drawString(px,box_y+19*mm,"PayPal")
+        px=18*mm+box_w+gap+4*mm; can.setFillColor(BROWN); can.setFont(bold,9); can.drawString(px,box_y+20*mm,"PayPal"); can.setFillColor(BLACK)
         can.setFont(regular,7.8); can.drawString(px,box_y+14*mm,"Alternativ ist die Zahlung per PayPal möglich.")
         if paypal: can.drawString(px,box_y+9*mm,paypal)
         note_y=box_y-10*mm; can.setFont(regular,8.5)
@@ -1824,7 +1830,7 @@ $result.Text
         can.drawString(18*mm,note_y-7*mm,"Mit freundlichen Grüßen")
         can.setFont(regular,9); can.drawString(18*mm,note_y-14*mm,owner)
         can.setFont(bold,8.3); can.drawString(18*mm,note_y-23*mm,"Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift und Stempel gültig.")
-        footer_y=20*mm; can.setLineWidth(.45); can.line(18*mm,footer_y+25*mm,W-18*mm,footer_y+25*mm); can.setFont(regular,6.2)
+        footer_y=20*mm; can.setStrokeColor(GOLD); can.setLineWidth(1.0); can.line(18*mm,footer_y+25*mm,W-18*mm,footer_y+25*mm); can.setFillColor(BROWN); can.setFont(regular,6.2)
         qual=get_setting("qualifications","Psychologe M. Sc. · Sozialarbeiter B.A. · Heilpraktiker für Psychotherapie")
         footer=[
           f"{owner} - {qual}",
