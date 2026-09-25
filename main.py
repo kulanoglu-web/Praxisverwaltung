@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.12.6"
+APP_VERSION = "0.12.7"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -917,6 +917,8 @@ class Main(QMainWindow):
             template.setCurrentIndex(0)
         template.currentTextChanged.connect(apply_note_template)
         self.notes.setMinimumHeight(145); self.notes.setMaximumHeight(220); self.notes.setStyleSheet("font-size:13px"); nv.addWidget(self.notes); v.addWidget(notesbox)
+        homeworkbox=QFrame(); homeworkbox.setObjectName("formCard"); hv=QVBoxLayout(homeworkbox); hh=QLabel("✓ Hausaufgaben / Vereinbarungen bis zur nächsten Sitzung"); hh.setObjectName("sectionTitle"); hv.addWidget(hh)
+        self.session_homework=QTextEdit(); self.session_homework.setPlaceholderText("Hausaufgaben, Übungen, Beobachtungsaufträge oder konkrete Vereinbarungen …"); self.session_homework.setMinimumHeight(80); self.session_homework.setMaximumHeight(140); hv.addWidget(self.session_homework); v.addWidget(homeworkbox)
 
         self.ink=InkCanvas(); self.current_ink_file=""; self.current_ocr_text=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
@@ -1476,7 +1478,7 @@ $result.Text
                 if qs.isValid(): self.s_start.setTime(qs)
                 qe=QTime.fromString(d.get("end",""),"HH:mm")
                 if qe.isValid(): self.s_end.setTime(qe)
-                self.s_type.setCurrentText(d.get("type","Einzeltherapie")); self.s_red.setChecked(bool(d.get("reduced",False))); self.notes.setPlainText(d.get("notes",""))
+                self.s_type.setCurrentText(d.get("type","Einzeltherapie")); self.s_red.setChecked(bool(d.get("reduced",False))); self.notes.setPlainText(d.get("notes","")); self.session_homework.setPlainText(d.get("homework",""))
                 inkfile=d.get("ink_file","")
                 if inkfile and Path(inkfile).exists(): self.ink.load_png(inkfile)
                 self.acc=int(d.get("seconds",0)); self.running=False; self.started=None
@@ -1484,7 +1486,7 @@ $result.Text
         except Exception: pass
     def autosave_session(self):
         if not self.running and not self.notes.toPlainText().strip() and not self.s_last.text().strip() and not self.s_first.text().strip(): return
-        draft={"last":self.s_last.text(),"first":self.s_first.text(),"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"seconds":self.elapsed(),"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"running":self.running}
+        draft={"last":self.s_last.text(),"first":self.s_first.text(),"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"seconds":self.elapsed(),"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"homework":self.session_homework.toPlainText().strip(),"running":self.running}
         inkdraft=ROOT/"Sitzung_Autosave_Handschrift.png"; self.ink.save_png(inkdraft); encrypted_ink=encrypt_file(inkdraft); draft["ink_file"]=encrypted_ink
         (ROOT/"Sitzung_Autosave.json.enc").write_text(encrypt_text(json.dumps(draft,ensure_ascii=False)),encoding="utf-8")
     def fill_session_client(self):
@@ -1532,16 +1534,11 @@ $result.Text
             partner=self.partner_pick.currentData()
             if not isinstance(partner,dict): return QMessageBox.warning(self,"Paargespräch","Bitte den zweiten Partner auswählen.")
             primary=self.client_pick.currentData()
-            if isinstance(primary,dict) and partner.get("last")==primary.get("last") and partner.get("first")==primary.get("first") and partner.get("dob")==primary.get("dob"):
-                return QMessageBox.warning(self,"Paargespräch","Bitte zwei unterschiedliche Klienten auswählen.")
-        partner=None
-        if self.s_type.currentText()=="Paargespräch":
-            partner=self.partner_pick.currentData()
-            if not isinstance(partner,dict): return QMessageBox.warning(self,"Paargespräch","Bitte den zweiten Partner auswählen.")
-            primary=self.client_pick.currentData()
             if partner is primary or (isinstance(primary,dict) and partner.get("last")==primary.get("last") and partner.get("first")==primary.get("first") and partner.get("dob")==primary.get("dob")):
                 return QMessageBox.warning(self,"Paargespräch","Bitte zwei unterschiedliche Klienten auswählen.")
-        if self.s_start.time()==self.s_end.time() and self.elapsed()==0:return QMessageBox.warning(self,"Zeitangabe","Bitte Beginn und Ende prüfen oder den Sitzungstimer verwenden.")
+        if not self.s_start.time().isValid() or not self.s_end.time().isValid(): return QMessageBox.warning(self,"Zeitangabe","Bitte Beginn und Ende prüfen.")
+        if self.s_start.time()==self.s_end.time(): return QMessageBox.warning(self,"Zeitangabe","Beginn und Ende dürfen nicht identisch sein. Die Zeiten können vor dem Speichern manuell korrigiert werden.")
+        if self.s_start.time().secsTo(self.s_end.time())<=0: return QMessageBox.warning(self,"Zeitangabe","Die Endzeit muss nach der Beginnzeit liegen.")
         c=next((x for x in DB["clients"] if x["last"].lower()==last.lower() and x["first"].lower()==first.lower()),None)
         if not c:c={"last":last,"first":first,"dob":self.s_dob.text().strip(),"address":"","diagnosis":""}; DB["clients"].append(c)
         else: c["dob"]=self.s_dob.text().strip() or c.get("dob","")
@@ -1550,7 +1547,7 @@ $result.Text
         start_t=self.s_start.time(); end_t=self.s_end.time()
         mins=start_t.secsTo(end_t)//60 if start_t.isValid() and end_t.isValid() else 0
         if mins <= 0: mins=max(1,round(self.elapsed()/60))
-        rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"billed":False}
+        rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"homework":self.session_homework.toPlainText().strip(),"billed":False}
         if partner: rec["partner"]={"last":partner.get("last",""),"first":partner.get("first",""),"dob":partner.get("dob","")}
         if partner:
             rec["partner"]={"last":partner.get("last",""),"first":partner.get("first",""),"dob":partner.get("dob","")}
@@ -1569,7 +1566,13 @@ $result.Text
             if auto.exists():
                 try:auto.unlink()
                 except Exception:pass
-        QMessageBox.information(self,"Gespeichert",f"Sitzung gespeichert: {mins} Minuten.")
+        answer=QMessageBox.question(self,"Sitzung gespeichert",f"Sitzung gespeichert: {mins} Minuten.\n\nJetzt direkt eine Rechnung aus dieser Sitzung erstellen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.Yes)
+        if answer==QMessageBox.Yes:
+            self.nav.setCurrentRow(5); QApplication.processEvents()
+            self.i_last.setText(last); self.i_first.setText(first); self.fill_invoice_client()
+            self.pending_sessions=[rec]; self.manual_items=[]
+            self.i_date.setDate(QDate.fromString(rec["date"],"yyyy-MM-dd")); self.i_start.setTime(QTime.fromString(rec["start"],"HH:mm")); self.i_end.setTime(QTime.fromString(rec["end"],"HH:mm")); self.i_min.setValue(rec["minutes"]); self.i_type.setCurrentText(rec["type"]); self.i_red.setChecked(bool(rec["reduced"]))
+            if hasattr(self,"iteminfo"): self.iteminfo.setText(f'1 Sitzung ausgewählt · {amount_for(rec["minutes"],rec["type"],rec["reduced"]):.2f} €')
     def invoice_ui(self):
         w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0)
         scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
