@@ -1573,6 +1573,19 @@ $result.Text
             self.pending_sessions=[rec]; self.manual_items=[]
             self.i_date.setDate(QDate.fromString(rec["date"],"yyyy-MM-dd")); self.i_start.setTime(QTime.fromString(rec["start"],"HH:mm")); self.i_end.setTime(QTime.fromString(rec["end"],"HH:mm")); self.i_min.setValue(rec["minutes"]); self.i_type.setCurrentText(rec["type"]); self.i_red.setChecked(bool(rec["reduced"]))
             if hasattr(self,"iteminfo"): self.iteminfo.setText(f'1 Sitzung ausgewählt · {amount_for(rec["minutes"],rec["type"],rec["reduced"]):.2f} €')
+        appt=QMessageBox.question(self,"Folgetermin", "Möchten Sie direkt einen neuen Termin für diesen Klienten eintragen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.Yes)
+        if appt==QMessageBox.Yes:
+            self.nav.setCurrentRow(0); QApplication.processEvents()
+            refresh=getattr(self,"refresh_calendar_people",None)
+            if callable(refresh): refresh()
+            if hasattr(self,"appt_client"):
+                target=None
+                for n in range(self.appt_client.count()):
+                    name=self.appt_client.itemText(n).strip().lower()
+                    if first.lower() in name and last.lower() in name: target=n; break
+                if target is not None: self.appt_client.setCurrentIndex(target)
+            if hasattr(self,"appt_type"): self.appt_type.setCurrentText(rec["type"] if rec["type"] in [self.appt_type.itemText(i) for i in range(self.appt_type.count())] else "Einzeltherapie")
+            if hasattr(self,"appt_minutes"): self.appt_minutes.setValue(rec["minutes"] if rec["minutes"]<=300 else 45)
     def invoice_ui(self):
         w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0)
         scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
