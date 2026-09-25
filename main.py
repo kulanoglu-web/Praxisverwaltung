@@ -695,12 +695,21 @@ class Main(QMainWindow):
         info=QLabel("Partner A und Partner B aus vorhandenen Klientenakten auswählen. Gemeinsame und vertrauliche Notizen werden getrennt gespeichert.")
         info.setWordWrap(True); v.addWidget(info)
         row=QHBoxLayout(); self.couple_a=QComboBox(); self.couple_b=QComboBox()
-        self.couple_a.addItem("Partner A auswählen",None); self.couple_b.addItem("Partner B auswählen",None)
-        con=sqlite3.connect(DBFILE)
-        for cid,first,last in con.execute("SELECT id,first,last FROM clients ORDER BY id DESC").fetchall():
-            name=(decrypt_text(first)+" "+decrypt_text(last)).strip()
-            self.couple_a.addItem(name,cid); self.couple_b.addItem(name,cid)
-        con.close(); row.addWidget(self.couple_a); row.addWidget(self.couple_b); v.addLayout(row)
+        def refresh_couple_clients():
+            old_a=self.couple_a.currentData(); old_b=self.couple_b.currentData()
+            self.couple_a.clear(); self.couple_b.clear()
+            self.couple_a.addItem("Partner A auswählen",None); self.couple_b.addItem("Partner B auswählen",None)
+            con=sqlite3.connect(DBFILE)
+            for cid,first,last in con.execute("SELECT id,first,last FROM clients ORDER BY id DESC").fetchall():
+                name=(decrypt_text(first)+" "+decrypt_text(last)).strip()
+                self.couple_a.addItem(name,cid); self.couple_b.addItem(name,cid)
+            con.close()
+            for box,old in ((self.couple_a,old_a),(self.couple_b,old_b)):
+                idx=box.findData(old)
+                if idx>=0: box.setCurrentIndex(idx)
+        refresh_couple_clients()
+        refresh_clients_btn=QPushButton("↻ Klienten aktualisieren"); refresh_clients_btn.clicked.connect(refresh_couple_clients)
+        row.addWidget(self.couple_a); row.addWidget(self.couple_b); row.addWidget(refresh_clients_btn); v.addLayout(row)
         save=QPushButton("Paarakte anlegen"); v.addWidget(save)
         self.couple_list=QListWidget(); self.couple_list.setMaximumHeight(150); v.addWidget(self.couple_list)
         note_row=QHBoxLayout(); self.couple_note_type=QComboBox()
