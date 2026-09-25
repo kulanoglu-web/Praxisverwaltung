@@ -669,11 +669,29 @@ class Main(QMainWindow):
             if not aid: return
             con=sqlite3.connect(DBFILE); row=con.execute("SELECT appointment_date,start_time,minutes,client_id,couple_id,appointment_type,status,note FROM appointments WHERE id=?",(aid,)).fetchone(); con.close()
             if not row: return
-            d,t,m,cid,couple,typ,status,note=row; self.appt_date.setDate(QDate.fromString(d,"yyyy-MM-dd")); self.appt_time.setTime(QTime.fromString(t,"HH:mm")); self.appt_minutes.setValue(m); self.appt_type.setCurrentText(typ or "Einzeltherapie"); self.appt_status.setCurrentText(status or "geplant"); self.appt_note.setText(decrypt_text(note));
+            d,t,m,cid,couple,typ,status,note=row
+            refresh_calendar_people()
+            self.appt_date.setDate(QDate.fromString(d,"yyyy-MM-dd")); self.appt_time.setTime(QTime.fromString(t,"HH:mm")); self.appt_minutes.setValue(m); self.appt_type.setCurrentText(typ or "Einzeltherapie"); self.appt_status.setCurrentText(status or "geplant"); self.appt_note.setText(decrypt_text(note))
             for box,val in ((self.appt_client,cid),(self.appt_couple,couple)):
-                for n in range(box.count()):
-                    if box.itemData(n)==val: box.setCurrentIndex(n); break
-            con=sqlite3.connect(DBFILE); con.execute("UPDATE appointments SET appointment_date=?,start_time=?,minutes=?,client_id=?,couple_id=?,appointment_type=?,status=?,note=? WHERE id=?",(self.appt_date.date().toString("yyyy-MM-dd"),self.appt_time.time().toString("HH:mm"),self.appt_minutes.value(),self.appt_client.currentData(),self.appt_couple.currentData(),self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),aid)); con.commit(); con.close(); audit("APPOINTMENT_UPDATE",str(aid),self.current_user.get("username","")); refresh()
+                idx=box.findData(val); box.setCurrentIndex(idx if idx>=0 else 0)
+            QMessageBox.information(self,"Termin bearbeiten","Der Termin wurde in die Eingabefelder geladen.\n\nKlient oder Paarakte sowie Datum, Uhrzeit, Dauer, Terminart, Status und Notiz können jetzt geändert werden. Anschließend erneut „Termin bearbeiten“ klicken, um die Änderungen zu speichern.")
+            edit.setText("Änderungen speichern")
+            edit.setProperty("editingAppointmentId",aid)
+            return
+        def save_edit_if_active():
+            aid=edit.property("editingAppointmentId")
+            if not aid: return False
+            cid=self.appt_client.currentData(); couple=self.appt_couple.currentData()
+            if cid and couple:
+                QMessageBox.warning(self,"Termin","Bitte entweder Klient oder Paarakte zuordnen, nicht beides."); return True
+            con=sqlite3.connect(DBFILE)
+            con.execute("UPDATE appointments SET appointment_date=?,start_time=?,minutes=?,client_id=?,couple_id=?,appointment_type=?,status=?,note=? WHERE id=?",(self.appt_date.date().toString("yyyy-MM-dd"),self.appt_time.time().toString("HH:mm"),self.appt_minutes.value(),cid,couple,self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),aid))
+            con.commit(); con.close(); audit("APPOINTMENT_UPDATE",str(aid),self.current_user.get("username",""))
+            edit.setProperty("editingAppointmentId",None); edit.setText("Termin bearbeiten"); refresh(); return True
+        original_edit_selected=edit_selected
+        def edit_selected():
+            if save_edit_if_active(): return
+            original_edit_selected()
         def start_session():
             aid=selected_id()
             if not aid: return
