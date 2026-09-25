@@ -1,7 +1,7 @@
 import os, sys
 from pathlib import Path
 os.environ["QT_SCALE_FACTOR"]="1"
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QScrollArea, QLineEdit, QComboBox, QTextEdit, QListWidget
 from PySide6.QtCore import QTimer
 import main
 
@@ -78,6 +78,12 @@ for width,height in resolutions:
         # Fenster darf nicht über die angeforderte Auflösung hinauswachsen.
         if shot.width() > width or shot.height() > height:
             raise SystemExit(f"UI überschreitet Zielauflösung {width}x{height}: {shot.width()}x{shot.height()}")
+        # Basis-Usability: fokussierbare Eingabefelder dürfen keine Nullgröße haben.
+        page=win.pages.currentWidget()
+        for widget_type in (QLineEdit,QComboBox,QTextEdit,QListWidget):
+            for child in page.findChildren(widget_type):
+                if child.isVisible() and (child.width()<40 or child.height()<18):
+                    raise SystemExit(f"Zu kleines Eingabefeld auf {name} bei {width}x{height}: {child.objectName()} {child.width()}x{child.height()}")
         print("UI screenshot OK", name, f"{width}x{height}", shot.width(), shot.height())
         saved += 1
 
@@ -86,3 +92,15 @@ if saved < expected:
     raise SystemExit(f"Zu wenige Seiten-/Auflösungs-Screenshots erstellt: {saved}/{expected}")
 QTimer.singleShot(100, app.quit)
 app.exec()
+
+
+# Sitzungsassistent funktional prüfen: ICD-Auswahl -> Thema/Symptome -> Notizübernahme.
+win.pages.setCurrentIndex(2); app.processEvents()
+idx=win.help_fcode.findText("F43.1", main.Qt.MatchStartsWith)
+if idx < 0: raise SystemExit("F43.1 fehlt im Sitzungsassistenten")
+win.help_fcode.setCurrentIndex(idx); app.processEvents()
+if win.help_topic.currentText()!="PTBS / Trauma": raise SystemExit("F43.1 schaltet nicht auf PTBS / Trauma")
+if win.symptom_list.count()<5: raise SystemExit("PTBS-Symptomliste wurde nicht geladen")
+win.symptom_list.item(0).setSelected(True); app.processEvents()
+if "AUSGEWÄHLTE SYMPTOME" not in win.help_text.toPlainText(): raise SystemExit("Symptomauswahl aktualisiert Zusammenfassung nicht")
+print("Assistant functional test OK: F43.1 -> PTBS / Trauma -> symptoms")
