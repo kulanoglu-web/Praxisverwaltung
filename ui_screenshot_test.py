@@ -12,7 +12,6 @@ win.current_user={"username":"ui-test","display_name":"UI-Test","role":"Administ
 win.update_user_badge()
 win.setWindowTitle(f"PraxisPro v{main.APP_VERSION} – UI-Test")
 win.setMinimumSize(800,600)
-win.resize(1600,900)
 win.show()
 app.processEvents()
 
@@ -57,25 +56,33 @@ pages=[
     (10,"Benutzerhandbuch"),
 ]
 saved=0
-for index, name in pages:
-    if index >= win.nav.count():
-        continue
-    win.nav.setCurrentRow(index)
+# Mehrere typische Desktop-/Notebook-Auflösungen prüfen. Damit fallen starre,
+# überlappende Layouts bereits im Build auf und nicht erst auf dem Praxis-PC.
+resolutions=[(1024,768),(1280,720),(1366,768),(1600,900),(1920,1080)]
+for width,height in resolutions:
+    win.resize(width,height)
     app.processEvents()
-    if index == 1:
-        prepare_session_page()
-    shot=win.grab()
-    if shot.isNull():
-        raise SystemExit(f"Screenshot {name} konnte nicht erstellt werden")
-    path=out/f"PraxisPro-{name}-1600x900.png"
-    if not shot.save(str(path)):
-        raise SystemExit(f"Screenshot {name} konnte nicht gespeichert werden")
-    if shot.width() < 1000 or shot.height() < 700:
-        raise SystemExit(f"UI-Test Screenshot zu klein: {shot.width()}x{shot.height()}")
-    print("UI screenshot OK", name, shot.width(), shot.height())
-    saved += 1
+    for index, name in pages:
+        if index >= win.nav.count():
+            continue
+        win.nav.setCurrentRow(index)
+        app.processEvents()
+        if index == 1:
+            prepare_session_page()
+        shot=win.grab()
+        if shot.isNull():
+            raise SystemExit(f"Screenshot {name} konnte nicht erstellt werden")
+        path=out/f"PraxisPro-{name}-{width}x{height}.png"
+        if not shot.save(str(path)):
+            raise SystemExit(f"Screenshot {name} konnte nicht gespeichert werden")
+        # Fenster darf nicht über die angeforderte Auflösung hinauswachsen.
+        if shot.width() > width or shot.height() > height:
+            raise SystemExit(f"UI überschreitet Zielauflösung {width}x{height}: {shot.width()}x{shot.height()}")
+        print("UI screenshot OK", name, f"{width}x{height}", shot.width(), shot.height())
+        saved += 1
 
-if saved < 11:
-    raise SystemExit(f"Zu wenige Seiten-Screenshots erstellt: {saved}")
+expected=len(resolutions)*len(pages)
+if saved < expected:
+    raise SystemExit(f"Zu wenige Seiten-/Auflösungs-Screenshots erstellt: {saved}/{expected}")
 QTimer.singleShot(100, app.quit)
 app.exec()
