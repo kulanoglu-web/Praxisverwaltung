@@ -1102,7 +1102,7 @@ $result.Text
         self.couple_goal=QLineEdit(); self.couple_goal.setPlaceholderText("Gemeinsames Ziel / Auftrag des Paares …"); pair_body_layout.addWidget(self.couple_goal)
         self.couple_resources=QLineEdit(); self.couple_resources.setPlaceholderText("Gemeinsame Ressourcen / positive Ausnahmen …"); pair_body_layout.addWidget(self.couple_resources)
         cr=QHBoxLayout(); self.couple_violence=QCheckBox("Hinweis auf Gewalt / Drohung / Zwang / Kontrolle"); self.couple_children=QCheckBox("Kinder / Elternebene betroffen"); cr.addWidget(self.couple_violence); cr.addWidget(self.couple_children); cr.addStretch(); pair_body_layout.addLayout(cr)
-        couplehint=QLabel("Bei Gewalt, Zwang oder akuter Gefährdung: Sicherheit und getrennte Risikoabklärung vor üblichen Paarinterventionen priorisieren."); couplehint.setWordWrap(True); pair_body_layout.addWidget(couplehint); pair_body_layout.addWidget(couplehint); cv.addWidget(pair_body); self.couple_mode.toggled.connect(pair_body.setVisible); v.addWidget(couple)
+        couplehint=QLabel("Bei Gewalt, Zwang oder akuter Gefährdung: Sicherheit und getrennte Risikoabklärung vor üblichen Paarinterventionen priorisieren."); couplehint.setWordWrap(True); pair_body_layout.addWidget(couplehint); cv.addWidget(pair_body); self.couple_mode.toggled.connect(pair_body.setVisible); v.addWidget(couple)
         screening_catalog={
           "Depressive Beschwerden":["Besteht seit mindestens zwei Wochen an den meisten Tagen eine deutlich gedrückte Stimmung?","Besteht deutlich weniger Interesse oder Freude an sonst wichtigen Aktivitäten?","Sind Antrieb oder Energie deutlich vermindert?","Bestehen Schlaf-, Appetit- oder Konzentrationsveränderungen?","Bestehen Hoffnungslosigkeit, starke Schuldgefühle oder Gedanken, nicht mehr leben zu wollen?"],
           "Angst / Panik":["Treten wiederholt plötzlich starke Angstspitzen auf?","Bestehen dabei deutliche körperliche Symptome wie Herzrasen, Atemnot, Zittern oder Schwindel?","Besteht anhaltende Sorge vor weiteren Anfällen?","Werden Situationen aus Angst vermieden?","Wie stark beeinträchtigt dies Alltag, Arbeit oder Beziehungen?"],
@@ -1174,7 +1174,7 @@ $result.Text
             render()
         self.screening_btn.clicked.connect(load_screening)
         symptom_box=QFrame(); symptom_box.setObjectName("formCard"); symptom_box.setMinimumWidth(0); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
-        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(105); self.symptom_list.setMaximumHeight(145); sb.addWidget(self.symptom_list)
+        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(105); self.symptom_list.setMaximumHeight(170); self.symptom_list.setAlternatingRowColors(True); self.symptom_list.setToolTip("Mehrere Symptome mit Strg/Klick oder durch Ziehen auswählen. Doppelklick übernimmt ein einzelnes Symptom direkt in die Therapienotiz."); sb.addWidget(self.symptom_list)
         sr=QHBoxLayout(); self.sym_custom=QLineEdit(); self.sym_custom.setPlaceholderText("Weiteres Symptom ergänzen …"); add_sym=QPushButton("＋ Symptom"); transfer_sym=QPushButton("✓ Auswahl in Therapienotiz übernehmen"); sr.addWidget(self.sym_custom,1); sr.addWidget(add_sym); sr.addWidget(transfer_sym); sb.addLayout(sr)
         def add_custom_symptom():
             t=self.sym_custom.text().strip()
@@ -1192,10 +1192,12 @@ $result.Text
         def load_symptoms():
             self.symptom_list.clear(); vals=symptom_catalog.get(self.help_topic.currentText(),[])
             if not vals: vals=["Aktuelle Belastung","Beeinträchtigung im Alltag","Schlaf / Erholung","Körperliche Beschwerden","Rückzug / Vermeidung","Beziehungsbelastung","Ressourcen / Schutzfaktoren"]
-            for s in vals: self.symptom_list.addItem(s)
+            for s in vals:
+                item=QListWidgetItem(s); item.setToolTip("Auswählen und anschließend in die Therapienotiz übernehmen"); self.symptom_list.addItem(item)
+            self.symptom_list.scrollToTop()
         clear_sym.clicked.connect(self.symptom_list.clearSelection)
         # F-Code steuert Thema, Symptome und Fragen automatisch.
-        fcode_topic={"F32.0":"Depressive Beschwerden","F32.1":"Depressive Beschwerden","F32.2":"Depressive Beschwerden","F33.0":"Depressive Beschwerden","F33.1":"Depressive Beschwerden","F40.0":"Agoraphobie","F40.1":"Soziale Angst","F41.0":"Angst / Panik","F41.1":"Generalisierte Angst / Sorgen","F43.0":"Anpassungsreaktion / Lebenskrise","F43.1":"PTBS / Trauma","F43.2":"Anpassungsreaktion / Lebenskrise","F45.0":"Somatische Beschwerden","F50.0":"Essverhalten / Körperbild","F50.2":"Essverhalten / Körperbild","F51.0":"Schlafprobleme","F60.3":"Emotionsregulation / Instabilität","F90.0":"ADHS / Aufmerksamkeit"}
+        fcode_topic={"F32.0":"Depressive Beschwerden","F32.1":"Depressive Beschwerden","F32.2":"Depressive Beschwerden","F33.0":"Depressive Beschwerden","F33.1":"Depressive Beschwerden","F40.0":"Agoraphobie","F40.1":"Soziale Angst","F41.0":"Angst / Panik","F41.1":"Angst / Panik","F43.0":"Anpassungsreaktion / Lebenskrise","F43.1":"PTBS / Trauma","F43.2":"Anpassungsreaktion / Lebenskrise","F45.0":"Somatische Beschwerden","F50.0":"Essverhalten / Körperbild","F50.2":"Essverhalten / Körperbild","F51.0":"Schlafprobleme","F60.3":"Stress / Überlastung","F90.0":"ADHS / Aufmerksamkeit"}
         def apply_fcode_context(text):
             code=text.split(" – ",1)[0].strip()
             topic=fcode_topic.get(code)
@@ -1203,7 +1205,9 @@ $result.Text
                 idx=self.help_topic.findText(topic)
                 if idx>=0: self.help_topic.setCurrentIndex(idx)
             load_symptoms(); load_screening(); render()
-        self.help_topic.currentTextChanged.connect(lambda _:load_symptoms()); self.help_fcode.currentTextChanged.connect(apply_fcode_context); load_symptoms()
+        self.help_topic.currentTextChanged.connect(lambda _: (load_symptoms(), load_screening()))
+        self.help_fcode.currentTextChanged.connect(apply_fcode_context)
+        load_symptoms()
         severity=QFrame(); severity.setObjectName("formCard"); severity.setMinimumWidth(0); sf=QGridLayout(severity); sf.addWidget(QLabel("Vertiefung der Symptomabfrage"),0,0,1,4)
         self.sym_duration=QComboBox(); self.sym_duration.addItems(["Dauer nicht angegeben","< 2 Wochen","2–4 Wochen","1–3 Monate","3–6 Monate","> 6 Monate","> 1 Jahr"])
         self.sym_intensity=QComboBox(); self.sym_intensity.addItems(["Intensität nicht angegeben","Leicht","Mittel","Stark","Sehr stark"])
