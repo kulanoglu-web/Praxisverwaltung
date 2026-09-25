@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.12.9"
+APP_VERSION = "0.12.10"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1596,32 +1596,41 @@ $result.Text
         scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(28,24,28,34); v.setSpacing(16)
         title=QLabel("Neue Rechnung"); title.setObjectName("pageTitle"); v.addWidget(title)
-        sub=QLabel("Einzelrechnung oder Sammelrechnung aus noch nicht abgerechneten Sitzungen"); sub.setObjectName("pageSub"); v.addWidget(sub)
+        sub=QLabel("Klient auswählen oder Namen eingeben - passende Klienten werden automatisch vorgeschlagen."); sub.setObjectName("pageSub"); v.addWidget(sub)
         card=QFrame(); card.setObjectName("formCard"); f=QFormLayout(card); f.setSpacing(12)
         self.i_no=QLineEdit(next_no()); self.i_last=QLineEdit(); self.i_first=QLineEdit(); self.i_addr=QLineEdit(); self.i_diag=QLineEdit(); self.pending_sessions=None; self.manual_items=[]
+        self.i_client=QComboBox(); self.i_client.setEditable(True); self.i_client.setInsertPolicy(QComboBox.NoInsert); self.i_client.setMinimumHeight(44)
+        self.i_client.lineEdit().setPlaceholderText("Klient suchen: Vorname oder Nachname eingeben")
+        self.refresh_invoice_clients()
+        comp=self.i_client.completer()
+        if comp:
+            comp.setCompletionMode(QCompleter.PopupCompletion); comp.setFilterMode(Qt.MatchContains); comp.setCaseSensitivity(Qt.CaseInsensitive)
+        def pick_invoice_client(_=None):
+            data=self.i_client.currentData()
+            if not isinstance(data,dict):
+                typed=self.i_client.currentText().strip().lower()
+                data=next((cc for cc in DB["clients"] if typed in f'{cc.get("first","")} {cc.get("last","")}'.lower() or typed in f'{cc.get("last","")}, {cc.get("first","")}'.lower()),None)
+            if isinstance(data,dict):
+                self.i_first.setText(data.get("first","")); self.i_last.setText(data.get("last","")); self.i_addr.setText(data.get("address","")); self.i_diag.setText(data.get("diagnosis",""))
+        self.i_client.activated.connect(pick_invoice_client)
+        self.i_client.lineEdit().editingFinished.connect(pick_invoice_client)
         for ed in (self.i_no,self.i_last,self.i_first,self.i_addr,self.i_diag): ed.setMinimumHeight(40)
         self.i_date=QDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_date.setDisplayFormat("dd.MM.yyyy"); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstige"])
         self.i_min=QSpinBox(); self.i_min.setRange(1,1000); self.i_min.setValue(45); self.i_red=QCheckBox("Ermäßigter Satz")
         self.i_start=QTimeEdit(); self.i_start.setDisplayFormat("HH:mm"); self.i_end=QTimeEdit(); self.i_end.setDisplayFormat("HH:mm")
-        # Zeitfelder direkt überschreibbar: Klick/Fokus markiert sofort die komplette Uhrzeit.
         for te in (self.i_start,self.i_end):
-            te.setKeyboardTracking(False)
-            te.setAccelerated(True)
-            te.setWrapping(True)
-            te.setToolTip("Zeit direkt eingeben, z. B. 1430 für 14:30")
-            te.lineEdit().setInputMask("99:99;_")
-            te.lineEdit().setPlaceholderText("HH:MM")
-            te.lineEdit().installEventFilter(self)
+            te.setKeyboardTracking(False); te.setAccelerated(True); te.setWrapping(True); te.setToolTip("Zeit direkt eingeben, z. B. 1430 für 14:30")
+            te.lineEdit().setInputMask("99:99;_"); te.lineEdit().setPlaceholderText("HH:MM"); te.lineEdit().installEventFilter(self)
         for ed in (self.i_date,self.i_type,self.i_min,self.i_start,self.i_end): ed.setMinimumHeight(40)
-        for a,b in [("Rechnungsnummer",self.i_no),("Nachname",self.i_last),("Vorname",self.i_first),("Adresse (optional)",self.i_addr),("Diagnose (optional)",self.i_diag),("Leistungsdatum",self.i_date),("Beginn",self.i_start),("Ende",self.i_end),("Leistung",self.i_type),("Dauer Minuten",self.i_min)]:f.addRow(a,b)
+        f.addRow("Klient auswählen / suchen",self.i_client)
+        for a,b in [("Rechnungsnummer",self.i_no),("Nachname",self.i_last),("Vorname",self.i_first),("Adresse",self.i_addr),("Diagnose (optional)",self.i_diag),("Leistungsdatum",self.i_date),("Beginn",self.i_start),("Ende",self.i_end),("Leistung",self.i_type),("Dauer Minuten",self.i_min)]: f.addRow(a,b)
         def invoice_times():
             secs=self.i_start.time().secsTo(self.i_end.time())
             if secs>0:self.i_min.setValue(max(1,secs//60))
         self.i_start.timeChanged.connect(invoice_times); self.i_end.timeChanged.connect(invoice_times)
         self.i_last.editingFinished.connect(self.fill_invoice_client); self.i_first.editingFinished.connect(self.fill_invoice_client)
         f.addRow("",self.i_red); v.addWidget(card)
-        itemrow=QHBoxLayout()
-        additem=QPushButton("＋ Leistung zur Rechnung hinzufügen"); additem.setMinimumHeight(46)
+        itemrow=QHBoxLayout(); additem=QPushButton("＋ Leistung zur Rechnung hinzufügen"); additem.setMinimumHeight(46)
         self.iteminfo=QLabel("Noch keine zusätzlichen Leistungen"); self.iteminfo.setObjectName("pageSub")
         def add_manual_item():
             typ=self.i_type.currentText(); mins=self.i_min.value()
@@ -1631,8 +1640,8 @@ $result.Text
                 amount=round(val,2)
             else: amount=round(amount_for(mins,typ,self.i_red.isChecked()),2)
             self.manual_items.append({"date":self.i_date.date().toString("yyyy-MM-dd"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amount})
-            self.pending_sessions=None; self.iteminfo.setText(f"{len(self.manual_items)} Leistungen · {sum(x['amount'] for x in self.manual_items):.2f} €")
-        additem.clicked.connect(add_manual_item); itemrow.addWidget(additem); itemrow.addWidget(self.iteminfo,1); v.addLayout(itemrow)
+            self.pending_sessions=None; refresh_items()
+        itemrow.addWidget(additem); itemrow.addWidget(self.iteminfo,1); v.addLayout(itemrow)
         self.itemtable=QTableWidget(0,6); self.itemtable.setHorizontalHeaderLabels(["Datum","Zeit","Min.","Leistung","Satz","Betrag"]); self.itemtable.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.itemtable.setSelectionBehavior(QTableWidget.SelectRows); self.itemtable.setEditTriggers(QTableWidget.NoEditTriggers); self.itemtable.setMinimumHeight(170); self.itemtable.setMaximumHeight(260); v.addWidget(self.itemtable)
         def refresh_items():
             self.itemtable.setRowCount(0)
@@ -1641,7 +1650,7 @@ $result.Text
                 vals=[it.get("date",""),f'{it.get("start","")}–{it.get("end","")}',str(it.get("minutes",0)),it.get("type",""),"ermäßigt" if it.get("reduced") else "regulär",f'{float(it.get("amount",0)):.2f} €']
                 for j,val in enumerate(vals): self.itemtable.setItem(r,j,QTableWidgetItem(str(val)))
             self.iteminfo.setText("Noch keine zusätzlichen Leistungen" if not self.manual_items else f"{len(self.manual_items)} Leistungen · {sum(float(x.get('amount',0)) for x in self.manual_items):.2f} €")
-        additem.clicked.connect(refresh_items)
+        additem.clicked.connect(add_manual_item)
         itembuttons=QHBoxLayout(); removeitem=QPushButton("Ausgewählte Leistung entfernen"); clearitems=QPushButton("Leistungen leeren")
         def remove_manual_item():
             r=self.itemtable.currentRow()
@@ -1653,8 +1662,7 @@ $result.Text
         qrow.addWidget(q,1); qrow.addWidget(quarter); v.addLayout(qrow)
         preview=QPushButton("Rechnung vor Erstellung prüfen"); preview.setMinimumHeight(50)
         def preview_invoice():
-            no=self.i_no.text().strip(); last=self.i_last.text().strip(); first=self.i_first.text().strip()
-            rows=self.pending_sessions or self.manual_items
+            no=self.i_no.text().strip(); last=self.i_last.text().strip(); first=self.i_first.text().strip(); rows=self.pending_sessions or self.manual_items
             if rows:
                 lines="\n".join(f'{s.get("date","")}  {s.get("start","")}–{s.get("end","")}  {s.get("minutes",0)} Min.  {s.get("type","")}  {float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))):.2f} €' for s in rows)
                 total=sum(float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))) for s in rows)
@@ -1663,11 +1671,22 @@ $result.Text
             QMessageBox.information(self,"Rechnung prüfen",f"Rechnung {no}\n{first} {last}\n\n{lines}\n\nGesamt: {total:.2f} €")
         preview.clicked.connect(preview_invoice); v.addWidget(preview)
         b=QPushButton("PDF-Rechnung erstellen"); b.setMinimumHeight(60); b.clicked.connect(self.make_invoice); v.addWidget(b); v.addSpacing(20); scroll.setWidget(page); outer.addWidget(scroll); return w
+
+    def refresh_invoice_clients(self):
+        if not hasattr(self,"i_client"): return
+        current=self.i_client.currentText(); self.i_client.blockSignals(True); self.i_client.clear()
+        self.i_client.addItem("",None)
+        for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())):
+            self.i_client.addItem(f'{cc.get("last","")}, {cc.get("first","")}',cc)
+        self.i_client.setCurrentText(current); self.i_client.blockSignals(False)
+
     def fill_invoice_client(self):
         last,first=self.i_last.text().strip().lower(),self.i_first.text().strip().lower()
         x=next((c for c in DB["clients"] if c.get("last","").lower()==last and (not first or c.get("first","").lower()==first)),None)
         if x:
             self.i_first.setText(x.get("first","")); self.i_last.setText(x.get("last","")); self.i_addr.setText(x.get("address","")); self.i_diag.setText(x.get("diagnosis",""))
+            if hasattr(self,"i_client"): self.i_client.setCurrentText(f'{x.get("last","")}, {x.get("first","")}')
+
     def load_unbilled_sessions(self):
         last,first=self.i_last.text().strip().lower(),self.i_first.text().strip().lower()
         rows=sorted([s for s in DB["sessions"] if not s.get("billed") and s.get("last","").lower()==last and s.get("first","").lower()==first],key=lambda s:(s.get("date",""),s.get("start","")))
