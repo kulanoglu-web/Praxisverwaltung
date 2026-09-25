@@ -587,12 +587,19 @@ class Main(QMainWindow):
         self.appt_minutes=QSpinBox(); self.appt_minutes.setRange(5,300); self.appt_minutes.setValue(45); self.appt_minutes.setSuffix(" Min.")
         self.appt_type=QComboBox(); self.appt_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstiger Termin"])
         form=QFormLayout(); form.addRow("Datum",self.appt_date); form.addRow("Beginn",self.appt_time); form.addRow("Dauer",self.appt_minutes); form.addRow("Terminart",self.appt_type)
-        self.appt_client=QComboBox(); self.appt_client.addItem("Klient optional",None)
-        self.appt_couple=QComboBox(); self.appt_couple.addItem("Paarakte optional",None)
-        con=sqlite3.connect(DBFILE)
-        for cid,first,last in con.execute("SELECT id,first,last FROM clients ORDER BY id DESC").fetchall(): self.appt_client.addItem((decrypt_text(first)+" "+decrypt_text(last)).strip(),cid)
-        for cid,a,b in con.execute("SELECT id,partner_a_name,partner_b_name FROM couples WHERE status='aktiv' ORDER BY id DESC").fetchall(): self.appt_couple.addItem("#"+str(cid)+" "+decrypt_text(a)+" + "+decrypt_text(b),cid)
-        con.close()
+        self.appt_client=QComboBox(); self.appt_couple=QComboBox()
+        def refresh_calendar_people():
+            old_client=self.appt_client.currentData(); old_couple=self.appt_couple.currentData()
+            self.appt_client.clear(); self.appt_couple.clear()
+            self.appt_client.addItem("Klient optional",None); self.appt_couple.addItem("Paarakte optional",None)
+            con=sqlite3.connect(DBFILE)
+            for cid,first,last in con.execute("SELECT id,first,last FROM clients ORDER BY id DESC").fetchall(): self.appt_client.addItem((decrypt_text(first)+" "+decrypt_text(last)).strip(),cid)
+            for cid,a,b in con.execute("SELECT id,partner_a_name,partner_b_name FROM couples WHERE status='aktiv' ORDER BY id DESC").fetchall(): self.appt_couple.addItem("#"+str(cid)+" "+decrypt_text(a)+" + "+decrypt_text(b),cid)
+            con.close()
+            for box,old in ((self.appt_client,old_client),(self.appt_couple,old_couple)):
+                idx=box.findData(old)
+                if idx>=0: box.setCurrentIndex(idx)
+        refresh_calendar_people()
         form.addRow("Klient",self.appt_client); form.addRow("Paarakte",self.appt_couple)
         self.appt_status=QComboBox(); self.appt_status.addItems(["geplant","erschienen","abgesagt","ausgefallen"]); form.addRow("Status",self.appt_status)
         self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Interne Terminnotiz – verschlüsselt"); form.addRow("Notiz",self.appt_note); rv.addLayout(form)
@@ -602,6 +609,7 @@ class Main(QMainWindow):
         self.appt_day_title=QLabel(); self.appt_day_title.setProperty("class","sectionTitle"); v.addWidget(self.appt_day_title)
         self.appt_list=QTableWidget(0,6); self.appt_list.setHorizontalHeaderLabels(["Zeit","Dauer","Art","Klient / Paar","Status","Notiz"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.appt_list.setSelectionBehavior(QTableWidget.SelectRows); self.appt_list.setAlternatingRowColors(True); self.appt_list.setMinimumHeight(190); v.addWidget(self.appt_list,1)
         def refresh():
+            refresh_calendar_people()
             selected=self.appt_calendar.selectedDate(); d=selected.toString("yyyy-MM-dd"); self.appt_date.setDate(selected)
             con=sqlite3.connect(DBFILE)
             if self.appt_view.currentText()=="Woche":
