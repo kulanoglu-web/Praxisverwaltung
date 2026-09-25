@@ -1775,6 +1775,16 @@ $result.Text
                 can.drawImage(logo_img,W-18*mm-dw,H-15*mm-dh,width=dw,height=dh,preserveAspectRatio=True,mask="auto")
             except Exception as logo_error:
                 audit("INVOICE_LOGO_ERROR",str(logo_error)[:500],self.current_user.get("username","") if self.current_user else "")
+                logo_path=None
+        if not logo_path:
+            # Eingebautes Markenlogo als Vektor-Fallback: bleibt auch ohne externe Bilddatei sichtbar.
+            lx=W-92*mm; ly=H-25*mm
+            can.setFont(bold,17); can.setFillColor(BROWN); can.drawString(lx,ly,"erdogan.")
+            tw=can.stringWidth("erdogan.",bold,17)
+            can.setFillColor(GOLD); can.drawString(lx+tw,ly,"kulanoglu")
+            can.setFillColor(BLACK); can.setFont(regular,7.4); can.drawString(lx+24*mm,ly-6*mm,"Psychologische Privatpraxis")
+            can.setFillColor(BROWN); can.circle(W-25*mm,ly+5*mm,7*mm,stroke=0,fill=1)
+            can.setFillColor(GOLD); can.wedge(W-32*mm,ly-2*mm,W-18*mm,ly+12*mm,180,180,stroke=0,fill=1)
         can.setFillColor(BROWN); can.setFont(bold,10.5); can.drawString(18*mm,H-21*mm,owner)
         can.setFillColor(BLACK); can.setFont(regular,8.5); can.drawString(18*mm,H-27*mm,"Psychologische Privatpraxis")
         can.drawString(18*mm,H-33*mm,address)
