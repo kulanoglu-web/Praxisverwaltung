@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.12.10"
+APP_VERSION = "0.12.11"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -2317,11 +2317,14 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             if p: logo.setText(p)
         choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
         gv.addLayout(form)
-        appearance=QFrame(); appearance.setObjectName("formCard"); appearance.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); af=QFormLayout(appearance); af.setVerticalSpacing(10)
-        theme=QComboBox(); theme.addItems(["PraxisPro Blau","Petrol","Grün","Gold","Violett"]); theme.setCurrentText(get_setting("ui_theme","PraxisPro Blau"))
-        fontsize=QSpinBox(); fontsize.setRange(9,16); fontsize.setValue(int(get_setting("ui_font_size","12"))); fontsize.setSuffix(" px")
-        density=QComboBox(); density.addItems(["Kompakt","Normal","Groß"]); density.setCurrentText(get_setting("ui_density","Kompakt"))
-        af.addRow("Farbschema",theme); af.addRow("Schriftgröße",fontsize); af.addRow("Darstellung",density); gv.addWidget(appearance)
+        appearance=QFrame(); appearance.setObjectName("formCard"); appearance.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
+        # Darstellungsoptionen kompakt in einer Zeile: sie dürfen die Praxisdaten nicht überdecken.
+        ar=QHBoxLayout(appearance); ar.setContentsMargins(14,10,14,10); ar.setSpacing(10)
+        theme=QComboBox(); theme.addItems(["PraxisPro Blau","Petrol","Grün","Gold","Violett"]); theme.setCurrentText(get_setting("ui_theme","PraxisPro Blau")); theme.setMinimumWidth(180); theme.setMaximumWidth(260)
+        fontsize=QSpinBox(); fontsize.setRange(9,16); fontsize.setValue(int(get_setting("ui_font_size","12"))); fontsize.setSuffix(" px"); fontsize.setFixedWidth(105)
+        density=QComboBox(); density.addItems(["Kompakt","Normal","Groß"]); density.setCurrentText(get_setting("ui_density","Kompakt")); density.setMinimumWidth(140); density.setMaximumWidth(200)
+        ar.addWidget(QLabel("Farbschema")); ar.addWidget(theme); ar.addSpacing(8); ar.addWidget(QLabel("Schriftgröße")); ar.addWidget(fontsize); ar.addSpacing(8); ar.addWidget(QLabel("Darstellung")); ar.addWidget(density); ar.addStretch()
+        gv.addWidget(appearance)
         save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(42)
         def save_settings():
             for k,ed in fields.items(): set_setting(k,ed.text().strip())
