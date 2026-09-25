@@ -1932,13 +1932,28 @@ $result.Text
                 date=st.item(rr,0).text(); start=st.item(rr,1).text(); s=next((x for x in rows if x.get("date")==date and x.get("start")==start),None)
                 if not s:return
                 ed=QDialog(dlg); ed.setWindowTitle("Sitzung korrigieren"); form=QFormLayout(ed)
-                mins=QSpinBox(); mins.setRange(1,1000); mins.setValue(int(s.get("minutes",45)))
+                begin=QTimeEdit(); begin.setDisplayFormat("HH:mm"); begin.setTime(QTime.fromString(s.get("start","09:00"),"HH:mm"))
+                end=QTimeEdit(); end.setDisplayFormat("HH:mm"); end.setTime(QTime.fromString(s.get("end","09:45"),"HH:mm"))
+                mins=QSpinBox(); mins.setRange(1,1000); mins.setReadOnly(True); mins.setButtonSymbols(QAbstractSpinBox.NoButtons)
+                def recalc_minutes():
+                    sec=begin.time().secsTo(end.time()); mins.setValue(max(1,sec//60) if sec>0 else 1)
+                begin.timeChanged.connect(recalc_minutes); end.timeChanged.connect(recalc_minutes); recalc_minutes()
                 typ=QComboBox(); typ.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); typ.setCurrentText(s.get("type","Einzeltherapie"))
-                note=QTextEdit(); note.setPlainText(s.get("notes","")); form.addRow("Dauer Minuten",mins); form.addRow("Art",typ); form.addRow("Notiz",note)
+                note=QTextEdit(); note.setPlainText(s.get("notes",""))
+                create_invoice=QCheckBox("Nach dem Speichern Rechnung aus dieser Sitzung erstellen"); create_invoice.setChecked(False); create_invoice.setEnabled(not bool(s.get("billed")))
+                if s.get("billed"): create_invoice.setToolTip("Diese Sitzung ist bereits abgerechnet.")
+                form.addRow("Beginn",begin); form.addRow("Ende",end); form.addRow("Dauer Minuten",mins); form.addRow("Art",typ); form.addRow("Notiz",note); form.addRow("",create_invoice)
                 buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); form.addRow(buttons)
                 def save_edit():
-                    s["minutes"]=mins.value(); s["type"]=typ.currentText(); s["notes"]=note.toPlainText(); s["corrected_at"]=datetime.now().isoformat(timespec="seconds"); save_data()
-                    d=client_dir({"last":last,"first":first})/"Sitzungen"; jf=d/f'{s.get("date","")}_Sitzung.json'; jf.write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding="utf-8"); st.item(rr,3).setText(str(s["minutes"])); st.item(rr,4).setText(s["type"]); ed.accept()
+                    sec=begin.time().secsTo(end.time())
+                    if sec<=0:return QMessageBox.warning(ed,"Zeitangabe","Die Endzeit muss nach der Beginnzeit liegen.")
+                    s["start"]=begin.time().toString("HH:mm"); s["end"]=end.time().toString("HH:mm"); s["minutes"]=sec//60; s["type"]=typ.currentText(); s["notes"]=note.toPlainText(); s["corrected_at"]=datetime.now().isoformat(timespec="seconds"); save_data()
+                    d=client_dir({"last":last,"first":first})/"Sitzungen"; jf=d/f'{s.get("date","")}_Sitzung.json'; jf.write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding="utf-8")
+                    st.item(rr,1).setText(s["start"]); st.item(rr,2).setText(s["end"]); st.item(rr,3).setText(str(s["minutes"])); st.item(rr,4).setText(s["type"]); want_invoice=create_invoice.isChecked(); ed.accept()
+                    if want_invoice:
+                        self.i_last.setText(last); self.i_first.setText(first); self.i_addr.setText(cc.get("address","")); self.i_diag.setText(cc.get("diagnosis","")); self.pending_sessions=[s]; self.manual_items=[]
+                        self.i_date.setDate(QDate.fromString(s["date"],"yyyy-MM-dd")); self.i_start.setTime(begin.time()); self.i_end.setTime(end.time()); self.i_min.setValue(s["minutes"]); self.i_type.setCurrentText(s["type"]); self.i_red.setChecked(bool(s.get("reduced",False)))
+                        dlg.accept(); self.nav.setCurrentRow(7)
                 buttons.accepted.connect(save_edit); buttons.rejected.connect(ed.reject); ed.exec()
             edit.clicked.connect(edit_selected)
             view=QPushButton("Ausgewählte Sitzung / Notiz öffnen")
