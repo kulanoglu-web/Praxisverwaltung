@@ -21,7 +21,6 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName=PraxisPro v{#MyAppVersion}
-SetupIconFile=assets\PraxisPro.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Files]
