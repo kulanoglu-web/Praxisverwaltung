@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.12.13"
+APP_VERSION = "0.12.14"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1752,8 +1752,8 @@ $result.Text
         d=client_dir(c)/"Rechnungen"; pdf=d/f"Rechnung_{no}.pdf"
         can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
         # Finale A4-Rechnung: feste Markenfarben und Proportionen der freigegebenen Vorlage.
-        NAVY=HexColor("#173A59"); TEAL=HexColor("#006D75"); GOLD=HexColor("#D7A900")
-        BROWN=HexColor("#5A2D0C"); CREAM=HexColor("#F6F1E6"); BORDER=HexColor("#D8C7A4"); WHITE=HexColor("#FFFFFF")
+        NAVY=HexColor("#111111"); TEAL=HexColor("#111111"); GOLD=HexColor("#D8A000")
+        BROWN=HexColor("#5A2608"); CREAM=HexColor("#FFFFFF"); BORDER=HexColor("#777777"); WHITE=HexColor("#FFFFFF")
         regular,bold="Helvetica","Helvetica-Bold"
         try:
             arial=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arial.ttf"; arial_b=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arialbd.ttf"
@@ -1803,7 +1803,7 @@ $result.Text
         can.setFillColor(NAVY); can.setFont(regular,8.2); tx=128*mm; ty=H-17*mm
         for line in (address,f"Tel.: {phone} · Fax: {fax}",email,website,f"Steuernummer: {tax}"):
             can.drawString(tx,ty,line); ty-=4.3*mm
-        can.setStrokeColor(GOLD); can.setLineWidth(1); can.line(18*mm,H-48*mm,W-18*mm,H-48*mm)
+        can.setStrokeColor(NAVY); can.setLineWidth(.75); can.line(18*mm,H-48*mm,W-18*mm,H-48*mm)
         # Empfänger und Rechnungsmetadaten
         y=H-62*mm; can.setFillColor(NAVY); can.setFont(regular,10)
         can.drawString(18*mm,y,f"{first} {last}"); y-=5*mm
@@ -1812,7 +1812,7 @@ $result.Text
         can.setFont(bold,9.5)
         for lab,val in (("Rechnungs-Nr.:",no),("Rechnungsdatum:",datetime.now().strftime("%d.%m.%Y")),("Leistungszeitraum:",period)):
             can.drawRightString(mx+24*mm,my,lab); can.setFont(regular,9.5); can.drawRightString(W-18*mm,my,val); my-=5*mm; can.setFont(bold,9.5)
-        can.setFillColor(TEAL); can.setFont(bold,20); can.drawString(18*mm,H-88*mm,"Rechnung")
+        can.setFillColor(NAVY); can.setFont(bold,24); can.drawString(18*mm,H-88*mm,"Rechnung")
         can.setFillColor(NAVY); can.setFont(regular,10)
         sal="Sehr geehrte Frau" if str(c.get("gender","")).lower().startswith("w") else "Sehr geehrter Herr"
         can.drawString(18*mm,H-99*mm,f"{sal} {last},")
