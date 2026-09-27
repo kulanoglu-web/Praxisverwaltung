@@ -70,6 +70,14 @@ jobs:
           $exe = Join-Path $target "Praxisverwaltung.exe"
           if (-not (Test-Path $exe)) { throw "Installed executable missing: $exe" }
           Write-Host "Installer smoke test passed. Installed EXE: $exe"
+
+          # Installierte Anwendung wirklich starten. Sie muss mehrere Sekunden
+          # ohne unmittelbaren Crash laufen; anschließend wird sie kontrolliert beendet.
+          $app = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 10
+          if ($app.HasExited) { throw "Installed PraxisPro exited/crashed during startup. ExitCode=$($app.ExitCode)" }
+          Write-Host "Installed PraxisPro startup test passed (process alive after 10 seconds)."
+          Stop-Process -Id $app.Id -Force
       - name: Sign installer
         if: ${{ env.HAS_SIGNING_CERT == 'true' }}
         shell: pwsh
