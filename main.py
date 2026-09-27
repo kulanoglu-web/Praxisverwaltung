@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.12.15"
+APP_VERSION="0.12.16"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1790,15 +1790,8 @@ $result.Text
                 can.drawImage(im,18*mm,H-37*mm,width=iw*sc,height=ih*sc,preserveAspectRatio=True,mask="auto"); drawn=True
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
         if not drawn:
-            x0=18*mm; y0=H-27*mm
-            can.setFont(bold,18); can.setFillColor(BROWN); can.drawString(x0,y0,"erdogan.")
-            w1=can.stringWidth("erdogan.",bold,18); can.setFillColor(GOLD); can.drawString(x0+w1,y0,"kulanoglu")
-            can.setFont(regular,7.5); can.setFillColor(BROWN); can.drawString(x0+24*mm,y0-5*mm,"Psychologische Privatpraxis")
-            cx=x0+76*mm; cy=y0+3*mm; r=6.5*mm
-            can.setFillColor(BROWN); can.circle(cx,cy,r,stroke=0,fill=1)
-            can.setFillColor(GOLD); can.wedge(cx-r,cy-r,cx+r,cy+r,180,180,stroke=0,fill=1)
-            can.setFillColor(WHITE); can.circle(cx-2.2*mm,cy+2.2*mm,2.1*mm,stroke=0,fill=1)
-            can.setFillColor(BROWN); can.circle(cx+2.2*mm,cy-2.2*mm,2.1*mm,stroke=0,fill=1)
+            # Kein erfundenes Ersatzlogo: Die Rechnung soll ausschließlich das echte Praxislogo verwenden.
+            audit("INVOICE_LOGO_MISSING","Echtes Praxislogo konnte nicht geladen werden",self.current_user.get("username","") if self.current_user else "")
         # Kopf exakt nach Referenz: Logo links, Qualifikationen darunter, Kontaktdaten rechts.
         can.setFillColor(NAVY); can.setFont(regular,7.7)
         qy=H-35*mm
