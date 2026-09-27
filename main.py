@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.12.14"
+APP_VERSION = "0.12.15"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1799,26 +1799,39 @@ $result.Text
             can.setFillColor(GOLD); can.wedge(cx-r,cy-r,cx+r,cy+r,180,180,stroke=0,fill=1)
             can.setFillColor(WHITE); can.circle(cx-2.2*mm,cy+2.2*mm,2.1*mm,stroke=0,fill=1)
             can.setFillColor(BROWN); can.circle(cx+2.2*mm,cy-2.2*mm,2.1*mm,stroke=0,fill=1)
-        # Kontaktdaten rechts oben
-        can.setFillColor(NAVY); can.setFont(regular,8.2); tx=128*mm; ty=H-17*mm
-        for line in (address,f"Tel.: {phone} · Fax: {fax}",email,website,f"Steuernummer: {tax}"):
+        # Kopf exakt nach Referenz: Logo links, Qualifikationen darunter, Kontaktdaten rechts.
+        can.setFillColor(NAVY); can.setFont(regular,7.7)
+        qy=H-35*mm
+        for line in (
+            owner,
+            "Heilpraktiker für Psychotherapie  |  Psychologe M.Sc.  |  Sozialarbeiter B.A.",
+            "Praxis für Psychotherapie & Beratung",
+            "Ehe-, Familien- und Lebensberatung",
+            "Zertifizierter Systemischer Berater und Therapeut nach dem SIT-Modell",
+        ):
+            can.drawString(18*mm,qy,line); qy-=4.2*mm
+        can.setStrokeColor(BORDER); can.setLineWidth(.6); can.line(126*mm,H-14*mm,126*mm,H-48*mm)
+        can.setFillColor(NAVY); can.setFont(regular,8.2); tx=132*mm; ty=H-17*mm
+        addr_lines=[x.strip() for x in address.replace(",", "\n",1).splitlines() if x.strip()]
+        contact_lines=(addr_lines+[phone,f"{fax} (Fax)",email,website,f"Steuernummer: {tax}"])
+        for line in contact_lines:
             can.drawString(tx,ty,line); ty-=4.3*mm
-        can.setStrokeColor(NAVY); can.setLineWidth(.75); can.line(18*mm,H-48*mm,W-18*mm,H-48*mm)
+        can.setStrokeColor(NAVY); can.setLineWidth(.75); can.line(18*mm,H-58*mm,W-18*mm,H-58*mm)
         # Empfänger und Rechnungsmetadaten
-        y=H-62*mm; can.setFillColor(NAVY); can.setFont(regular,10)
+        y=H-70*mm; can.setFillColor(NAVY); can.setFont(regular,10)
         can.drawString(18*mm,y,f"{first} {last}"); y-=5*mm
         for line in (self.i_addr.text().strip().splitlines() or [""]): can.drawString(18*mm,y,line); y-=5*mm
-        mx=128*mm; my=H-62*mm
+        mx=128*mm; my=H-70*mm
         can.setFont(bold,9.5)
         for lab,val in (("Rechnungs-Nr.:",no),("Rechnungsdatum:",datetime.now().strftime("%d.%m.%Y")),("Leistungszeitraum:",period)):
             can.drawRightString(mx+24*mm,my,lab); can.setFont(regular,9.5); can.drawRightString(W-18*mm,my,val); my-=5*mm; can.setFont(bold,9.5)
-        can.setFillColor(NAVY); can.setFont(bold,24); can.drawString(18*mm,H-88*mm,"Rechnung")
+        can.setFillColor(NAVY); can.setFont(bold,24); can.drawString(18*mm,H-96*mm,"Rechnung")
         can.setFillColor(NAVY); can.setFont(regular,10)
         sal="Sehr geehrte Frau" if str(c.get("gender","")).lower().startswith("w") else "Sehr geehrter Herr"
-        can.drawString(18*mm,H-99*mm,f"{sal} {last},")
-        can.drawString(18*mm,H-106*mm,"hiermit stelle ich Ihnen folgende Leistungen in Rechnung:")
+        can.drawString(18*mm,H-107*mm,f"{sal} {last},")
+        can.drawString(18*mm,H-114*mm,"hiermit stelle ich Ihnen folgende Leistungen in Rechnung:")
         # Leistungstabelle
-        top=H-118*mm; x=[18*mm,48*mm,120*mm,145*mm,173*mm,W-18*mm]; rh=7.5*mm
+        top=H-122*mm; x=[18*mm,48*mm,120*mm,145*mm,173*mm,W-18*mm]; rh=7.5*mm
         can.setFillColor(CREAM); can.setStrokeColor(BORDER); can.rect(x[0],top-rh,x[-1]-x[0],rh,stroke=1,fill=1)
         headers=["Datum","Leistung","Dauer","Einzelpreis","Betrag"]; can.setFillColor(TEAL); can.setFont(bold,8.2)
         for j,h in enumerate(headers): can.drawString(x[j]+1.5*mm,top-5*mm,h)
@@ -1835,10 +1848,12 @@ $result.Text
         sy=cy-1*mm; sx=104*mm
         can.setFillColor(WHITE); can.rect(sx,sy-rh,W-18*mm-sx,rh,stroke=1,fill=1)
         can.setFillColor(NAVY); can.setFont(regular,8.5); can.drawString(sx+2*mm,sy-5*mm,"Zwischensumme:"); can.drawRightString(W-20*mm,sy-5*mm,f'{amt:.2f} €'.replace(".",","))
-        sy-=rh; can.setFillColor(CREAM); can.rect(sx,sy-rh,W-18*mm-sx,rh,stroke=1,fill=1)
-        can.setFillColor(TEAL); can.setFont(bold,10); can.drawString(sx+2*mm,sy-5*mm,"Rechnungssumme:"); can.drawRightString(W-20*mm,sy-5*mm,f'{amt:.2f} €'.replace(".",","))
+        sy-=rh; can.setFillColor(WHITE); can.rect(sx,sy-rh,W-18*mm-sx,rh,stroke=1,fill=1)
+        can.setFillColor(NAVY); can.setFont(regular,8.1); can.drawString(sx+2*mm,sy-5*mm,"Umsatzsteuerbefreit nach § 4 Nr. 14 UStG:"); can.drawRightString(W-20*mm,sy-5*mm,"0,00 €")
+        sy-=rh; can.setFillColor(WHITE); can.rect(sx,sy-rh,W-18*mm-sx,rh,stroke=1,fill=1)
+        can.setFillColor(NAVY); can.setFont(bold,10); can.drawString(sx+2*mm,sy-5*mm,"Rechnungssumme:"); can.drawRightString(W-20*mm,sy-5*mm,f'{amt:.2f} €'.replace(".",","))
         can.setFillColor(NAVY); can.setFont(regular,8.2)
-        can.drawRightString(W-18*mm,sy-13*mm,"Gemäß § 4 Nr. 14 UStG wird keine Umsatzsteuer erhoben.")
+        can.drawString(18*mm,sy-13*mm,"Gemäß § 4 Nr. 14 UStG wird keine Umsatzsteuer erhoben.")
         can.setFont(bold,8.8); can.drawRightString(W-18*mm,sy-19*mm,"Zahlungsziel: 14 Tage nach Rechnungsdatum.")
         can.setFont(regular,8.2); can.drawRightString(W-18*mm,sy-25*mm,"Bitte Rechnungsnummer als Verwendungszweck angeben.")
         # Zahlungsboxen mit QR-Codes
@@ -1868,6 +1883,7 @@ $result.Text
         can.drawString(18*mm,yy,"Vielen Dank für Ihr Vertrauen."); can.drawString(18*mm,yy-6*mm,"Mit freundlichen Grüßen")
         can.setFillColor(TEAL); can.setFont(bold,9.5); can.drawString(18*mm,yy-18*mm,owner)
         can.setFillColor(NAVY); can.setFont(regular,7.2); can.drawString(18*mm,yy-23*mm,"Heilpraktiker für Psychotherapie")
+        can.setFont(bold,7.1); can.drawRightString(W-18*mm,yy-20*mm,"Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift und Stempel gültig.")
         # Fußzeile
         fy=15*mm; can.setStrokeColor(GOLD); can.line(18*mm,fy+10*mm,W-18*mm,fy+10*mm)
         can.setFillColor(TEAL); can.setFont(bold,6.5)
