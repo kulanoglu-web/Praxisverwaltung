@@ -59,6 +59,17 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:APP_VERSION" PraxisPro.iss'
+      - name: Installer smoke test after build
+        shell: pwsh
+        run: |
+          $setup = "installer\\PraxisPro_Setup_v$env:APP_VERSION.exe"
+          $target = Join-Path $env:RUNNER_TEMP "PraxisProSmoke"
+          if (-not (Test-Path $setup)) { throw "Setup not found: $setup" }
+          $p = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/DIR=$target" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installer exit code $($p.ExitCode)" }
+          $exe = Join-Path $target "Praxisverwaltung.exe"
+          if (-not (Test-Path $exe)) { throw "Installed executable missing: $exe" }
+          Write-Host "Installer smoke test passed. Installed EXE: $exe"
       - name: Sign installer
         if: ${{ env.HAS_SIGNING_CERT == 'true' }}
         shell: pwsh
