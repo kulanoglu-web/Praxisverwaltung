@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION="0.12.16"
+APP_VERSION="0.12.17"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -94,20 +94,16 @@ def bundled_asset(name):
     return base/"assets"/name
 
 def practice_logo_path():
-    """Nur ein tatsächlich lesbares Praxislogo zurückgeben; defekte Dateien nie an PDF/GUI weiterreichen."""
-    candidates=[]
-    custom=get_setting("logo_path","")
-    if custom and Path(custom).is_file(): candidates.append(Path(custom))
-    for name in ("logo.png","logo.jpg","logo.jpeg"):
-        bundled=bundled_asset(name)
-        if bundled.exists(): candidates.append(bundled)
-    for candidate in candidates:
-        try:
-            img=QImage(str(candidate))
-            if not img.isNull(): return candidate
-        except Exception:
-            pass
-    return None
+    """Nur das von der jeweiligen Praxis ausgewählte Logo verwenden; kein fest eingebautes Ersatzbild."""
+    custom=get_setting("logo_path","").strip()
+    if not custom: return None
+    candidate=Path(custom)
+    if not candidate.is_file(): return None
+    try:
+        img=QImage(str(candidate))
+        return candidate if not img.isNull() else None
+    except Exception:
+        return None
 
 DATA=ROOT/"praxisdaten.json.enc"
 for p in [ROOT/"Klienten",ROOT/"Einnahmen",ROOT/"Backups",DBDIR]: p.mkdir(parents=True,exist_ok=True)
@@ -186,8 +182,9 @@ def init_sqlite():
     con.execute("CREATE INDEX IF NOT EXISTS idx_couples_partner_b ON couples(partner_b_client_id)")
     defaults={
       "practice_name":"Psychologische Privatpraxis","owner_name":"Erdoğan Kulanoğlu",
-      "qualifications":"Psychologe M. Sc. · Sozialarbeiter B.A. · Heilpraktiker für Psychotherapie",
-      "address":"Schönwalder Str. 59, 13585 Berlin","phone":"0176 43605753","fax":"030 43205928",
+      "qualifications":"Psychologe M.Sc. | Sozialarbeiter B.A.",
+      "practice_subtitle":"Ehe-, Familien- und Lebensberatung | Zertifizierter Systemischer Berater und Therapeut nach dem SIT-Modell",
+      "address":"Schönwalder Str. 59, 13585 Berlin","phone":"0176 43605753","landline":"","fax":"030 43205928",
       "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254",
       "iban":"DE13 5001 0517 5404 0811 30","bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com",
       "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","auto_lock_minutes":"15","travel_surcharge":"25"
@@ -1764,8 +1761,9 @@ $result.Text
                 if "PraxisArialBold" not in pdfmetrics.getRegisteredFontNames(): pdfmetrics.registerFont(TTFont("PraxisArialBold",str(arial_b)))
                 bold="PraxisArialBold"
         except Exception: pass
-        owner=get_setting("owner_name","Erdoğan Kulanoğlu"); address=get_setting("address","Schönwalder Str. 59, 13585 Berlin")
-        phone=get_setting("phone","0176 43605753"); fax=get_setting("fax","030 43205928")
+        owner=get_setting("owner_name",""); practice_name=get_setting("practice_name","")
+        qualifications=get_setting("qualifications",""); practice_subtitle=get_setting("practice_subtitle","")
+        address=get_setting("address",""); phone=get_setting("phone",""); landline=get_setting("landline",""); fax=get_setting("fax","")
         email=get_setting("email","info@psychologe-spandau.de"); website=get_setting("website","www.psychologe-spandau.de")
         tax=get_setting("tax_number","19/405/00254"); iban=get_setting("iban","DE13 5001 0517 5404 0811 30")
         bic=get_setting("bic","INGDDEFFXXX"); paypal=get_setting("paypal","erdogankulanoglu@hotmail.com")
@@ -1795,18 +1793,13 @@ $result.Text
         # Kopf exakt nach Referenz: Logo links, Qualifikationen darunter, Kontaktdaten rechts.
         can.setFillColor(NAVY); can.setFont(regular,7.7)
         qy=H-35*mm
-        for line in (
-            owner,
-            "Heilpraktiker für Psychotherapie  |  Psychologe M.Sc.  |  Sozialarbeiter B.A.",
-            "Praxis für Psychotherapie & Beratung",
-            "Ehe-, Familien- und Lebensberatung",
-            "Zertifizierter Systemischer Berater und Therapeut nach dem SIT-Modell",
-        ):
-            can.drawString(18*mm,qy,line); qy-=4.2*mm
+        for line in (owner,practice_name,qualifications,practice_subtitle):
+            if line:
+                can.drawString(18*mm,qy,line); qy-=4.2*mm
         can.setStrokeColor(BORDER); can.setLineWidth(.6); can.line(126*mm,H-14*mm,126*mm,H-48*mm)
         can.setFillColor(NAVY); can.setFont(regular,8.2); tx=132*mm; ty=H-17*mm
         addr_lines=[x.strip() for x in address.replace(",", "\n",1).splitlines() if x.strip()]
-        contact_lines=(addr_lines+[phone,f"{fax} (Fax)",email,website,f"Steuernummer: {tax}"])
+        contact_lines=addr_lines+[x for x in (phone,("Festnetz: "+landline) if landline else "",("Fax: "+fax) if fax else "",email,website,("Steuernummer: "+tax) if tax else "") if x]
         for line in contact_lines:
             can.drawString(tx,ty,line); ty-=4.3*mm
         can.setStrokeColor(NAVY); can.setLineWidth(.75); can.line(18*mm,H-58*mm,W-18*mm,H-58*mm)
@@ -1875,7 +1868,7 @@ $result.Text
         can.setFillColor(NAVY); can.setFont(regular,8.5); yy=by-8*mm
         can.drawString(18*mm,yy,"Vielen Dank für Ihr Vertrauen."); can.drawString(18*mm,yy-6*mm,"Mit freundlichen Grüßen")
         can.setFillColor(TEAL); can.setFont(bold,9.5); can.drawString(18*mm,yy-18*mm,owner)
-        can.setFillColor(NAVY); can.setFont(regular,7.2); can.drawString(18*mm,yy-23*mm,"Heilpraktiker für Psychotherapie")
+        can.setFillColor(NAVY); can.setFont(regular,7.2); can.drawString(18*mm,yy-23*mm,qualifications)
         can.setFont(bold,7.1); can.drawRightString(W-18*mm,yy-20*mm,"Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift und Stempel gültig.")
         # Fußzeile
         fy=15*mm; can.setStrokeColor(GOLD); can.line(18*mm,fy+10*mm,W-18*mm,fy+10*mm)
@@ -1883,7 +1876,8 @@ $result.Text
         for xx,title in ((18*mm,"Praxis"),(75*mm,"Kontakt"),(132*mm,"Zahlung / Steuer")): can.drawString(xx,fy+5*mm,title)
         can.setFillColor(NAVY); can.setFont(regular,5.8)
         can.drawString(18*mm,fy+1*mm,address); can.drawString(18*mm,fy-2.5*mm,website)
-        can.drawString(75*mm,fy+1*mm,f"{phone} · Fax {fax}"); can.drawString(75*mm,fy-2.5*mm,email)
+        contact_footer=" · ".join(x for x in (phone,("Festnetz "+landline) if landline else "",("Fax "+fax) if fax else "") if x)
+        can.drawString(75*mm,fy+1*mm,contact_footer); can.drawString(75*mm,fy-2.5*mm,email)
         can.drawString(132*mm,fy+1*mm,"IBAN "+iban); can.drawString(132*mm,fy-2.5*mm,"BIC "+bic+" · St.-Nr. "+tax)
         can.save()
         invoice_items=[]
@@ -2356,7 +2350,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         form.setRowWrapPolicy(QFormLayout.DontWrapRows)
         form.setFormAlignment(Qt.AlignTop)
         fields={}
-        labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("address","Anschrift"),("phone","Telefon"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
+        labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("practice_subtitle","Zusatz / Spezialisierung"),("address","Anschrift"),("phone","Mobil / Telefon"),("landline","Festnetz"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
         for key,label in labels:
             ed=QLineEdit(get_setting(key)); ed.setFixedHeight(34); ed.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); fields[key]=ed; form.addRow(label,ed)
         logo=QLineEdit(get_setting("logo_path")); logo.setFixedHeight(34); logo.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); fields["logo_path"]=logo; choose=QPushButton("Logo auswählen …"); choose.setFixedHeight(34)
