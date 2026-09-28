@@ -2,16 +2,12 @@ name: Windows EXE
 permissions:
   contents: write
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch:
       inputs:
         rebuild:
           description: 'Manual rebuild marker'
           required: false
           default: 'v0.12.18'
-  push:
-    branches: [main]
 jobs:
   build:
     runs-on: windows-latest
