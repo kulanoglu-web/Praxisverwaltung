@@ -902,8 +902,9 @@ class Main(QMainWindow):
         def use_fcode(text):
             if " – " in text: self.session_diag.setText(text)
         fquick.currentTextChanged.connect(use_fcode)
-        cg.addWidget(QLabel("Diagnose / F-Code"),1,0); cg.addWidget(self.session_diag,1,1,1,2); cg.addWidget(fquick,1,3)
-        tip=QLabel("Diagnose/F-Code ist optional und wird nicht automatisch aus Notizen abgeleitet."); tip.setObjectName("pageSub"); tip.setWordWrap(True); cg.addWidget(tip,2,1,1,3); v.addWidget(clinical)
+        cg.addWidget(QLabel("Verdachtsdiagnose / ICD"),1,0); cg.addWidget(self.session_diag,1,1,1,2); cg.addWidget(fquick,1,3)
+        self.session_diag.setToolTip("Arbeitsdiagnose/Verdacht; keine automatische gesicherte Diagnosestellung.")
+        tip=QLabel("Verdachtsdiagnose ist optional und wird nicht automatisch als gesicherte Diagnose übernommen."); tip.setObjectName("pageSub"); tip.setWordWrap(True); cg.addWidget(tip,2,1,1,3); v.addWidget(clinical)
 
         notesbox=QFrame(); notesbox.setObjectName("formCard"); nv=QVBoxLayout(notesbox); nv.setContentsMargins(16,12,16,14); nv.setSpacing(10); nhead=QHBoxLayout(); nh=QLabel("▤  Therapienotizen"); nh.setObjectName("sectionTitle"); nhead.addWidget(nh); nhead.addStretch(); template=QComboBox(); template.addItems(["Vorlagen","Erstgespräch","Verlauf","Abschluss"]); template.setMinimumWidth(130); template.setMaximumWidth(160); template.setMinimumHeight(30); nhead.addWidget(template); nv.addLayout(nhead)
         self.notes=QTextEdit(); self.notes.setPlaceholderText("Hier können Sie Ihre Therapienotizen eingeben …");
@@ -925,7 +926,23 @@ class Main(QMainWindow):
         template.currentTextChanged.connect(apply_note_template)
         self.notes.setMinimumHeight(145); self.notes.setMaximumHeight(220); self.notes.setStyleSheet("font-size:13px"); nv.addWidget(self.notes); v.addWidget(notesbox)
         homeworkbox=QFrame(); homeworkbox.setObjectName("formCard"); hv=QVBoxLayout(homeworkbox); hh=QLabel("✓ Hausaufgaben / Vereinbarungen bis zur nächsten Sitzung"); hh.setObjectName("sectionTitle"); hv.addWidget(hh)
-        self.session_homework=QTextEdit(); self.session_homework.setPlaceholderText("Hausaufgaben, Übungen, Beobachtungsaufträge oder konkrete Vereinbarungen …"); self.session_homework.setMinimumHeight(80); self.session_homework.setMaximumHeight(140); hv.addWidget(self.session_homework); v.addWidget(homeworkbox)
+        self.session_homework=QTextEdit(); self.session_homework.setPlaceholderText("Hausaufgaben, Übungen, Beobachtungsaufträge oder konkrete Vereinbarungen …"); self.session_homework.setMinimumHeight(80); self.session_homework.setMaximumHeight(140)
+        hwbar=QHBoxLayout(); hwgen=QPushButton("✦ Vorschläge aus Verdachtsdiagnose"); hwgen.setMinimumHeight(32); hwbar.addWidget(hwgen); hwbar.addStretch(); hv.addLayout(hwbar)
+        def suggest_homework():
+            d=self.session_diag.text().strip().upper()
+            suggestions=[]
+            if d.startswith(("F32","F33")): suggestions=["Aktivitäten- und Stimmungstagebuch führen.","Eine kleine angenehme oder sinnvolle Aktivität konkret planen und durchführen.","Belastende automatische Gedanken notieren und alternative Sichtweisen sammeln."]
+            elif d.startswith(("F40","F41")): suggestions=["Angstauslöser, Gedanken, Körperreaktionen und Verhalten kurz protokollieren.","Eine vereinbarte kleine Annäherungsübung durchführen und Angstverlauf dokumentieren.","Atem-/Entspannungsübung regelmäßig erproben und Wirkung notieren."]
+            elif d.startswith("F43.1"): suggestions=["Belastungsniveau und Auslöser beobachten; keine eigenständige Trauma-Konfrontation durchführen.","Eine vereinbarte Stabilisierungs-/Groundingübung üben.","Hilfreiche Ressourcen und sichere Situationen notieren."]
+            elif d.startswith("F43.2"): suggestions=["Belastende Situationen und eigene Reaktionen kurz protokollieren.","Eine realistische entlastende Aktivität oder einen nächsten kleinen Schritt planen.","Unterstützende Personen und vorhandene Ressourcen sammeln."]
+            elif d.startswith("F51"): suggestions=["Schlafprotokoll führen (Schlafenszeit, Wachphasen, Aufstehen, Tagesbefinden).","Möglichst konstante Aufstehzeit erproben.","Abendliche Aktivierung und Grübelzeiten beobachten."]
+            elif d.startswith("F90"): suggestions=["Eine Aufgabe in kleine Schritte zerlegen und mit sichtbarer Checkliste bearbeiten.","Ablenkungen und Konzentrationsphasen kurz protokollieren.","Eine konkrete Alltagsroutine mit Erinnerungshilfe erproben."]
+            else: suggestions=["Eine konkrete Beobachtungsaufgabe für die Woche vereinbaren.","Auslöser, Gedanken, Gefühle und Verhalten in relevanten Situationen kurz notieren."]
+            text="\n".join("• "+x for x in suggestions)
+            existing=self.session_homework.toPlainText().strip()
+            self.session_homework.setPlainText((existing+"\n\n" if existing else "")+text)
+        hwgen.clicked.connect(suggest_homework)
+        hv.addWidget(self.session_homework); v.addWidget(homeworkbox)
 
         self.ink=InkCanvas(); self.current_ink_file=""; self.current_ocr_text=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
