@@ -1878,8 +1878,19 @@ $result.Text
         for lab,val in (("Empfänger:",owner),("IBAN:",iban),("BIC:",bic),("Verwendungszweck:",no),("Betrag:",f'{amt:.2f} €'.replace(".",","))):
             can.drawString(lx,ly,lab); can.setFont(regular,6.8); can.drawString(lx+29*mm,ly,val); ly-=4.2*mm; can.setFont(bold,6.8)
         px=18*mm+bw+gap+2*mm; py=by+bh-13*mm
-        # Keine erfundene PayPal-Wortmarke: klare PayPal-Kennzeichnung als Text.
-        can.setFillColor(NAVY); can.setFont(bold,11); can.drawString(px,py+1*mm,"PayPal")
+        # Offizielles PayPal-Asset verwenden, falls es unverändert mitgeliefert wird; sonst neutrale Textkennzeichnung.
+        paypal_logo=bundled_asset("paypal.png")
+        paypal_logo_drawn=False
+        if paypal_logo.is_file():
+            try:
+                from reportlab.lib.utils import ImageReader
+                pim=ImageReader(str(paypal_logo)); piw,pih=pim.getSize(); pmw,pmh=28*mm,8*mm
+                psc=min(pmw/piw,pmh/pih)
+                can.drawImage(str(paypal_logo),px,py-1*mm,width=piw*psc,height=pih*psc,preserveAspectRatio=True,mask="auto")
+                paypal_logo_drawn=True
+            except Exception as e: audit("PAYPAL_LOGO_ERROR",str(e)[:300],self.current_user.get("username","") if self.current_user else "")
+        if not paypal_logo_drawn:
+            can.setFillColor(NAVY); can.setFont(bold,11); can.drawString(px,py+1*mm,"PayPal")
         can.setFont(regular,7); can.drawString(px,py-4*mm,"PayPal-Konto:")
         can.setFont(bold,7); can.setFillColor(TEAL); can.drawString(px,py-9*mm,paypal); can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-14*mm,f"Verwendungszweck: {no}")
         try:
@@ -1910,7 +1921,8 @@ $result.Text
         can.drawString(75*mm,fy+1*mm,contact_footer)
         if fax: can.drawString(75*mm,fy-2.5*mm,"Fax "+fax)
         can.drawString(75*mm,fy-6*mm,email)
-        can.drawString(132*mm,fy+1*mm,"IBAN "+iban); can.drawString(132*mm,fy-2.5*mm,"BIC "+bic)\n        if tax: can.drawString(132*mm,fy-6*mm,"Steuernummer "+tax)
+        can.drawString(132*mm,fy+1*mm,"IBAN "+iban); can.drawString(132*mm,fy-2.5*mm,"BIC "+bic)
+        if tax: can.drawString(132*mm,fy-6*mm,"Steuernummer "+tax)
         can.save()
         invoice_items=[]
         if rows:
