@@ -1786,20 +1786,14 @@ $result.Text
         if logo:
             try:
                 from PIL import Image as PILImage
-                # Logo in einen festen Kopfbereich rendern. So spricht die Rechnung
-                # genau diesen Bereich an, statt von PDF-XObject-Erkennung abzuhängen.
-                src=PILImage.open(str(logo)).convert("RGB")
-                iw,ih=src.size
+                # Fertiges Praxislogo unverändert als Datei in den vorgesehenen Kopfbereich einsetzen.
+                from reportlab.lib.utils import ImageReader
+                im=ImageReader(str(logo)); iw,ih=im.getSize()
                 mw=float(get_setting("logo_width_mm","72"))*mm; mh=float(get_setting("logo_height_mm","22"))*mm
                 sc=min(mw/iw,mh/ih); lw,lh=iw*sc,ih*sc
                 lx=float(get_setting("logo_x_mm","18"))*mm
                 top=float(get_setting("logo_y_mm","10"))*mm
-                from reportlab.lib.utils import ImageReader
-                can.saveState()
-                can.setFillColor(WHITE)
-                can.rect(lx,H-top-mh,mw,mh,stroke=0,fill=1)
-                can.drawImage(ImageReader(src),lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,anchor="nw")
-                can.restoreState()
+                can.drawImage(str(logo),lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")
                 drawn=True
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
         if not drawn:
