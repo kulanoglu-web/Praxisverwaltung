@@ -154,7 +154,7 @@ invoice=next((x for x in main.DB["invoices"] if x.get("number")=="TEST-2026-001"
 if not invoice: raise SystemExit("Testrechnung wurde nicht in der Rechnungsdatenbank angelegt")
 pdf=Path(invoice["pdf"])
 if not pdf.exists() or pdf.stat().st_size < 1000: raise SystemExit("Testrechnung-PDF fehlt oder ist leer")
-target=out/"PraxisPro-Testrechnung-v"+main.APP_VERSION+".pdf"
+target=out/f"PraxisPro-Testrechnung-v{main.APP_VERSION}.pdf"
 target.write_bytes(pdf.read_bytes())
 print("Invoice generation test OK", target, target.stat().st_size)
 
