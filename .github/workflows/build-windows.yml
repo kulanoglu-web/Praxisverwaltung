@@ -33,7 +33,18 @@ jobs:
             Write-Host "No valid ICO supplied; build will continue without generated icon."
           }
       
-      - run: pyinstaller --noconfirm --clean --onefile --windowed --collect-submodules reportlab.graphics.barcode --collect-submodules reportlab.graphics --add-data "assets/logo.png;assets" --add-data "assets/paypal.png;assets" --name Praxisverwaltung main.py
+      - name: Build Windows executable
+        shell: pwsh
+        run: |
+          $args = @("--noconfirm","--clean","--onefile","--windowed","--collect-submodules","reportlab.graphics.barcode","--collect-submodules","reportlab.graphics","--add-data","assets/logo.png;assets")
+          if (Test-Path "assets/paypal.png") {
+            $args += @("--add-data","assets/paypal.png;assets")
+            Write-Host "Bundling official PayPal logo asset."
+          } else {
+            Write-Host "PayPal logo asset not present; invoice uses text fallback."
+          }
+          $args += @("--name","Praxisverwaltung","main.py")
+          pyinstaller @args
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Detect signing certificate
