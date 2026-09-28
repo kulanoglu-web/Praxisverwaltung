@@ -1006,8 +1006,13 @@ $file=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windo
 $stream=Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
 $decoder=Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
 $bitmap=Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-$engine=[Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-if ($null -eq $engine) { throw 'Windows OCR ist auf diesem PC nicht verfügbar. Bitte unter Windows Sprache die OCR-/Handschriftkomponente installieren.' }
+$langs=[Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages
+$preferred=$langs | Where-Object { $_.LanguageTag -like 'de-*' } | Select-Object -First 1
+if ($null -eq $preferred) { $preferred=$langs | Where-Object { $_.LanguageTag -like 'tr-*' } | Select-Object -First 1 }
+if ($null -eq $preferred) { $preferred=$langs | Select-Object -First 1 }
+if ($null -eq $preferred) { throw 'Keine Windows-OCR-Sprache installiert. Bitte Deutsch oder Türkisch als Windows-Sprachfunktion installieren.' }
+$engine=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($preferred)
+if ($null -eq $engine) { throw ('Windows OCR konnte nicht gestartet werden: '+$preferred.LanguageTag) }
 $result=Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
 [Console]::OutputEncoding=[Text.Encoding]::UTF8
 $result.Text
@@ -1022,7 +1027,7 @@ $result.Text
                 audit("INK_OCR_ERROR",detail,self.current_user.get("username","") if self.current_user else "")
                 return QMessageBox.warning(self,"Handschrift erkennen","OCR konnte keinen Text liefern.\n\n"+detail)
             dlg=QDialog(self); dlg.setWindowTitle("Handschrift → Text prüfen"); dlg.resize(720,500); v=QVBoxLayout(dlg)
-            v.addWidget(QLabel("Erkannten Text prüfen und bei Bedarf korrigieren:"))
+            v.addWidget(QLabel("Erkannten Text prüfen und bei Bedarf korrigieren (Deutsch/Türkisch):"))
             edit=QTextEdit(); edit.setPlainText(recognized); v.addWidget(edit,1)
             buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); buttons.button(QDialogButtonBox.Save).setText("In Therapienotiz übernehmen"); v.addWidget(buttons)
             def accept_text():
