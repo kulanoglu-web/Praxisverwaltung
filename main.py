@@ -1619,7 +1619,7 @@ $result.Text
         for ed in (self.i_no,self.i_last,self.i_first,self.i_addr,self.i_diag): ed.setMinimumHeight(40)
         self.i_date=QDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_date.setDisplayFormat("dd.MM.yyyy"); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstige"])
         self.i_min=QSpinBox(); self.i_min.setRange(1,1000); self.i_min.setValue(45); self.i_red=QCheckBox("Ermäßigter Satz")
-        self.i_start=QTimeEdit(); self.i_start.setDisplayFormat("HH:mm"); self.i_end=QTimeEdit(); self.i_end.setDisplayFormat("HH:mm")
+        self.i_start=QTimeEdit(QTime.currentTime()); self.i_start.setDisplayFormat("HH:mm"); self.i_end=QTimeEdit(QTime.currentTime().addSecs(45*60)); self.i_end.setDisplayFormat("HH:mm")
         for te in (self.i_start,self.i_end):
             te.setKeyboardTracking(False); te.setAccelerated(True); te.setWrapping(True); te.setToolTip("Zeit direkt eingeben, z. B. 1430 für 14:30")
             te.lineEdit().setInputMask("99:99;_"); te.lineEdit().setPlaceholderText("HH:MM"); te.lineEdit().installEventFilter(self)
@@ -1782,7 +1782,7 @@ $result.Text
             try:return datetime.strptime(str(value),"%Y-%m-%d").strftime("%d.%m.%Y")
             except:return str(value)
         service_dates=[dd(it["date"]) for it in items if it.get("date")]
-        period=(service_dates[0] if len(service_dates)==1 else ((min(service_dates)+" - "+max(service_dates)) if service_dates else datetime.now().strftime("%d.%m.%Y")))
+        period=(service_dates[0] if len(service_dates)==1 else ((dd(min(str(it["date"]) for it in items if it.get("date")))+" - "+dd(max(str(it["date"]) for it in items if it.get("date")))) if service_dates else datetime.now().strftime("%d.%m.%Y")))
         # Kopf: fertiges hinterlegtes Praxislogo unverändert einsetzen.
         logo=practice_logo_path()
         drawn=False
