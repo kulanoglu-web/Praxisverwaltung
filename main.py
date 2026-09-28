@@ -94,16 +94,19 @@ def bundled_asset(name):
     return base/"assets"/name
 
 def practice_logo_path():
-    """Nur das von der jeweiligen Praxis ausgewählte Logo verwenden; kein fest eingebautes Ersatzbild."""
+    """Eigenes Praxislogo verwenden; in der Erdoğan-Standardinstallation das Original-Logo als Startwert."""
+    candidates=[]
     custom=get_setting("logo_path","").strip()
-    if not custom: return None
-    candidate=Path(custom)
-    if not candidate.is_file(): return None
-    try:
-        img=QImage(str(candidate))
-        return candidate if not img.isNull() else None
-    except Exception:
-        return None
+    if custom: candidates.append(Path(custom))
+    candidates.append(bundled_asset("logo.png"))
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                img=QImage(str(candidate))
+                if not img.isNull(): return candidate
+        except Exception:
+            pass
+    return None
 
 DATA=ROOT/"praxisdaten.json.enc"
 for p in [ROOT/"Klienten",ROOT/"Einnahmen",ROOT/"Backups",DBDIR]: p.mkdir(parents=True,exist_ok=True)
@@ -1784,15 +1787,16 @@ $result.Text
         if logo:
             try:
                 from reportlab.lib.utils import ImageReader
-                im=ImageReader(str(logo)); iw,ih=im.getSize(); mw,mh=72*mm,24*mm; sc=min(mw/iw,mh/ih)
-                can.drawImage(im,18*mm,H-37*mm,width=iw*sc,height=ih*sc,preserveAspectRatio=True,mask="auto"); drawn=True
+                im=ImageReader(str(logo)); iw,ih=im.getSize(); mw,mh=66*mm,16*mm; sc=min(mw/iw,mh/ih)
+                # Logo bewusst oberhalb der Qualifikationszeilen halten: keine Überlappung im Kopf.
+                can.drawImage(im,18*mm,H-29*mm,width=iw*sc,height=ih*sc,preserveAspectRatio=True,mask="auto"); drawn=True
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
         if not drawn:
             # Kein erfundenes Ersatzlogo: Die Rechnung soll ausschließlich das echte Praxislogo verwenden.
             audit("INVOICE_LOGO_MISSING","Echtes Praxislogo konnte nicht geladen werden",self.current_user.get("username","") if self.current_user else "")
         # Kopf exakt nach Referenz: Logo links, Qualifikationen darunter, Kontaktdaten rechts.
         can.setFillColor(NAVY); can.setFont(regular,7.7)
-        qy=H-35*mm
+        qy=H-35.5*mm
         for line in (owner,practice_name,qualifications,practice_subtitle):
             if line:
                 can.drawString(18*mm,qy,line); qy-=4.2*mm
@@ -1852,8 +1856,12 @@ $result.Text
         can.setFillColor(NAVY); can.setFont(bold,6.8); lx=20*mm; ly=by+bh-13*mm
         for lab,val in (("Empfänger:",owner),("IBAN:",iban),("BIC:",bic),("Verwendungszweck:",no),("Betrag:",f'{amt:.2f} €'.replace(".",","))):
             can.drawString(lx,ly,lab); can.setFont(regular,6.8); can.drawString(lx+29*mm,ly,val); ly-=4.2*mm; can.setFont(bold,6.8)
-        px=18*mm+bw+gap+2*mm; py=by+bh-13*mm; can.setFont(regular,7); can.drawString(px,py,"Alternativ per PayPal an:")
-        can.setFont(bold,7); can.setFillColor(TEAL); can.drawString(px,py-5*mm,paypal); can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-10*mm,f"Verwendungszweck: {no}")
+        px=18*mm+bw+gap+2*mm; py=by+bh-13*mm
+        # PayPal-Wortmarke als PDF-Vektor/Text, nicht als Bilddatei.
+        can.setFillColor(colors.HexColor("#003087")); can.setFont(bold,11); can.drawString(px,py+1*mm,"Pay")
+        can.setFillColor(colors.HexColor("#009CDE")); can.drawString(px+16*mm,py+1*mm,"Pal")
+        can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-4*mm,"PayPal-Konto:")
+        can.setFont(bold,7); can.setFillColor(TEAL); can.drawString(px,py-9*mm,paypal); can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-14*mm,f"Verwendungszweck: {no}")
         try:
             from reportlab.graphics.barcode.qr import QrCodeWidget
             from reportlab.graphics.shapes import Drawing
