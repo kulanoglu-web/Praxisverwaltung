@@ -133,6 +133,10 @@ test_settings={
     "logo_path":str((Path("assets")/"logo.jpg").resolve()),
 }
 for k,v in test_settings.items(): main.set_setting(k,v)
+main.set_setting("logo_x_mm","18")
+main.set_setting("logo_y_mm","10")
+main.set_setting("logo_width_mm","72")
+main.set_setting("logo_height_mm","22")
 logo_check=main.practice_logo_path()
 print("Invoice logo path:", logo_check)
 if not logo_check or not Path(logo_check).is_file():
