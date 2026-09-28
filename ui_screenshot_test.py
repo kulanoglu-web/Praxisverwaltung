@@ -165,17 +165,18 @@ print("Invoice generation test OK", target, target.stat().st_size)
 import fitz
 doc=fitz.open(str(target))
 page=doc[0]
-images=page.get_images(full=True)
-logo_rects=[]
-for img in images:
-    xref=img[0]
-    for rect in page.get_image_rects(xref):
-        # Logo muss im oberen linken Rechnungsbereich sichtbar eingebettet sein.
-        if rect.x0 < page.rect.width*0.60 and rect.y0 < page.rect.height*0.25:
-            logo_rects.append(rect)
-if not logo_rects:
-    raise SystemExit("LOGO NICHT SICHTBAR: kein eingebettetes Bild im oberen linken Rechnungsbereich")
-print("Invoice logo visual check OK:", [(round(r.x0,1),round(r.y0,1),round(r.x1,1),round(r.y1,1)) for r in logo_rects])
+# PyMuPDF liefert Bildblöcke mit der tatsächlich sichtbaren Position zuverlässiger
+# als get_image_rects() (das bei manchen ReportLab-XObjects fehlschlagen kann).
+blocks=page.get_text("dict").get("blocks",[])
+logo_boxes=[]
+for b in blocks:
+    if b.get("type")==1:
+        x0,y0,x1,y1=b.get("bbox",(9999,9999,9999,9999))
+        if x0 < page.rect.width*0.60 and y0 < page.rect.height*0.25:
+            logo_boxes.append((x0,y0,x1,y1))
+if not logo_boxes:
+    raise SystemExit("LOGO NICHT SICHTBAR: kein Bildblock im oberen linken Rechnungsbereich")
+print("Invoice logo visual check OK:", [tuple(round(v,1) for v in r) for r in logo_boxes])
 pix=page.get_pixmap(matrix=fitz.Matrix(1.7,1.7),alpha=False)
 invoice_png=out/f"PraxisPro-Testrechnung-v{main.APP_VERSION}.png"
 pix.save(str(invoice_png))
