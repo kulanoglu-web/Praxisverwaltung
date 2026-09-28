@@ -1858,8 +1858,8 @@ $result.Text
             can.drawString(lx,ly,lab); can.setFont(regular,6.8); can.drawString(lx+29*mm,ly,val); ly-=4.2*mm; can.setFont(bold,6.8)
         px=18*mm+bw+gap+2*mm; py=by+bh-13*mm
         # PayPal-Wortmarke als PDF-Vektor/Text, nicht als Bilddatei.
-        can.setFillColor(colors.HexColor("#003087")); can.setFont(bold,11); can.drawString(px,py+1*mm,"Pay")
-        can.setFillColor(colors.HexColor("#009CDE")); can.drawString(px+16*mm,py+1*mm,"Pal")
+        can.setFillColor(HexColor("#003087")); can.setFont(bold,11); can.drawString(px,py+1*mm,"Pay")
+        can.setFillColor(HexColor("#009CDE")); can.drawString(px+16*mm,py+1*mm,"Pal")
         can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-4*mm,"PayPal-Konto:")
         can.setFont(bold,7); can.setFillColor(TEAL); can.drawString(px,py-9*mm,paypal); can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-14*mm,f"Verwendungszweck: {no}")
         try:
