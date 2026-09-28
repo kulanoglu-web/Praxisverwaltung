@@ -2391,7 +2391,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             if p: logo.setText(p)
         choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
         logo_x=QDoubleSpinBox(); logo_x.setRange(0,180); logo_x.setValue(float(get_setting("logo_x_mm","18"))); logo_x.setSuffix(" mm")
-        logo_y=QDoubleSpinBox(); logo_y.setRange(0,80); logo_y.setValue(float(get_setting("logo_y_mm","10"))); logo_y.setSuffix(" mm")
+        logo_y=QDoubleSpinBox(); logo_y.setRange(0,80); logo_y.setValue(float(get_setting("logo_y_mm","7"))); logo_y.setSuffix(" mm")
         logo_w=QDoubleSpinBox(); logo_w.setRange(15,120); logo_w.setValue(float(get_setting("logo_width_mm","72"))); logo_w.setSuffix(" mm")
         logo_h=QDoubleSpinBox(); logo_h.setRange(8,45); logo_h.setValue(float(get_setting("logo_height_mm","22"))); logo_h.setSuffix(" mm")
         lpos=QHBoxLayout(); lpos.addWidget(QLabel("Links")); lpos.addWidget(logo_x); lpos.addWidget(QLabel("Oben")); lpos.addWidget(logo_y); lpos.addWidget(QLabel("Breite")); lpos.addWidget(logo_w); lpos.addWidget(QLabel("Höhe")); lpos.addWidget(logo_h)
