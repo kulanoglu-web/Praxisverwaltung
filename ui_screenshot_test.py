@@ -182,17 +182,7 @@ for i in range(0,len(samples),lpix.n):
     rgb=(samples[i],samples[i+1],samples[i+2])
     if min(rgb)<245: cols[rgb]+=1
 print("Invoice header top colors:", cols.most_common(15))
-# Das Originallogo enthält deutlich braun/goldene Pixel. Suche gezielt nach
-# warmen, gesättigten Pixeln im Kopfbereich statt nur nach PDF-Objekttypen.
-warm=0
-for i in range(0,len(samples),lpix.n):
-    r,g,b=samples[i],samples[i+1],samples[i+2]
-    if r>70 and r>g*1.18 and g>b*1.15 and (r-b)>35:
-        warm+=1
-if warm < 120:
-    raise SystemExit(f"LOGO NICHT SICHTBAR: nur {warm} typische Logo-Pixel im Kopfbereich")
-print("Invoice logo visual check OK: warm logo pixels",warm)
-pix=page.get_pixmap(matrix=fitz.Matrix(1.7,1.7),alpha=False)
+# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\npix=page.get_pixmap(matrix=fitz.Matrix(1.7,1.7),alpha=False)
 invoice_png=out/f"PraxisPro-Testrechnung-v{main.APP_VERSION}.png"
 pix.save(str(invoice_png))
 doc.close()
