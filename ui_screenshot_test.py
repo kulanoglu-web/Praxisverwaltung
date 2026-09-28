@@ -130,9 +130,13 @@ test_settings={
     "iban":"DE13 5001 0517 5404 0811 30",
     "bic":"INGDDEFFXXX",
     "paypal":"erdogankulanoglu@hotmail.com",
-    "logo_path":str((Path("assets")/"logo.png").resolve()),
+    "logo_path":str((Path("assets")/"logo.jpg").resolve()),
 }
 for k,v in test_settings.items(): main.set_setting(k,v)
+logo_check=main.practice_logo_path()
+print("Invoice logo path:", logo_check)
+if not logo_check or not Path(logo_check).is_file():
+    raise SystemExit("ECHTES PRAXISLOGO FEHLT IM RECHNUNGSTEST")
 
 win.i_no.setText("TEST-2026-001")
 win.i_first.setText("Anna"); win.i_last.setText("Mustermann")
