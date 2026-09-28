@@ -1791,7 +1791,8 @@ $result.Text
                 # damit die tatsächliche braun-goldene Wort-/Bildmarke im Kopf sichtbar ist.
                 mw,mh=92*mm,25*mm; sc=min(mw/iw,mh/ih)
                 lw,lh=iw*sc,ih*sc
-                can.drawImage(im,18*mm,H-33*mm,width=lw,height=lh,preserveAspectRatio=True,mask="auto"); drawn=True
+                # Original-Logo fest links oben im Kopfbereich.
+                can.drawImage(im,8*mm,H-33*mm,width=lw,height=lh,preserveAspectRatio=True,mask="auto"); drawn=True
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
         if not drawn:
             # Kein erfundenes Ersatzlogo: Die Rechnung soll ausschließlich das echte Praxislogo verwenden.
