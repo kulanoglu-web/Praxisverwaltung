@@ -1786,9 +1786,12 @@ $result.Text
         if logo:
             try:
                 from reportlab.lib.utils import ImageReader
-                im=ImageReader(str(logo)); iw,ih=im.getSize(); mw,mh=66*mm,16*mm; sc=min(mw/iw,mh/ih)
-                # Logo bewusst oberhalb der Qualifikationszeilen halten: keine Überlappung im Kopf.
-                can.drawImage(im,18*mm,H-29*mm,width=iw*sc,height=ih*sc,preserveAspectRatio=True,mask="auto"); drawn=True
+                im=ImageReader(str(logo)); iw,ih=im.getSize()
+                # Das Original-Logo hat viel Weißraum. Deshalb deutlich größer zeichnen,
+                # damit die tatsächliche braun-goldene Wort-/Bildmarke im Kopf sichtbar ist.
+                mw,mh=92*mm,25*mm; sc=min(mw/iw,mh/ih)
+                lw,lh=iw*sc,ih*sc
+                can.drawImage(im,18*mm,H-33*mm,width=lw,height=lh,preserveAspectRatio=True,mask="auto"); drawn=True
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
         if not drawn:
             # Kein erfundenes Ersatzlogo: Die Rechnung soll ausschließlich das echte Praxislogo verwenden.
