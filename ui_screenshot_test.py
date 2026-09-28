@@ -104,3 +104,57 @@ if win.symptom_list.count()<5: raise SystemExit("PTBS-Symptomliste wurde nicht g
 win.symptom_list.item(0).setSelected(True); app.processEvents()
 if "AUSGEWÄHLTE SYMPTOME" not in win.help_text.toPlainText(): raise SystemExit("Symptomauswahl aktualisiert Zusammenfassung nicht")
 print("Assistant functional test OK: F43.1 -> PTBS / Trauma -> symptoms")
+
+# Echte Rechnung im isolierten Windows-Test erzeugen.
+# Sie wird ausschließlich durch PraxisPro selbst erstellt, nicht extern nachgebaut.
+win.nav.setCurrentRow(7); app.processEvents()
+# Rechnungsseite frisch aufbauen, damit alle Widgets sicher zur aktuellen Seite gehören.
+old=win.pages.widget(7)
+fresh=win.invoice_ui()
+win.pages.removeWidget(old); old.deleteLater(); win.pages.insertWidget(7,fresh)
+win.pages.setCurrentIndex(7); app.processEvents()
+
+# Praxisdaten für den Rechnungstest über die Einstellungen setzen.
+test_settings={
+    "practice_name":"Psychologische Privatpraxis",
+    "owner_name":"Erdoğan Kulanoğlu",
+    "qualifications":"Psychologe M.Sc. | Sozialarbeiter B.A.",
+    "practice_subtitle":"Ehe-, Familien- und Lebensberatung | Zertifizierter Systemischer Berater und Therapeut nach dem SIT-Modell",
+    "address":"Schönwalder Str. 59, 13585 Berlin",
+    "phone":"0176 43605753",
+    "landline":"030 12127420",
+    "fax":"030 43205928",
+    "email":"info@psychologe-spandau.de",
+    "website":"www.psychologe-spandau.de",
+    "tax_number":"19/405/00254",
+    "iban":"DE13 5001 0517 5404 0811 30",
+    "bic":"INGDDEFFXXX",
+    "paypal":"erdogankulanoglu@hotmail.com",
+}
+for k,v in test_settings.items(): main.set_setting(k,v)
+
+win.i_no.setText("TEST-2026-001")
+win.i_first.setText("Anna"); win.i_last.setText("Mustermann")
+win.i_addr.setText("Musterstraße 12, 13597 Berlin")
+win.i_diag.setText("F43.2")
+win.i_date.setDate(main.QDate(2026,9,28))
+win.i_start.setTime(main.QTime(10,0)); win.i_end.setTime(main.QTime(10,45))
+win.i_type.setCurrentText("Einzeltherapie"); win.i_min.setValue(45); win.i_red.setChecked(False)
+
+# Dialoge im CI automatisch schließen, damit make_invoice vollständig durchläuft.
+from PySide6.QtWidgets import QMessageBox
+orig_exec=QMessageBox.exec
+QMessageBox.exec=lambda self: QMessageBox.Rejected
+try:
+    win.make_invoice()
+finally:
+    QMessageBox.exec=orig_exec
+
+invoice=next((x for x in main.DB["invoices"] if x.get("number")=="TEST-2026-001"),None)
+if not invoice: raise SystemExit("Testrechnung wurde nicht in der Rechnungsdatenbank angelegt")
+pdf=Path(invoice["pdf"])
+if not pdf.exists() or pdf.stat().st_size < 1000: raise SystemExit("Testrechnung-PDF fehlt oder ist leer")
+target=out/"PraxisPro-Testrechnung-v"+main.APP_VERSION+".pdf"
+target.write_bytes(pdf.read_bytes())
+print("Invoice generation test OK", target, target.stat().st_size)
+
