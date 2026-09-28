@@ -1797,9 +1797,19 @@ $result.Text
         # Kopf exakt nach Referenz: Logo links, Qualifikationen darunter, Kontaktdaten rechts.
         can.setFillColor(NAVY); can.setFont(regular,7.7)
         qy=H-35.5*mm
-        for line in (owner,practice_name,qualifications,practice_subtitle):
+        for line in (owner,practice_name,qualifications):
             if line:
                 can.drawString(18*mm,qy,line); qy-=4.2*mm
+        if practice_subtitle:
+            # Lange Berufs-/Zusatzbezeichnung im Kopf sauber umbrechen.
+            maxw=102*mm
+            words=practice_subtitle.split(); cur=""
+            for word in words:
+                trial=(cur+" "+word).strip()
+                if cur and can.stringWidth(trial,regular,7.7)>maxw:
+                    can.drawString(18*mm,qy,cur); qy-=4.2*mm; cur=word
+                else: cur=trial
+            if cur: can.drawString(18*mm,qy,cur); qy-=4.2*mm
         can.setStrokeColor(BORDER); can.setLineWidth(.6); can.line(126*mm,H-14*mm,126*mm,H-48*mm)
         can.setFillColor(NAVY); can.setFont(regular,8.2); tx=132*mm; ty=H-17*mm
         addr_lines=[x.strip() for x in address.replace(",", "\n",1).splitlines() if x.strip()]
@@ -1877,15 +1887,19 @@ $result.Text
         can.drawString(18*mm,yy,"Vielen Dank für Ihr Vertrauen."); can.drawString(18*mm,yy-6*mm,"Mit freundlichen Grüßen")
         can.setFillColor(TEAL); can.setFont(bold,9.5); can.drawString(18*mm,yy-18*mm,owner)
         can.setFillColor(NAVY); can.setFont(regular,7.2); can.drawString(18*mm,yy-23*mm,qualifications)
-        can.setFont(bold,7.1); can.drawRightString(W-18*mm,yy-20*mm,"Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift und Stempel gültig.")
+        can.setFont(regular,6.7)
+        can.drawRightString(W-18*mm,yy-18*mm,"Elektronisch erstellte Rechnung – ohne Unterschrift gültig.")
+        can.drawRightString(W-18*mm,yy-22*mm,"Bitte bewahren Sie dieses Dokument für Ihre Unterlagen auf.")
         # Fußzeile
         fy=15*mm; can.setStrokeColor(GOLD); can.line(18*mm,fy+10*mm,W-18*mm,fy+10*mm)
         can.setFillColor(TEAL); can.setFont(bold,6.5)
         for xx,title in ((18*mm,"Praxis"),(75*mm,"Kontakt"),(132*mm,"Zahlung / Steuer")): can.drawString(xx,fy+5*mm,title)
         can.setFillColor(NAVY); can.setFont(regular,5.8)
         can.drawString(18*mm,fy+1*mm,address); can.drawString(18*mm,fy-2.5*mm,website)
-        contact_footer=" · ".join(x for x in (phone,("Festnetz "+landline) if landline else "",("Fax "+fax) if fax else "") if x)
-        can.drawString(75*mm,fy+1*mm,contact_footer); can.drawString(75*mm,fy-2.5*mm,email)
+        contact_footer=" · ".join(x for x in (phone,("Festnetz "+landline) if landline else "") if x)
+        can.drawString(75*mm,fy+1*mm,contact_footer)
+        if fax: can.drawString(75*mm,fy-2.5*mm,"Fax "+fax)
+        can.drawString(75*mm,fy-6*mm,email)
         can.drawString(132*mm,fy+1*mm,"IBAN "+iban); can.drawString(132*mm,fy-2.5*mm,"BIC "+bic+" · St.-Nr. "+tax)
         can.save()
         invoice_items=[]
