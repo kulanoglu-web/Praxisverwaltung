@@ -24,6 +24,15 @@ jobs:
       - run: pip install -r requirements.txt pyinstaller pymupdf
       - name: UI screenshot test (1600x900)
         run: python ui_screenshot_test.py
+      - name: Upload Windows test screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: PraxisPro-Windows-Test-${{ github.run_number }}
+          path: |
+            test-artifacts/*.png
+            test-artifacts/*.pdf
+          if-no-files-found: error
+          retention-days: 7
       - name: Prepare application icon
         shell: pwsh
         run: |
