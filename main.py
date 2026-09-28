@@ -1780,12 +1780,11 @@ $result.Text
             except:return str(value)
         service_dates=[dd(it["date"]) for it in items if it.get("date")]
         period=(service_dates[0] if len(service_dates)==1 else ((min(service_dates)+" - "+max(service_dates)) if service_dates else datetime.now().strftime("%d.%m.%Y")))
-        # Kopf: echtes hinterlegtes Logo bevorzugen. Der Vektor-Fallback bildet die Praxis-Wortmarke sauber nach.
+        # Kopf: fertiges hinterlegtes Praxislogo unverändert einsetzen.
         logo=practice_logo_path()
         drawn=False
         if logo:
             try:
-                from PIL import Image as PILImage
                 # Fertiges Praxislogo unverändert als Datei in den vorgesehenen Kopfbereich einsetzen.
                 from reportlab.lib.utils import ImageReader
                 im=ImageReader(str(logo)); iw,ih=im.getSize()
