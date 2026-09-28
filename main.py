@@ -102,8 +102,7 @@ def practice_logo_path():
     for candidate in candidates:
         try:
             if candidate.is_file():
-                img=QImage(str(candidate))
-                if not img.isNull(): return candidate
+                return candidate
         except Exception:
             pass
     return None
@@ -1813,7 +1812,11 @@ $result.Text
         can.setStrokeColor(BORDER); can.setLineWidth(.6); can.line(126*mm,H-14*mm,126*mm,H-48*mm)
         can.setFillColor(NAVY); can.setFont(regular,8.2); tx=132*mm; ty=H-17*mm
         addr_lines=[x.strip() for x in address.replace(",", "\n",1).splitlines() if x.strip()]
-        contact_lines=addr_lines+[x for x in (phone,("Festnetz: "+landline) if landline else "",("Fax: "+fax) if fax else "",email,website,("Steuernummer: "+tax) if tax else "") if x]
+        contact_lines=list(addr_lines)
+        if phone: contact_lines += ["Handy", phone]
+        if landline: contact_lines += ["Festnetz", landline]
+        if fax: contact_lines += ["Fax", fax]
+        contact_lines += [x for x in (email,website,("Steuernummer: "+tax) if tax else "") if x]
         for line in contact_lines:
             can.drawString(tx,ty,line); ty-=4.3*mm
         can.setStrokeColor(NAVY); can.setLineWidth(.75); can.line(18*mm,H-58*mm,W-18*mm,H-58*mm)
@@ -1867,10 +1870,9 @@ $result.Text
         for lab,val in (("Empfänger:",owner),("IBAN:",iban),("BIC:",bic),("Verwendungszweck:",no),("Betrag:",f'{amt:.2f} €'.replace(".",","))):
             can.drawString(lx,ly,lab); can.setFont(regular,6.8); can.drawString(lx+29*mm,ly,val); ly-=4.2*mm; can.setFont(bold,6.8)
         px=18*mm+bw+gap+2*mm; py=by+bh-13*mm
-        # PayPal-Wortmarke als PDF-Vektor/Text, nicht als Bilddatei.
-        can.setFillColor(HexColor("#003087")); can.setFont(bold,11); can.drawString(px,py+1*mm,"Pay")
-        can.setFillColor(HexColor("#009CDE")); can.drawString(px+16*mm,py+1*mm,"Pal")
-        can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-4*mm,"PayPal-Konto:")
+        # Keine erfundene PayPal-Wortmarke: klare PayPal-Kennzeichnung als Text.
+        can.setFillColor(NAVY); can.setFont(bold,11); can.drawString(px,py+1*mm,"PayPal")
+        can.setFont(regular,7); can.drawString(px,py-4*mm,"PayPal-Konto:")
         can.setFont(bold,7); can.setFillColor(TEAL); can.drawString(px,py-9*mm,paypal); can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-14*mm,f"Verwendungszweck: {no}")
         try:
             from reportlab.graphics.barcode.qr import QrCodeWidget
