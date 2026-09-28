@@ -174,6 +174,7 @@ page=doc[0]
 clip=fitz.Rect(10,10,page.rect.width*0.62,page.rect.height*0.25)
 lpix=page.get_pixmap(matrix=fitz.Matrix(1.5,1.5),clip=clip,alpha=False)
 samples=lpix.samples
+print("Invoice header raster:", lpix.width, lpix.height, "channels", lpix.n, "sample-range", min(samples), max(samples))
 # Das Originallogo enthält deutlich braun/goldene Pixel. Suche gezielt nach
 # warmen, gesättigten Pixeln im Kopfbereich statt nur nach PDF-Objekttypen.
 warm=0
