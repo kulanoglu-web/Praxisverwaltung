@@ -186,12 +186,15 @@ def init_sqlite():
       "practice_name":"Psychologische Privatpraxis","owner_name":"Erdoğan Kulanoğlu",
       "qualifications":"Psychologe M.Sc. | Sozialarbeiter B.A.",
       "practice_subtitle":"Ehe-, Familien- und Lebensberatung | Zertifizierter Systemischer Berater und Therapeut nach dem SIT-Modell",
-      "address":"Schönwalder Str. 59, 13585 Berlin","phone":"0176 43605753","landline":"","fax":"030 43205928",
+      "address":"Schönwalder Str. 59, 13585 Berlin","phone":"0176 43605753","landline":"030 12127420","fax":"030 43205928",
       "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254",
       "iban":"DE13 5001 0517 5404 0811 30","bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com",
       "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","logo_x_mm":"18","logo_y_mm":"7","logo_width_mm":"72","logo_height_mm":"22","auto_lock_minutes":"15","travel_surcharge":"25"
     }
     for k,v in defaults.items(): con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",(k,v))
+    # Schon installierte Standardwerte behutsam auf den freigegebenen Rechnungsstand migrieren.
+    con.execute("UPDATE settings SET value=? WHERE key=? AND (value IS NULL OR value='')",("030 12127420","landline"))
+    con.execute("UPDATE settings SET value=? WHERE key=? AND value=?",("7","logo_y_mm","10"))
     for name,mins,amount,reduced,mode in [("Einzeltherapie",45,70,60,"proportional"),("Paargespräch",45,70,60,"proportional"),("Onlinegespräch",45,70,60,"proportional"),("Notfalltelefonat",30,45,45,"started_unit"),("Hausbesuch",45,70,60,"proportional_plus_travel")]:
         con.execute("INSERT OR IGNORE INTO fee_rates(name,minutes,amount,reduced_amount,billing_mode) VALUES(?,?,?,?,?)",(name,mins,amount,reduced,mode))
     con.commit(); con.close()
