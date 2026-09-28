@@ -33,7 +33,7 @@ jobs:
             Write-Host "No valid ICO supplied; build will continue without generated icon."
           }
       
-      - run: pyinstaller --noconfirm --clean --onefile --windowed --collect-submodules reportlab.graphics.barcode --collect-submodules reportlab.graphics --add-data "assets/logo.png;assets" --name Praxisverwaltung main.py
+      - run: pyinstaller --noconfirm --clean --onefile --windowed --collect-submodules reportlab.graphics.barcode --collect-submodules reportlab.graphics --add-data "assets/logo.png;assets" --add-data "assets/paypal.png;assets" --name Praxisverwaltung main.py
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Detect signing certificate
