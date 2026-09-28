@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION="0.12.17"
+APP_VERSION="0.12.18"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -189,7 +189,7 @@ def init_sqlite():
       "address":"Schönwalder Str. 59, 13585 Berlin","phone":"0176 43605753","landline":"","fax":"030 43205928",
       "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254",
       "iban":"DE13 5001 0517 5404 0811 30","bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com",
-      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","logo_x_mm":"18","logo_y_mm":"10","logo_width_mm":"72","logo_height_mm":"22","auto_lock_minutes":"15","travel_surcharge":"25"
+      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","logo_x_mm":"18","logo_y_mm":"7","logo_width_mm":"72","logo_height_mm":"22","auto_lock_minutes":"15","travel_surcharge":"25"
     }
     for k,v in defaults.items(): con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",(k,v))
     for name,mins,amount,reduced,mode in [("Einzeltherapie",45,70,60,"proportional"),("Paargespräch",45,70,60,"proportional"),("Onlinegespräch",45,70,60,"proportional"),("Notfalltelefonat",30,45,45,"started_unit"),("Hausbesuch",45,70,60,"proportional_plus_travel")]:
@@ -1791,7 +1791,7 @@ $result.Text
                 mw=float(get_setting("logo_width_mm","72"))*mm; mh=float(get_setting("logo_height_mm","22"))*mm
                 sc=min(mw/iw,mh/ih); lw,lh=iw*sc,ih*sc
                 lx=float(get_setting("logo_x_mm","18"))*mm
-                top=float(get_setting("logo_y_mm","10"))*mm
+                top=float(get_setting("logo_y_mm","7"))*mm
                 can.drawImage(str(logo),lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")
                 drawn=True
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
@@ -1907,7 +1907,7 @@ $result.Text
         can.drawString(75*mm,fy+1*mm,contact_footer)
         if fax: can.drawString(75*mm,fy-2.5*mm,"Fax "+fax)
         can.drawString(75*mm,fy-6*mm,email)
-        can.drawString(132*mm,fy+1*mm,"IBAN "+iban); can.drawString(132*mm,fy-2.5*mm,"BIC "+bic)
+        can.drawString(132*mm,fy+1*mm,"IBAN "+iban); can.drawString(132*mm,fy-2.5*mm,"BIC "+bic)\n        if tax: can.drawString(132*mm,fy-6*mm,"Steuernummer "+tax)
         can.save()
         invoice_items=[]
         if rows:
