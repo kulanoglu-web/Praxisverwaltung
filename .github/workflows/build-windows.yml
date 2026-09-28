@@ -111,6 +111,7 @@ jobs:
 
           $files = @()
           $files += Get-ChildItem "test-artifacts/*.png" | ForEach-Object { $_.FullName }
+          $files += Get-ChildItem "test-artifacts/*.pdf" | ForEach-Object { $_.FullName }
 
           # Zusätzlich eine ZIP-Datei mit allen echten Windows-Testbildern bereitstellen.
           Compress-Archive -Path "test-artifacts/*.png" -DestinationPath "PraxisPro_UI_Screenshots_v$env:APP_VERSION.zip" -Force
