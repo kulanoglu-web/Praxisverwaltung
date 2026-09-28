@@ -1785,18 +1785,25 @@ $result.Text
         drawn=False
         if logo:
             try:
-                from reportlab.lib.utils import ImageReader
-                im=ImageReader(str(logo)); iw,ih=im.getSize()
-                # Das Original-Logo hat viel Weißraum. Deshalb deutlich größer zeichnen,
-                # damit die tatsächliche braun-goldene Wort-/Bildmarke im Kopf sichtbar ist.
+                from PIL import Image as PILImage
+                # ReportLab bekommt eine normalisierte RGB-Datei. Damit umgehen wir die
+                # problematische direkte Einbettung des Original-JPEG/PNG vollständig.
+                src=PILImage.open(str(logo)).convert("RGB")
+                iw,ih=src.size
                 mw=float(get_setting("logo_width_mm","72"))*mm; mh=float(get_setting("logo_height_mm","22"))*mm
                 sc=min(mw/iw,mh/ih); lw,lh=iw*sc,ih*sc
                 lx=float(get_setting("logo_x_mm","18"))*mm
                 top=float(get_setting("logo_y_mm","10"))*mm
-                # Logo bewusst als JPEG/PNG-Inhalt direkt in die PDF einbetten.
-                # drawInlineImage verhindert, dass das Logo als externes/indirektes XObject
-                # vom PDF-Renderer verschluckt wird.
-                can.drawInlineImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True); drawn=True
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".png",delete=False) as tf:
+                    tmp_logo=tf.name
+                try:
+                    src.save(tmp_logo,"PNG")
+                    can.drawImage(tmp_logo,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")
+                    drawn=True
+                finally:
+                    try: os.unlink(tmp_logo)
+                    except Exception: pass
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
         if not drawn:
             # Kein erfundenes Ersatzlogo: Die Rechnung soll ausschließlich das echte Praxislogo verwenden.
