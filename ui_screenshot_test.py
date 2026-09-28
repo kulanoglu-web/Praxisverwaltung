@@ -157,4 +157,11 @@ if not pdf.exists() or pdf.stat().st_size < 1000: raise SystemExit("Testrechnung
 target=out/f"PraxisPro-Testrechnung-v{main.APP_VERSION}.pdf"
 target.write_bytes(pdf.read_bytes())
 print("Invoice generation test OK", target, target.stat().st_size)
+import fitz
+doc=fitz.open(str(target))
+pix=doc[0].get_pixmap(matrix=fitz.Matrix(1.7,1.7),alpha=False)
+invoice_png=out/f"PraxisPro-Testrechnung-v{main.APP_VERSION}.png"
+pix.save(str(invoice_png))
+doc.close()
+print("Invoice visual render OK", invoice_png)
 
