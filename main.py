@@ -189,7 +189,7 @@ def init_sqlite():
       "address":"Schönwalder Str. 59, 13585 Berlin","phone":"0176 43605753","landline":"","fax":"030 43205928",
       "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254",
       "iban":"DE13 5001 0517 5404 0811 30","bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com",
-      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","auto_lock_minutes":"15","travel_surcharge":"25"
+      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","logo_x_mm":"18","logo_y_mm":"10","logo_width_mm":"72","logo_height_mm":"22","auto_lock_minutes":"15","travel_surcharge":"25"
     }
     for k,v in defaults.items(): con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",(k,v))
     for name,mins,amount,reduced,mode in [("Einzeltherapie",45,70,60,"proportional"),("Paargespräch",45,70,60,"proportional"),("Onlinegespräch",45,70,60,"proportional"),("Notfalltelefonat",30,45,45,"started_unit"),("Hausbesuch",45,70,60,"proportional_plus_travel")]:
@@ -1789,10 +1789,11 @@ $result.Text
                 im=ImageReader(str(logo)); iw,ih=im.getSize()
                 # Das Original-Logo hat viel Weißraum. Deshalb deutlich größer zeichnen,
                 # damit die tatsächliche braun-goldene Wort-/Bildmarke im Kopf sichtbar ist.
-                mw,mh=92*mm,25*mm; sc=min(mw/iw,mh/ih)
-                lw,lh=iw*sc,ih*sc
-                # Original-Logo fest links oben im Kopfbereich.
-                can.drawImage(im,8*mm,H-33*mm,width=lw,height=lh,preserveAspectRatio=True,mask="auto"); drawn=True
+                mw=float(get_setting("logo_width_mm","72"))*mm; mh=float(get_setting("logo_height_mm","22"))*mm
+                sc=min(mw/iw,mh/ih); lw,lh=iw*sc,ih*sc
+                lx=float(get_setting("logo_x_mm","18"))*mm
+                top=float(get_setting("logo_y_mm","10"))*mm
+                can.drawImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto"); drawn=True
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
         if not drawn:
             # Kein erfundenes Ersatzlogo: Die Rechnung soll ausschließlich das echte Praxislogo verwenden.
@@ -2386,6 +2387,12 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             p,_=QFileDialog.getOpenFileName(self,"Praxislogo auswählen","","Bilder (*.png *.jpg *.jpeg)")
             if p: logo.setText(p)
         choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
+        logo_x=QDoubleSpinBox(); logo_x.setRange(0,180); logo_x.setValue(float(get_setting("logo_x_mm","18"))); logo_x.setSuffix(" mm")
+        logo_y=QDoubleSpinBox(); logo_y.setRange(0,80); logo_y.setValue(float(get_setting("logo_y_mm","10"))); logo_y.setSuffix(" mm")
+        logo_w=QDoubleSpinBox(); logo_w.setRange(15,120); logo_w.setValue(float(get_setting("logo_width_mm","72"))); logo_w.setSuffix(" mm")
+        logo_h=QDoubleSpinBox(); logo_h.setRange(8,45); logo_h.setValue(float(get_setting("logo_height_mm","22"))); logo_h.setSuffix(" mm")
+        lpos=QHBoxLayout(); lpos.addWidget(QLabel("Links")); lpos.addWidget(logo_x); lpos.addWidget(QLabel("Oben")); lpos.addWidget(logo_y); lpos.addWidget(QLabel("Breite")); lpos.addWidget(logo_w); lpos.addWidget(QLabel("Höhe")); lpos.addWidget(logo_h)
+        form.addRow("Logo auf Rechnung",lpos)
         gv.addLayout(form)
         appearance=QFrame(); appearance.setObjectName("formCard"); appearance.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
         # Darstellungsoptionen kompakt in einer Zeile: sie dürfen die Praxisdaten nicht überdecken.
@@ -2398,7 +2405,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(42)
         def save_settings():
             for k,ed in fields.items(): set_setting(k,ed.text().strip())
-            set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value()); set_setting("ui_theme",theme.currentText()); set_setting("ui_font_size",fontsize.value()); set_setting("ui_density",density.currentText())
+            set_setting("logo_x_mm",logo_x.value()); set_setting("logo_y_mm",logo_y.value()); set_setting("logo_width_mm",logo_w.value()); set_setting("logo_height_mm",logo_h.value()); set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value()); set_setting("ui_theme",theme.currentText()); set_setting("ui_font_size",fontsize.value()); set_setting("ui_density",density.currentText())
             self.apply_appearance()
             QMessageBox.information(self,"Gespeichert","Praxiseinstellungen gespeichert. Farbschema, Schriftgröße und Darstellungsdichte wurden sofort angewendet.")
         save.clicked.connect(save_settings); gv.addSpacing(8); gv.addWidget(save); gv.addStretch(); tabs.addTab(general,"Praxisdaten")
