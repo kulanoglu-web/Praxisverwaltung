@@ -1815,8 +1815,8 @@ $result.Text
         contact_lines=list(addr_lines)
         if phone: contact_lines += ["Handy", phone]
         if landline: contact_lines += ["Festnetz", landline]
-        if fax: contact_lines += ["Fax", fax]
-        contact_lines += [x for x in (email,website,("Steuernummer: "+tax) if tax else "") if x]
+        if fax: contact_lines += ["Fax: "+fax]
+        contact_lines += [x for x in (email,website) if x]
         for line in contact_lines:
             can.drawString(tx,ty,line); ty-=4.3*mm
         can.setStrokeColor(NAVY); can.setLineWidth(.75); can.line(18*mm,H-58*mm,W-18*mm,H-58*mm)
@@ -1902,7 +1902,7 @@ $result.Text
         can.drawString(75*mm,fy+1*mm,contact_footer)
         if fax: can.drawString(75*mm,fy-2.5*mm,"Fax "+fax)
         can.drawString(75*mm,fy-6*mm,email)
-        can.drawString(132*mm,fy+1*mm,"IBAN "+iban); can.drawString(132*mm,fy-2.5*mm,"BIC "+bic+" · St.-Nr. "+tax)
+        can.drawString(132*mm,fy+1*mm,"IBAN "+iban); can.drawString(132*mm,fy-2.5*mm,"BIC "+bic)
         can.save()
         invoice_items=[]
         if rows:
