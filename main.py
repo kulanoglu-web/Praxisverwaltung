@@ -1793,7 +1793,10 @@ $result.Text
                 sc=min(mw/iw,mh/ih); lw,lh=iw*sc,ih*sc
                 lx=float(get_setting("logo_x_mm","18"))*mm
                 top=float(get_setting("logo_y_mm","10"))*mm
-                can.drawImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto"); drawn=True
+                # Logo bewusst als JPEG/PNG-Inhalt direkt in die PDF einbetten.
+                # drawInlineImage verhindert, dass das Logo als externes/indirektes XObject
+                # vom PDF-Renderer verschluckt wird.
+                can.drawInlineImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True); drawn=True
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
         if not drawn:
             # Kein erfundenes Ersatzlogo: Die Rechnung soll ausschließlich das echte Praxislogo verwenden.
