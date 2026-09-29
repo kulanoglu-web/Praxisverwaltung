@@ -1352,7 +1352,7 @@ $result.Text
             load_symptoms(); load_screening(); render()
         self.help_topic.currentTextChanged.connect(lambda _: (load_symptoms(), load_screening(), render()))
         self.help_fcode.currentTextChanged.connect(apply_fcode_context)
-        self.symptom_list.itemSelectionChanged.connect(lambda: render())
+        self.symptom_list.itemSelectionChanged.connect(render)
         load_symptoms()
         severity=QFrame(); severity.setObjectName("formCard"); severity.setMinimumWidth(0); sf=QGridLayout(severity); sf.addWidget(QLabel("Vertiefung der Symptomabfrage"),0,0,1,4)
         self.sym_duration=QComboBox(); self.sym_duration.addItems(["Dauer nicht angegeben","< 2 Wochen","2–4 Wochen","1–3 Monate","3–6 Monate","> 6 Monate","> 1 Jahr"])
