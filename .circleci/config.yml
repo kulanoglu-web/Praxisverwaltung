@@ -26,7 +26,7 @@ jobs:
           name: UI smoke test
           command: |
             $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
-            python -c "from pathlib import Path; p=Path('ui_screenshot_test.py'); s=p.read_text(encoding='utf-8'); p.write_text(s.replace('Praxislogos.\\\\npix=', 'Praxislogos.\\npix='), encoding='utf-8')"
+            python -c "from pathlib import Path; p=Path('ui_screenshot_test.py'); s=p.read_text(encoding='utf-8'); s=s.replace('Praxislogos.\\\\npix=', 'Praxislogos.\\npix='); s=s.replace('# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\\npix=', '# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\\npix='); p.write_text(s, encoding='utf-8')"
             python ui_screenshot_test.py
       - run:
           name: Build EXE
