@@ -1443,6 +1443,7 @@ $result.Text
         self.partner_a_view.textChanged.connect(render); self.partner_b_view.textChanged.connect(render); self.couple_mode.toggled.connect(lambda _:render()); self.couple_violence.toggled.connect(lambda _:render()); self.couple_children.toggled.connect(lambda _:render())
         self.help_topic.currentTextChanged.connect(lambda _:update_clinical_hint()); update_clinical_hint()
         self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); self.symptom_list.itemSelectionChanged.connect(render)
+        self.symptom_list.selectionModel().selectionChanged.connect(lambda *_: render())
         # Auswahl der Symptome aktualisiert die Arbeitshilfe sofort; Doppelklick übernimmt
         # das einzelne Symptom zusätzlich direkt in die Therapienotiz.
         def transfer_one_symptom(item):
