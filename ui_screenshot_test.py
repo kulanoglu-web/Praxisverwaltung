@@ -95,14 +95,9 @@ app.exec()
 
 
 # Sitzungsassistent funktional prüfen: ICD-Auswahl -> Thema/Symptome -> Notizübernahme.
-# Nach dem kompletten Screenshot-Lauf die Assistentenseite frisch erzeugen.
-# Dadurch prüft der Funktionstest ausschließlich die aktuell verbundenen Widgets/Signale
-# und nicht eine während der Auflösungstests bereits verwendete Instanz.
-old=win.pages.widget(2)
-fresh=win.helper_ui()
-win.pages.removeWidget(old)
-old.deleteLater()
-win.pages.insertWidget(2,fresh)
+# Die vorhandene Assistentenseite verwenden. helper_ui() schreibt seine Widgets nach
+# self.*; ein zweiter Aufruf würde diese Referenzen überschreiben und die Signal-Closures
+# der bereits eingebauten Seite von den aktuell referenzierten Widgets trennen.
 win.pages.setCurrentIndex(2)
 app.processEvents()
 idx=win.help_fcode.findText("F43.1", main.Qt.MatchStartsWith)
