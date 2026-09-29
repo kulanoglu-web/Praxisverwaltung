@@ -1883,8 +1883,8 @@ $result.Text
         can.setFillColor(NAVY); can.setFont(regular,8.2); tx=132*mm; ty=H-17*mm
         addr_lines=[x.strip() for x in address.replace(",", "\n",1).splitlines() if x.strip()]
         contact_lines=list(addr_lines)
-        if phone: contact_lines += ["Handy", phone]
-        if landline: contact_lines += ["Festnetz", landline]
+        if phone: contact_lines.append("Handy "+phone)
+        if landline: contact_lines.append("Festnetz "+landline)
         if fax: contact_lines += ["Fax: "+fax]
         contact_lines += [x for x in (email,website) if x]
         for line in contact_lines:
