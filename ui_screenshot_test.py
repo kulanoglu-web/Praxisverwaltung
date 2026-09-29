@@ -117,12 +117,6 @@ win.symptom_list.itemSelectionChanged.emit()
 app.processEvents()
 summary_text=win.help_text.toPlainText()
 if "AUSGEWÄHLTE SYMPTOME" not in summary_text:
-    selected_debug=[x.text() for x in win.symptom_list.selectedItems()]
-    print("ASSISTANT DEBUG selected=",repr(selected_debug))
-    print("ASSISTANT DEBUG topic=",repr(win.help_topic.currentText()),"fcode=",repr(win.help_fcode.currentText()))
-    safe_summary=summary_text[:2000].encode("ascii","backslashreplace").decode("ascii")
-    print("ASSISTANT DEBUG marker_pos=",summary_text.find("AUSGEW"))
-    print("ASSISTANT DEBUG help_text_ascii=",repr(safe_summary))
     raise SystemExit("Symptomauswahl aktualisiert Zusammenfassung nicht")
 print("Assistant functional test OK: F43.1 -> PTBS / Trauma -> symptoms")
 
