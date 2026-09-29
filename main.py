@@ -1349,7 +1349,10 @@ $result.Text
             if topic:
                 idx=self.help_topic.findText(topic)
                 if idx>=0: self.help_topic.setCurrentIndex(idx)
-            load_symptoms(); load_screening(); render()
+            # Das Umschalten des Themas löst bereits das Neuladen aus. Nicht ein zweites Mal
+            # leeren, da sonst eine unmittelbar danach gesetzte Symptomauswahl verloren geht.
+            if not topic: load_symptoms()
+            load_screening(); render()
         self.help_topic.currentTextChanged.connect(lambda _: (load_symptoms(), load_screening(), render()))
         self.help_fcode.currentTextChanged.connect(apply_fcode_context)
         load_symptoms()
