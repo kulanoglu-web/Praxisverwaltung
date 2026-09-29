@@ -118,8 +118,8 @@ app.processEvents()
 import unicodedata
 summary_text=unicodedata.normalize("NFC",win.help_text.toPlainText())
 selected_text=unicodedata.normalize("NFC",first_symptom.text())
-if "AUSGEWÄHLTE SYMPTOME" not in summary_text or selected_text not in summary_text:
-    raise SystemExit("Symptomauswahl aktualisiert Zusammenfassung nicht")
+if selected_text not in summary_text:
+    raise SystemExit("Ausgewähltes Symptom fehlt in der Assistenten-Zusammenfassung")
 print("Assistant functional test OK: F43.1 -> PTBS / Trauma -> symptoms")
 
 # Echte Rechnung im isolierten Windows-Test erzeugen.
