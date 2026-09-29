@@ -115,7 +115,13 @@ app.processEvents()
 if not win.symptom_list.selectedItems(): raise SystemExit("Symptomauswahl wurde vom QListWidget nicht übernommen")
 win.symptom_list.itemSelectionChanged.emit()
 app.processEvents()
-if "AUSGEWÄHLTE SYMPTOME" not in win.help_text.toPlainText(): raise SystemExit("Symptomauswahl aktualisiert Zusammenfassung nicht")
+summary_text=win.help_text.toPlainText()
+if "AUSGEWÄHLTE SYMPTOME" not in summary_text:
+    selected_debug=[x.text() for x in win.symptom_list.selectedItems()]
+    print("ASSISTANT DEBUG selected=",repr(selected_debug))
+    print("ASSISTANT DEBUG topic=",repr(win.help_topic.currentText()),"fcode=",repr(win.help_fcode.currentText()))
+    print("ASSISTANT DEBUG help_text=",repr(summary_text[:1500]))
+    raise SystemExit("Symptomauswahl aktualisiert Zusammenfassung nicht")
 print("Assistant functional test OK: F43.1 -> PTBS / Trauma -> symptoms")
 
 # Echte Rechnung im isolierten Windows-Test erzeugen.
