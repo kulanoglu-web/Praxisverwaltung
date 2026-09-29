@@ -10,15 +10,13 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Install Python
+          name: Use preinstalled Python
           command: |
-            choco install python312 --yes --no-progress
-            $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
             python --version
+            python -m pip --version
       - run:
           name: Dependencies and syntax
           command: |
-            $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
             python -m pip install --upgrade pip
             python -m pip install -r requirements.txt
             python -m pip install pymupdf
@@ -26,14 +24,12 @@ jobs:
       - run:
           name: UI smoke test
           command: |
-            $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
             python -c "from pathlib import Path; p=Path('ui_screenshot_test.py'); s=p.read_text(encoding='utf-8'); s=s.replace('Praxislogos.\\\\npix=', 'Praxislogos.\\npix='); s=s.replace('# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\\npix=', '# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\\npix='); p.write_text(s, encoding='utf-8')"
             (Get-Content ui_screenshot_test.py -Raw).Replace(')\ninvoice_png=out/f', ")`ninvoice_png=out/f") | Set-Content ui_screenshot_test.py -Encoding UTF8
             python ui_screenshot_test.py
       - run:
           name: Build EXE
           command: |
-            $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
             $a = @("--noconfirm","--clean","--onefile","--windowed","--name","Praxisverwaltung","--add-data","assets/logo.png;assets")
             if (Test-Path "assets/paypal.png") { $a += @("--add-data","assets/paypal.png;assets") }
             $a += "main.py"
