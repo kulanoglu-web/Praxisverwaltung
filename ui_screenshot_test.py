@@ -115,8 +115,10 @@ app.processEvents()
 if not win.symptom_list.selectedItems(): raise SystemExit("Symptomauswahl wurde vom QListWidget nicht übernommen")
 win.symptom_list.itemSelectionChanged.emit()
 app.processEvents()
-summary_text=win.help_text.toPlainText()
-if "AUSGEWÄHLTE SYMPTOME" not in summary_text:
+import unicodedata
+summary_text=unicodedata.normalize("NFC",win.help_text.toPlainText())
+selected_text=unicodedata.normalize("NFC",first_symptom.text())
+if "AUSGEWÄHLTE SYMPTOME" not in summary_text or selected_text not in summary_text:
     raise SystemExit("Symptomauswahl aktualisiert Zusammenfassung nicht")
 print("Assistant functional test OK: F43.1 -> PTBS / Trauma -> symptoms")
 
