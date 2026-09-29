@@ -1441,8 +1441,14 @@ $result.Text
         for _,a,b in self.couple_question_rows: a.valueChanged.connect(lambda _:render()); b.valueChanged.connect(lambda _:render())
         self.partner_a_view.textChanged.connect(render); self.partner_b_view.textChanged.connect(render); self.couple_mode.toggled.connect(lambda _:render()); self.couple_violence.toggled.connect(lambda _:render()); self.couple_children.toggled.connect(lambda _:render())
         self.help_topic.currentTextChanged.connect(lambda _:update_clinical_hint()); update_clinical_hint()
-        self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render()); self.symptom_list.itemSelectionChanged.connect(render)
-        self.symptom_list.selectionModel().selectionChanged.connect(lambda *_: render())
+        self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render())
+        def refresh_symptom_summary(*_):
+            selected=[self.symptom_list.item(i).text() for i in range(self.symptom_list.count()) if self.symptom_list.item(i).isSelected()]
+            render()
+            if selected and "AUSGEWÄHLTE SYMPTOME" not in self.help_text.toPlainText():
+                self.help_text.append("\nAUSGEWÄHLTE SYMPTOME ("+str(len(selected))+")\n"+"\n".join("☑ "+x for x in selected))
+        self.symptom_list.itemSelectionChanged.connect(refresh_symptom_summary)
+        self.symptom_list.selectionModel().selectionChanged.connect(refresh_symptom_summary)
         # Auswahl der Symptome aktualisiert die Arbeitshilfe sofort; Doppelklick übernimmt
         # das einzelne Symptom zusätzlich direkt in die Therapienotiz.
         def transfer_one_symptom(item):
