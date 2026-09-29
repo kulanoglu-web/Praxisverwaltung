@@ -26,6 +26,7 @@ jobs:
           command: |
             python -c "from pathlib import Path; p=Path('ui_screenshot_test.py'); s=p.read_text(encoding='utf-8'); s=s.replace('Praxislogos.\\\\npix=', 'Praxislogos.\\npix='); s=s.replace('# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\\npix=', '# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\\npix='); p.write_text(s, encoding='utf-8')"
             (Get-Content ui_screenshot_test.py -Raw).Replace(')\ninvoice_png=out/f', ")`ninvoice_png=out/f") | Set-Content ui_screenshot_test.py -Encoding UTF8
+            python -c "from pathlib import Path; p=Path('ui_screenshot_test.py'); s=p.read_text(encoding='utf-8'); s=s.replace('win.symptom_list.item(0).setSelected(True); app.processEvents()', 'win.symptom_list.setCurrentRow(0); win.symptom_list.item(0).setSelected(True); app.processEvents()'); p.write_text(s, encoding='utf-8')"
             python ui_screenshot_test.py
       - run:
           name: Build EXE
