@@ -20,6 +20,7 @@ jobs:
             $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
             python -m pip install --upgrade pip
             python -m pip install -r requirements.txt
+            python -m pip install pymupdf
             python -m py_compile main.py ui_screenshot_test.py
       - run:
           name: UI smoke test
