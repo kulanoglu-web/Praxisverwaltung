@@ -1398,7 +1398,7 @@ $result.Text
             keys=["VT","TP","Systemisch","SIT","EFT"] if chosen=="Alle Schulen" else [chosen]
             for key in keys:
                 if key in d and key not in lib: parts+=["",labels[key]]+["• "+x for x in d[key]]
-            selected=[x.text() for x in self.symptom_list.selectedItems()] if hasattr(self,"symptom_list") else []
+            selected=[]\n            if hasattr(self,"symptom_list"):\n                # Auswahl direkt aus den Items lesen. Das ist unter Windows/Qt robuster als\n                # selectedItems(), insbesondere nach programmatischem Themen-/F-Code-Wechsel.\n                selected=[self.symptom_list.item(i).text() for i in range(self.symptom_list.count()) if self.symptom_list.item(i).isSelected()]
             if selected: parts+=["","AUSGEWÄHLTE SYMPTOME ("+str(len(selected))+")"]+["☑ "+x for x in selected]
             screening=[x.text() for x in getattr(self,"screening_checks",[]) if x.isChecked()]
             if screening: parts+=["","VERDACHTSFALL – BEJAHETE EXPLORATIONSFRAGEN"]+["☑ "+x for x in screening]+["Hinweis: strukturierte Exploration; keine automatische Diagnose."]
