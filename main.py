@@ -1382,7 +1382,7 @@ $result.Text
         self.help_next=QLineEdit(); self.help_next.setPlaceholderText("Vereinbarter nächster Schritt / Hausaufgabe …"); rv.addWidget(self.help_next)
         self.help_note=QLineEdit(); self.help_note.setPlaceholderText("Eigene Beobachtung / ergänzende Notiz …"); rv.addWidget(self.help_note); v.addWidget(risk)
         self.help_text=QTextEdit(); self.help_text.setReadOnly(True); self.help_text.setStyleSheet("font-size:17px;padding:10px"); v.addWidget(self.help_text,1)
-        def render():
+        def render(selected_override=None):
             d=topics[self.help_topic.currentText()]; parts=["THEMA: "+self.help_topic.currentText(),"","GESPRÄCHSFRAGEN"]+["• "+x for x in d["Fragen"]]
             lib=intervention_library.get(self.help_topic.currentText(),{})
             if lib:
@@ -1398,10 +1398,11 @@ $result.Text
             keys=["VT","TP","Systemisch","SIT","EFT"] if chosen=="Alle Schulen" else [chosen]
             for key in keys:
                 if key in d and key not in lib: parts+=["",labels[key]]+["• "+x for x in d[key]]
-            selected=[]
-            if hasattr(self,"symptom_list"):
-                # Auswahl direkt aus den Items lesen; robust auch nach F-Code-/Themenwechsel.
-                selected=[self.symptom_list.item(i).text() for i in range(self.symptom_list.count()) if self.symptom_list.item(i).isSelected()]
+            selected=selected_override
+            if selected is None:
+                selected=[]
+                if hasattr(self,"symptom_list"):
+                    selected=[self.symptom_list.item(i).text() for i in range(self.symptom_list.count()) if self.symptom_list.item(i).isSelected()]
             if selected: parts+=["","AUSGEWÄHLTE SYMPTOME ("+str(len(selected))+")"]+["☑ "+x for x in selected]
             screening=[x.text() for x in getattr(self,"screening_checks",[]) if x.isChecked()]
             if screening: parts+=["","VERDACHTSFALL – BEJAHETE EXPLORATIONSFRAGEN"]+["☑ "+x for x in screening]+["Hinweis: strukturierte Exploration; keine automatische Diagnose."]
@@ -1452,9 +1453,7 @@ $result.Text
         self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render())
         def refresh_symptom_summary(*_):
             selected=[self.symptom_list.item(i).text() for i in range(self.symptom_list.count()) if self.symptom_list.item(i).isSelected()]
-            render()
-            if selected and "AUSGEWÄHLTE SYMPTOME" not in self.help_text.toPlainText():
-                self.help_text.append("\nAUSGEWÄHLTE SYMPTOME ("+str(len(selected))+")\n"+"\n".join("☑ "+x for x in selected))
+            render(selected)
         self.symptom_list.itemSelectionChanged.connect(refresh_symptom_summary)
         self.symptom_list.selectionModel().selectionChanged.connect(refresh_symptom_summary)
         # Auswahl der Symptome aktualisiert die Arbeitshilfe sofort; Doppelklick übernimmt
