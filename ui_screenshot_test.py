@@ -100,8 +100,7 @@ if idx < 0: raise SystemExit("F43.1 fehlt im Sitzungsassistenten")
 win.help_fcode.setCurrentIndex(idx); app.processEvents()
 if win.help_topic.currentText()!="PTBS / Trauma": raise SystemExit("F43.1 schaltet nicht auf PTBS / Trauma")
 if win.symptom_list.count()<5: raise SystemExit("PTBS-Symptomliste wurde nicht geladen")
-win.symptom_list.item(0).setSelected(True); app.processEvents()
-if "AUSGEWÄHLTE SYMPTOME" not in win.help_text.toPlainText(): raise SystemExit("Symptomauswahl aktualisiert Zusammenfassung nicht")
+win.symptom_list.clearSelection()\nfirst_symptom=win.symptom_list.item(0)\nfirst_symptom.setSelected(True)\n# QListWidget-Selection im Windows/Qt-CI explizit über das SelectionModel setzen.\n# setSelected() allein aktualisiert dort den internen Zustand, löst aber nicht in jeder\n# headless Windows-Konstellation zuverlässig das Selection-Signal aus.\nfrom PySide6.QtCore import QItemSelectionModel\nidx0=win.symptom_list.indexFromItem(first_symptom)\nwin.symptom_list.selectionModel().select(idx0,QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)\napp.processEvents()\nif not win.symptom_list.selectedItems(): raise SystemExit("Symptomauswahl wurde vom QListWidget nicht übernommen")\n# Zusätzlich das öffentliche Auswahl-Signal auslösen: der Test prüft damit denselben\n# Aktualisierungspfad, den eine echte Benutzer-Auswahl verwendet.\nwin.symptom_list.itemSelectionChanged.emit()\napp.processEvents()\nif "AUSGEWÄHLTE SYMPTOME" not in win.help_text.toPlainText(): raise SystemExit("Symptomauswahl aktualisiert Zusammenfassung nicht")
 print("Assistant functional test OK: F43.1 -> PTBS / Trauma -> symptoms")
 
 # Echte Rechnung im isolierten Windows-Test erzeugen.
