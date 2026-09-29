@@ -94,7 +94,17 @@ QTimer.singleShot(100, app.quit)
 app.exec()
 
 
-# Sitzungsassistent funktional prüfen: ICD-Auswahl -> Thema/Symptome -> Notizübernahme.\n# Nach dem kompletten Screenshot-Lauf die Assistentenseite frisch erzeugen.\n# Dadurch prüft der Funktionstest ausschließlich die aktuell verbundenen Widgets/Signale\n# und nicht eine während der Auflösungstests bereits verwendete Instanz.\nold=win.pages.widget(2)\nfresh=win.helper_ui()\nwin.pages.removeWidget(old)\nold.deleteLater()\nwin.pages.insertWidget(2,fresh)\nwin.pages.setCurrentIndex(2)\napp.processEvents()
+# Sitzungsassistent funktional prüfen: ICD-Auswahl -> Thema/Symptome -> Notizübernahme.
+# Nach dem kompletten Screenshot-Lauf die Assistentenseite frisch erzeugen.
+# Dadurch prüft der Funktionstest ausschließlich die aktuell verbundenen Widgets/Signale
+# und nicht eine während der Auflösungstests bereits verwendete Instanz.
+old=win.pages.widget(2)
+fresh=win.helper_ui()
+win.pages.removeWidget(old)
+old.deleteLater()
+win.pages.insertWidget(2,fresh)
+win.pages.setCurrentIndex(2)
+app.processEvents()
 idx=win.help_fcode.findText("F43.1", main.Qt.MatchStartsWith)
 if idx < 0: raise SystemExit("F43.1 fehlt im Sitzungsassistenten")
 win.help_fcode.setCurrentIndex(idx); app.processEvents()
