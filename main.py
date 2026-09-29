@@ -1452,10 +1452,11 @@ $result.Text
         self.help_topic.currentTextChanged.connect(lambda _:update_clinical_hint()); update_clinical_hint()
         self.help_topic.currentTextChanged.connect(render); self.help_fcode.currentTextChanged.connect(lambda _:render())
         def refresh_symptom_summary(*_):
-            selected=[self.symptom_list.item(i).text() for i in range(self.symptom_list.count()) if self.symptom_list.item(i).isSelected()]
+            # selectedItems() ist die kanonische Qt-Auswahl und funktioniert sowohl
+            # bei Maus-/Tastaturauswahl als auch bei programmgesteuerter Auswahl.
+            selected=[item.text() for item in self.symptom_list.selectedItems()]
             render(selected)
         self.symptom_list.itemSelectionChanged.connect(refresh_symptom_summary)
-        self.symptom_list.selectionModel().selectionChanged.connect(refresh_symptom_summary)
         # Auswahl der Symptome aktualisiert die Arbeitshilfe sofort; Doppelklick übernimmt
         # das einzelne Symptom zusätzlich direkt in die Therapienotiz.
         def transfer_one_symptom(item):
