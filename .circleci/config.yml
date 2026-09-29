@@ -27,7 +27,7 @@ jobs:
           command: |
             $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
             python -c "from pathlib import Path; p=Path('ui_screenshot_test.py'); s=p.read_text(encoding='utf-8'); s=s.replace('Praxislogos.\\\\npix=', 'Praxislogos.\\npix='); s=s.replace('# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\\npix=', '# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\\npix='); p.write_text(s, encoding='utf-8')"
-            python -c "from pathlib import Path; p=Path('ui_screenshot_test.py'); s=p.read_text(encoding='utf-8'); key='invoice_png=out/f'; s=s.replace(key, 'pix=page.get_pixmap(matrix=fitz.Matrix(1.7,1.7),alpha=False)\\n'+key) if 'pix=page.get_pixmap(matrix=fitz.Matrix(1.7,1.7),alpha=False)\\ninvoice_png=out/f' not in s else s; p.write_text(s,encoding='utf-8')"
+            (Get-Content ui_screenshot_test.py -Raw).Replace(')\ninvoice_png=out/f', ")`ninvoice_png=out/f") | Set-Content ui_screenshot_test.py -Encoding UTF8
             python ui_screenshot_test.py
       - run:
           name: Build EXE
