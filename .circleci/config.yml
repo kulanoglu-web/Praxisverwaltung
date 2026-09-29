@@ -1,0 +1,68 @@
+version: 2.1
+orbs:
+  win: circleci/windows@5.0.0
+jobs:
+  windows-build-test:
+    executor:
+      name: win/server-2022
+      size: medium
+    steps:
+      - checkout
+      - run:
+          name: Install Python
+          command: |
+            choco install python312 --yes --no-progress
+            $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
+            python --version
+      - run:
+          name: Dependencies and syntax
+          command: |
+            $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
+            python -m pip install --upgrade pip
+            python -m pip install -r requirements.txt
+            python -m py_compile main.py ui_screenshot_test.py
+      - run:
+          name: UI smoke test
+          command: |
+            $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
+            python ui_screenshot_test.py
+      - run:
+          name: Build EXE
+          command: |
+            $env:PATH = "C:\Python312;C:\Python312\Scripts;$env:PATH"
+            $a = @("--noconfirm","--clean","--onefile","--windowed","--name","Praxisverwaltung","--add-data","assets/logo.png;assets")
+            if (Test-Path "assets/paypal.png") { $a += @("--add-data","assets/paypal.png;assets") }
+            $a += "main.py"
+            python -m PyInstaller @a
+            if (!(Test-Path "dist\Praxisverwaltung.exe")) { throw "Praxisverwaltung.exe missing" }
+      - run:
+          name: Build installer
+          command: |
+            choco install innosetup --yes --no-progress
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+            & $iscc "/DMyAppVersion=0.12.18" "PraxisPro.iss"
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+      - run:
+          name: Install and launch smoke test
+          command: |
+            $setup = Get-ChildItem "installer\PraxisPro_Setup_v*.exe" | Select-Object -First 1
+            if (!$setup) { throw "Installer missing" }
+            $target = Join-Path $env:TEMP "PraxisPro_CI"
+            & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="$target"
+            if ($LASTEXITCODE -ne 0) { throw "Installation failed" }
+            $exe = Join-Path $target "Praxisverwaltung.exe"
+            if (!(Test-Path $exe)) { throw "Installed EXE missing" }
+            $p = Start-Process $exe -PassThru
+            Start-Sleep -Seconds 12
+            if ($p.HasExited) { throw "PraxisPro exited during startup smoke test" }
+            Stop-Process -Id $p.Id -Force
+      - store_artifacts:
+          path: installer
+          destination: PraxisPro-Installer
+      - store_artifacts:
+          path: ui_test_output
+          destination: UI-Test
+workflows:
+  praxispro-windows:
+    jobs:
+      - windows-build-test
