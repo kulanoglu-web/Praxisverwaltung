@@ -1350,7 +1350,7 @@ $result.Text
                 idx=self.help_topic.findText(topic)
                 if idx>=0: self.help_topic.setCurrentIndex(idx)
             load_symptoms(); load_screening(); render()
-        self.help_topic.currentTextChanged.connect(lambda _: (load_symptoms(), load_screening()))
+        self.help_topic.currentTextChanged.connect(lambda _: (load_symptoms(), load_screening(), render()))
         self.help_fcode.currentTextChanged.connect(apply_fcode_context)
         self.symptom_list.itemSelectionChanged.connect(lambda: render())
         load_symptoms()
