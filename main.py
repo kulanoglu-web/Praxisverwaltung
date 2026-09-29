@@ -1310,7 +1310,7 @@ $result.Text
             render()
         self.screening_btn.clicked.connect(load_screening)
         symptom_box=QFrame(); symptom_box.setObjectName("formCard"); symptom_box.setMinimumWidth(0); sb=QVBoxLayout(symptom_box); sh=QHBoxLayout(); sh.addWidget(QLabel("Symptomabfrage – Mehrfachauswahl")); sh.addStretch(); clear_sym=QPushButton("Auswahl löschen"); sh.addWidget(clear_sym); sb.addLayout(sh)
-        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.MultiSelection); self.symptom_list.setMinimumHeight(105); self.symptom_list.setMaximumHeight(170); self.symptom_list.setAlternatingRowColors(True); self.symptom_list.setToolTip("Mehrere Symptome mit Strg/Klick oder durch Ziehen auswählen. Doppelklick übernimmt ein einzelnes Symptom direkt in die Therapienotiz."); sb.addWidget(self.symptom_list)
+        self.symptom_list=QListWidget(); self.symptom_list.setSelectionMode(QListWidget.ExtendedSelection); self.symptom_list.setMinimumHeight(105); self.symptom_list.setMaximumHeight(170); self.symptom_list.setAlternatingRowColors(True); self.symptom_list.setToolTip("Mehrere Symptome mit Strg/Klick oder durch Ziehen auswählen. Doppelklick übernimmt ein einzelnes Symptom direkt in die Therapienotiz."); sb.addWidget(self.symptom_list)
         sr=QHBoxLayout(); self.sym_custom=QLineEdit(); self.sym_custom.setPlaceholderText("Weiteres Symptom ergänzen …"); add_sym=QPushButton("＋ Symptom"); transfer_sym=QPushButton("✓ Auswahl in Therapienotiz übernehmen"); transfer_all=QPushButton("↗ Zusammenfassung übernehmen"); sr.addWidget(self.sym_custom,1); sr.addWidget(add_sym); sr.addWidget(transfer_sym); sr.addWidget(transfer_all); sb.addLayout(sr)
         def add_custom_symptom():
             t=self.sym_custom.text().strip()
