@@ -50,8 +50,9 @@ jobs:
             if (!$setup) { throw "Installer missing" }
             $target = Join-Path $env:TEMP "PraxisPro_CI"
             $installLog = Join-Path $env:TEMP "PraxisPro-install.log"
-            & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="$target" /LOG="$installLog"
-            $installExit = $LASTEXITCODE
+            $installArgs = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART",('/DIR="' + $target + '"'),('/LOG="' + $installLog + '"'))
+            $installerProcess = Start-Process -FilePath $setup.FullName -ArgumentList $installArgs -Wait -PassThru
+            $installExit = $installerProcess.ExitCode
             if ($installExit -ne 0) {
               if (Test-Path $installLog) { Get-Content $installLog -Tail 200 }
               throw "Installation failed with exit code $installExit"
