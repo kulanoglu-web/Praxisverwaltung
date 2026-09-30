@@ -41,7 +41,7 @@ def prepare_session_page():
     win.session_diag.setText("F43.2 – Testeintrag")
     app.processEvents()
 
-out=Path("test-artifacts"); out.mkdir(exist_ok=True)
+out=Path("ui_test_output"); out.mkdir(parents=True, exist_ok=True)
 pages=[
     (0,"Dashboard"),
     (1,"Sitzung"),
