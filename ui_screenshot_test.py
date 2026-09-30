@@ -148,6 +148,9 @@ test_settings={
     "bic":"INGDDEFFXXX",
     "paypal":"erdogankulanoglu@hotmail.com",
     "logo_path":str((Path("assets")/"logo.png").resolve()),
+    "invoice_header_logo_zone":"Links",
+    "invoice_header_middle":"Praxisdaten",
+    "invoice_header_right":"Kontaktdaten",
 }
 for k,v in test_settings.items(): main.set_setting(k,v)
 main.set_setting("logo_x_mm","18")
@@ -186,7 +189,7 @@ print("Invoice generation test OK", target, target.stat().st_size)
 import fitz
 doc=fitz.open(str(target))
 page=doc[0]
-# Prüfe das gerenderte Ergebnis pixelbasiert. Das funktioniert auch bei
+text_check=page.get_text()\nfor expected in ("Erdoğan Kulanoğlu","Schönwalder","Musterstraße"):\n    if expected not in text_check:\n        raise SystemExit("UNICODE-FEHLER IN RECHNUNG: "+expected)\n# Prüfe das gerenderte Ergebnis pixelbasiert. Das funktioniert auch bei
 # ReportLab-InlineImages, die PyMuPDF nicht als separaten Bildblock meldet.
 clip=fitz.Rect(10,10,page.rect.width*0.62,page.rect.height*0.25)
 lpix=page.get_pixmap(matrix=fitz.Matrix(1.5,1.5),clip=clip,alpha=False)
