@@ -199,7 +199,8 @@ for i in range(0,len(samples),lpix.n):
     rgb=(samples[i],samples[i+1],samples[i+2])
     if min(rgb)<245: cols[rgb]+=1
 print("Invoice header top colors:", cols.most_common(15))
-# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\npix=page.get_pixmap(matrix=fitz.Matrix(1.7,1.7),alpha=False)
+# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.
+pix=page.get_pixmap(matrix=fitz.Matrix(1.7,1.7),alpha=False)
 invoice_png=out/f"PraxisPro-Testrechnung-v{main.APP_VERSION}.png"
 pix.save(str(invoice_png))
 doc.close()
