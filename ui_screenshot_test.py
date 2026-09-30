@@ -147,7 +147,7 @@ test_settings={
     "iban":"DE13 5001 0517 5404 0811 30",
     "bic":"INGDDEFFXXX",
     "paypal":"erdogankulanoglu@hotmail.com",
-    "logo_path":str((Path("assets")/"logo.jpg").resolve()),
+    "logo_path":str((Path("assets")/"logo.png").resolve()),
 }
 for k,v in test_settings.items(): main.set_setting(k,v)
 main.set_setting("logo_x_mm","18")
