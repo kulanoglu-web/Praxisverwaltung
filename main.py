@@ -1975,7 +1975,7 @@ $result.Text
             from reportlab.graphics import renderPDF
             def qr(data,xq,yq,size=21*mm):
                 q=QrCodeWidget(data); b=q.getBounds(); d=Drawing(size,size,transform=[size/(b[2]-b[0]),0,0,size/(b[3]-b[1]),0,0]); d.add(q); renderPDF.draw(d,can,xq,yq)
-            epc="BCD\\n002\\n1\\nSCT\\n"+bic+"\\n"+owner+"\\n"+iban.replace(" ","")+"\\nEUR"+f"{amt:.2f}"+"\\n\\n\\n"+no
+            epc="\\n".join(["BCD","002","1","SCT",bic,owner,iban.replace(" ",""),"EUR"+f"{amt:.2f}","","",no])
             qr(epc,18*mm+bw-24*mm,by+4*mm)
             qr("mailto:"+paypal+"?subject=Rechnung%20"+no,18*mm+bw+gap+bw-24*mm,by+4*mm)
         except Exception as e: audit("INVOICE_QR_ERROR",str(e)[:300],self.current_user.get("username","") if self.current_user else "")
