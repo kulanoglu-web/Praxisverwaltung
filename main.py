@@ -1831,8 +1831,8 @@ $result.Text
         can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
         # Finale A4-Rechnung: feste Markenfarben und Proportionen der freigegebenen Vorlage.
         # Markenfarben direkt aus dem eingebundenen Praxislogo.
-        NAVY=HexColor("#352613"); TEAL=HexColor("#662F18"); GOLD=HexColor("#A62908")
-        BROWN=HexColor("#684643"); CREAM=HexColor("#FFFFFF"); BORDER=HexColor("#A69A95"); WHITE=HexColor("#FFFFFF")
+        NAVY=HexColor("#000000"); TEAL=HexColor("#000000"); GOLD=HexColor("#A62908")
+        BROWN=HexColor("#684643"); CREAM=HexColor("#FFFFFF"); BORDER=BROWN; WHITE=HexColor("#FFFFFF")
         regular,bold="Helvetica","Helvetica-Bold"
         try:
             arial=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arial.ttf"; arial_b=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arialbd.ttf"
