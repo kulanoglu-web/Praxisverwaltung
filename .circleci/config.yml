@@ -49,8 +49,13 @@ jobs:
             $setup = Get-ChildItem "installer\PraxisPro_Setup_v*.exe" | Select-Object -First 1
             if (!$setup) { throw "Installer missing" }
             $target = Join-Path $env:TEMP "PraxisPro_CI"
-            & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="$target"
-            if ($LASTEXITCODE -ne 0) { throw "Installation failed" }
+            $installLog = Join-Path $env:TEMP "PraxisPro-install.log"
+            & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="$target" /LOG="$installLog"
+            $installExit = $LASTEXITCODE
+            if ($installExit -ne 0) {
+              if (Test-Path $installLog) { Get-Content $installLog -Tail 200 }
+              throw "Installation failed with exit code $installExit"
+            }
             $exe = Join-Path $target "Praxisverwaltung.exe"
             if (!(Test-Path $exe)) { throw "Installed EXE missing" }
             $p = Start-Process $exe -PassThru
