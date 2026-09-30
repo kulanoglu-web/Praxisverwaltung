@@ -1830,8 +1830,9 @@ $result.Text
         d=client_dir(c)/"Rechnungen"; pdf=d/f"Rechnung_{no}.pdf"
         can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
         # Finale A4-Rechnung: feste Markenfarben und Proportionen der freigegebenen Vorlage.
-        NAVY=HexColor("#111111"); TEAL=HexColor("#111111"); GOLD=HexColor("#D8A000")
-        BROWN=HexColor("#5A2608"); CREAM=HexColor("#FFFFFF"); BORDER=HexColor("#777777"); WHITE=HexColor("#FFFFFF")
+        # Markenfarben direkt aus dem eingebundenen Praxislogo.
+        NAVY=HexColor("#352613"); TEAL=HexColor("#662F18"); GOLD=HexColor("#A62908")
+        BROWN=HexColor("#684643"); CREAM=HexColor("#FFFFFF"); BORDER=HexColor("#A69A95"); WHITE=HexColor("#FFFFFF")
         regular,bold="Helvetica","Helvetica-Bold"
         try:
             arial=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arial.ttf"; arial_b=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arialbd.ttf"
