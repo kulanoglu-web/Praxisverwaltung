@@ -189,7 +189,7 @@ def init_sqlite():
       "address":"Schönwalder Str. 59, 13585 Berlin","phone":"0176 43605753","landline":"030 12127420","fax":"030 43205928",
       "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254",
       "iban":"DE13 5001 0517 5404 0811 30","bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com",
-      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","logo_x_mm":"18","logo_y_mm":"7","logo_width_mm":"72","logo_height_mm":"22","auto_lock_minutes":"15","travel_surcharge":"25"
+      "manufacturer":"Erdoğan Kulanoğlu","copyright":"© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten.","logo_path":"","invoice_header_logo_zone":"Links","invoice_header_middle":"Praxisdaten","invoice_header_right":"Kontaktdaten","logo_x_mm":"18","logo_y_mm":"7","logo_width_mm":"72","logo_height_mm":"22","auto_lock_minutes":"15","travel_surcharge":"25"
     }
     for k,v in defaults.items(): con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",(k,v))
     # Schon installierte Standardwerte behutsam auf den freigegebenen Rechnungsstand migrieren.
@@ -1870,7 +1870,9 @@ $result.Text
                 im=ImageReader(str(logo)); iw,ih=im.getSize()
                 mw=float(get_setting("logo_width_mm","72"))*mm; mh=float(get_setting("logo_height_mm","22"))*mm
                 sc=min(mw/iw,mh/ih); lw,lh=iw*sc,ih*sc
-                lx=float(get_setting("logo_x_mm","18"))*mm
+                zone=get_setting("invoice_header_logo_zone","Links")
+                zone_base={"Links":18.0,"Mitte":74.0,"Rechts":132.0}.get(zone,18.0)
+                lx=(zone_base + max(0.0,float(get_setting("logo_x_mm","18"))-18.0))*mm
                 top=float(get_setting("logo_y_mm","7"))*mm
                 can.drawImage(str(logo),lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")
                 drawn=True
@@ -2485,6 +2487,9 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         logo_h=QDoubleSpinBox(); logo_h.setRange(8,45); logo_h.setValue(float(get_setting("logo_height_mm","22"))); logo_h.setSuffix(" mm")
         lpos=QHBoxLayout(); lpos.addWidget(QLabel("Links")); lpos.addWidget(logo_x); lpos.addWidget(QLabel("Oben")); lpos.addWidget(logo_y); lpos.addWidget(QLabel("Breite")); lpos.addWidget(logo_w); lpos.addWidget(QLabel("Höhe")); lpos.addWidget(logo_h)
         form.addRow("Logo auf Rechnung",lpos)
+        logo_zone=QComboBox(); logo_zone.addItems(["Links","Mitte","Rechts"]); logo_zone.setCurrentText(get_setting("invoice_header_logo_zone","Links")); form.addRow("Logo-Bereich im Rechnungskopf",logo_zone)
+        header_middle=QComboBox(); header_middle.addItems(["Praxisdaten","Kontaktdaten","Leer"]); header_middle.setCurrentText(get_setting("invoice_header_middle","Praxisdaten")); form.addRow("Kopfbereich Mitte",header_middle)
+        header_right=QComboBox(); header_right.addItems(["Kontaktdaten","Praxisdaten","Leer"]); header_right.setCurrentText(get_setting("invoice_header_right","Kontaktdaten")); form.addRow("Kopfbereich Rechts",header_right)
         gv.addLayout(form)
         appearance=QFrame(); appearance.setObjectName("formCard"); appearance.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
         # Darstellungsoptionen kompakt in einer Zeile: sie dürfen die Praxisdaten nicht überdecken.
@@ -2497,7 +2502,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(42)
         def save_settings():
             for k,ed in fields.items(): set_setting(k,ed.text().strip())
-            set_setting("logo_x_mm",logo_x.value()); set_setting("logo_y_mm",logo_y.value()); set_setting("logo_width_mm",logo_w.value()); set_setting("logo_height_mm",logo_h.value()); set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value()); set_setting("ui_theme",theme.currentText()); set_setting("ui_font_size",fontsize.value()); set_setting("ui_density",density.currentText())
+            set_setting("logo_x_mm",logo_x.value()); set_setting("logo_y_mm",logo_y.value()); set_setting("logo_width_mm",logo_w.value()); set_setting("logo_height_mm",logo_h.value()); set_setting("invoice_header_logo_zone",logo_zone.currentText()); set_setting("invoice_header_middle",header_middle.currentText()); set_setting("invoice_header_right",header_right.currentText()); set_setting("auto_lock_minutes",lock.value()); set_setting("travel_surcharge",travel.value()); set_setting("ui_theme",theme.currentText()); set_setting("ui_font_size",fontsize.value()); set_setting("ui_density",density.currentText())
             self.apply_appearance()
             QMessageBox.information(self,"Gespeichert","Praxiseinstellungen gespeichert. Farbschema, Schriftgröße und Darstellungsdichte wurden sofort angewendet.")
         save.clicked.connect(save_settings); gv.addSpacing(8); gv.addWidget(save); gv.addStretch(); tabs.addTab(general,"Praxisdaten")
