@@ -1881,8 +1881,7 @@ $result.Text
                 zone_base={"Links":18.0,"Mitte":74.0,"Rechts":132.0}.get(zone,18.0)
                 lx=(zone_base + max(0.0,float(get_setting("logo_x_mm","18"))-18.0))*mm
                 top=float(get_setting("logo_y_mm","7"))*mm
-                can.drawImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")
-                drawn=True
+                # Decode now so a corrupt asset cannot be embedded invisibly.\n                im.getRGBData()\n                can.drawImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")\n                drawn=True
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
         if not drawn:
             # Kein erfundenes Ersatzlogo: Die Rechnung soll ausschließlich das echte Praxislogo verwenden.
