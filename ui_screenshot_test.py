@@ -206,7 +206,12 @@ for i in range(0,len(samples),lpix.n):
     rgb=(samples[i],samples[i+1],samples[i+2])
     if min(rgb)<245: cols[rgb]+=1
 print("Invoice header top colors:", cols.most_common(15))
-# Das echte Praxislogo enthält markante Rot-/Brauntöne. Fehlen diese im Logo-Bereich,\n# darf der CI-Test nicht grün werden.\nbrand_pixels=sum(n for (r,g,b),n in cols.items() if r > g*1.25 and r > b*1.25 and r > 70)\nprint("Invoice logo brand pixels:",brand_pixels)\nif brand_pixels < 40:\n    raise SystemExit("PRAXISLOGO IM FERTIGEN PDF NICHT SICHTBAR")\n# Keine inhaltliche Prüfung des fertigen Praxislogos.
+# Sichtbares Praxislogo im linken Kopfbereich zwingend prüfen.
+brand_pixels=sum(n for (r,g,b),n in cols.items() if r > g*1.25 and r > b*1.25 and r > 70)
+print("Invoice logo brand pixels:",brand_pixels)
+if brand_pixels < 40:
+    raise SystemExit("PRAXISLOGO IM FERTIGEN PDF NICHT SICHTBAR")
+# Keine inhaltliche Prüfung des fertigen Praxislogos.
 pix=page.get_pixmap(matrix=fitz.Matrix(1.7,1.7),alpha=False)
 invoice_png=out/f"PraxisPro-Testrechnung-v{main.APP_VERSION}.png"
 pix.save(str(invoice_png))
