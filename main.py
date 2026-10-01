@@ -99,11 +99,13 @@ def practice_logo_path():
     custom=get_setting("logo_path","").strip()
     if custom:
         cp=Path(custom)
-        if cp.name.lower()=="logo.png": candidates.append(cp.with_name("logo.jpg"))
+        # Respect the selected logo itself first; only then try a sibling fallback.
         candidates.append(cp)
-    # Use the known-good JPEG first. The bundled PNG is retained only as fallback.
-    candidates.append(bundled_asset("logo.jpg"))
+        if cp.name.lower()=="logo.png":
+            candidates.append(cp.with_name("logo.jpg"))
+    # The bundled JPEG is corrupt in CI; prefer the PNG asset.
     candidates.append(bundled_asset("logo.png"))
+    candidates.append(bundled_asset("logo.jpg"))
     for candidate in candidates:
         try:
             if candidate.is_file():
