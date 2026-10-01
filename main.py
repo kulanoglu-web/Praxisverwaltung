@@ -97,7 +97,11 @@ def practice_logo_path():
     """Eigenes Praxislogo verwenden; in der Erdoğan-Standardinstallation das Original-Logo als Startwert."""
     candidates=[]
     custom=get_setting("logo_path","").strip()
-    if custom: candidates.append(Path(custom))
+    if custom:
+        cp=Path(custom)
+        if cp.name.lower()=="logo.png": candidates.append(cp.with_name("logo.jpg"))
+        candidates.append(cp)
+    candidates.append(bundled_asset("logo.jpg"))
     candidates.append(bundled_asset("logo.png"))
     for candidate in candidates:
         try:
