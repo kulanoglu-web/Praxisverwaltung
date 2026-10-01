@@ -106,12 +106,21 @@ def practice_logo_path():
     # The bundled JPEG is corrupt in CI; prefer the PNG asset.
     candidates.append(bundled_asset("logo.png"))
     candidates.append(bundled_asset("logo.jpg"))
+    # Validate candidates before returning them. Both legacy bundled image
+    # files may exist but be corrupt; never select an unreadable logo.
+    from reportlab.lib.utils import ImageReader
     for candidate in candidates:
         try:
             if candidate.is_file():
+                probe=ImageReader(str(candidate))
+                probe.getSize()
+                probe.getRGBData()
                 return candidate
-        except Exception:
-            pass
+        except Exception as e:
+            try:
+                audit("PRACTICE_LOGO_INVALID",f"{candidate}: {str(e)[:300]}","")
+            except Exception:
+                pass
     return None
 
 DATA=ROOT/"praxisdaten.json.enc"
