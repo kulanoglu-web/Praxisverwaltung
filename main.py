@@ -101,8 +101,9 @@ def practice_logo_path():
         cp=Path(custom)
         if cp.name.lower()=="logo.png": candidates.append(cp.with_name("logo.jpg"))
         candidates.append(cp)
-    candidates.append(bundled_asset("logo.png"))
+    # Use the known-good JPEG first. The bundled PNG is retained only as fallback.
     candidates.append(bundled_asset("logo.jpg"))
+    candidates.append(bundled_asset("logo.png"))
     for candidate in candidates:
         try:
             if candidate.is_file():
