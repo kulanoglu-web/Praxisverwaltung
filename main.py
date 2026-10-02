@@ -130,16 +130,16 @@ def practice_logo_path():
                 return candidate
         except Exception:
             pass
-    # Last-resort recovery for the bundled PNG: Pillow can rewrite PNGs that
-    # ReportLab/libpng rejects because of malformed ancillary metadata.
+    # Last-resort recovery: decode the bundled PNG with Qt and hand ReportLab
+    # a BMP. This deliberately avoids libpng entirely after a malformed PNG.
     bundled=bundled_asset("logo.png")
     try:
         if bundled.is_file():
             from PySide6.QtGui import QImage
             img=QImage(str(bundled))
             if not img.isNull():
-                repaired=Path(tempfile.gettempdir())/"PraxisPro_original_logo.png"
-                if img.save(str(repaired),"PNG"):
+                repaired=Path(tempfile.gettempdir())/"PraxisPro_original_logo.bmp"
+                if img.convertToFormat(QImage.Format_RGB32).save(str(repaired),"BMP"):
                     probe=ImageReader(str(repaired)); probe.getRGBData()
                     return repaired
     except Exception:
