@@ -24,7 +24,7 @@ UninstallDisplayName=PraxisPro v{#MyAppVersion}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Files]
-Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\Praxisverwaltung\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\PraxisPro"; Filename: "{app}\{#MyAppExeName}"
