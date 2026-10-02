@@ -68,8 +68,8 @@ jobs:
             $exe = Join-Path $target "Praxisverwaltung.exe"
             if (!(Test-Path $exe)) { throw "Installed EXE missing" }
             $expected = "e8442deacfcdffa942148776975d5e556c34d56ec9d191622565d0ba02c4e9a6"
-            $installedLogo = Join-Path $target "assets\\logo.png"
-            if (!(Test-Path $installedLogo)) { throw "Installed logo.png missing" }
+            $installedLogo = Join-Path $target "_internal\\assets\\logo.png"
+            if (!(Test-Path $installedLogo)) { throw "Installed _internal/assets/logo.png missing" }
             $installedHash = (Get-FileHash $installedLogo -Algorithm SHA256).Hash.ToLower()
             if ($installedHash -ne $expected) { throw "Installed logo hash mismatch: $installedHash" }
             Write-Host "Installed logo OK: $installedHash"
