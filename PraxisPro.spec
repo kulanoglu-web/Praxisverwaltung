@@ -1,6 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 datas = []
 if Path("assets/logo.jpg").is_file():
@@ -12,10 +11,8 @@ if Path("assets/paypal.png").is_file():
 if Path("templates").is_dir():
     datas.append(("templates", "templates"))
 
-datas += collect_data_files("PySide6.QtWebEngineCore")
-datas += collect_data_files("PySide6.QtWebEngineWidgets")
-binaries = collect_dynamic_libs("PySide6.QtWebEngineCore")
-
+# QtWebEngine wird über hiddenimports geladen; die PyInstaller-PySide6-Hooks
+# sammeln die zugehörigen Qt-Binaries, Resources und Helper-Prozesse.
 hiddenimports = [
     "PySide6.QtWebEngineWidgets",
     "PySide6.QtWebEngineCore",
@@ -26,7 +23,7 @@ hiddenimports = [
 a = Analysis(
     ["main.py"],
     pathex=[],
-    binaries=binaries,
+    binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
