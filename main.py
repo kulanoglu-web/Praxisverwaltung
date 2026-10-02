@@ -2141,7 +2141,7 @@ $result.Text
         sepa_qr_uri = _sepa_qr_data_uri(owner, iban, bic, amt, no)
         paypal_logo_uri = ""
         paypal_logo = bundled_asset("paypal.png")
-        if paypal_logo.is_file():
+        if paypal_logo is not None and paypal_logo.is_file():
             try:
                 paypal_logo_uri = '<img style="max-width:28mm;max-height:8mm" src="data:image/png;base64,' + base64.b64encode(paypal_logo.read_bytes()).decode("ascii") + '" alt="PayPal">'
             except Exception as e:
@@ -2388,7 +2388,7 @@ $result.Text
         # Offizielles PayPal-Asset verwenden, falls es unverändert mitgeliefert wird; sonst neutrale Textkennzeichnung.
         paypal_logo=bundled_asset("paypal.png")
         paypal_logo_drawn=False
-        if paypal_logo.is_file():
+        if paypal_logo is not None and paypal_logo.is_file():
             try:
                 from reportlab.lib.utils import ImageReader
                 pim=ImageReader(str(paypal_logo)); piw,pih=pim.getSize(); pmw,pmh=28*mm,8*mm
