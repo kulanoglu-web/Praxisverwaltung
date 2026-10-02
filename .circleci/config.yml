@@ -31,7 +31,7 @@ jobs:
       - run:
           name: Build EXE
           command: |
-            $a = @("--noconfirm","--clean","--onefile","--windowed","--name","Praxisverwaltung","--add-data","assets/logo.png;assets")
+            $a = @("--noconfirm","--clean","--onefile","--windowed","--name","Praxisverwaltung","--add-data","assets/logo.png;assets","--add-data","templates;templates")
             if (Test-Path "assets/paypal.png") { $a += @("--add-data","assets/paypal.png;assets") }
             $a += "main.py"
             python -m PyInstaller @a
