@@ -90,8 +90,19 @@ class InkCanvas(QWidget):
 from openpyxl import Workbook, load_workbook
 
 def bundled_asset(name):
-    base=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent))
-    return base/"assets"/name
+    """Findet Assets in Entwicklung sowie in PyInstaller onefile/onedir."""
+    candidates = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "assets" / name)
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).resolve().parent / "assets" / name)
+    candidates.append(Path(__file__).resolve().parent / "assets" / name)
+    for path in candidates:
+        if path.is_file():
+            return path
+    # Path zurückgeben, damit bestehende Aufrufer weiterhin .is_file() verwenden können.
+    return candidates[0] if candidates else Path(__file__).resolve().parent / "assets" / name
 
 def bundled_template(name):
     """Return a template shipped both from source and from the PyInstaller setup."""
@@ -2212,7 +2223,10 @@ $result.Text
                 zone_base={"Links":18.0,"Mitte":74.0,"Rechts":132.0}.get(zone,18.0)
                 lx=(zone_base + max(0.0,float(get_setting("logo_x_mm","18"))-18.0))*mm
                 top=float(get_setting("logo_y_mm","7"))*mm
-                # Decode now so a corrupt asset cannot be embedded invisibly.\n                im.getRGBData()\n                can.drawImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")\n                drawn=True
+                # Decode now so a corrupt asset cannot be embedded invisibly.
+                im.getRGBData()
+                can.drawImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")
+                drawn=True
             except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
         if not drawn:
             # Kein erfundenes Ersatzlogo: Die Rechnung soll ausschließlich das echte Praxislogo verwenden.
