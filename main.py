@@ -106,42 +106,137 @@ def render_invoice_html(values):
         template=template.replace("{{"+str(key)+"}}",str(value))
     return template
 
+def render_invoice_pdf(html, out_path):
+    """HTML -> A4-PDF über QWebEngineView. Wartet loadFinished UND pdfPrintingFinished ab."""
+    try:
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        from PySide6.QtCore import QEventLoop, QMarginsF, QUrl, QTimer
+        from PySide6.QtGui import QPageLayout, QPageSize
+    except Exception as e:
+        audit("INVOICE_HTML_NO_WEBENGINE", str(e)[:200])
+        return False
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    view = QWebEngineView()
+    state = {"loaded": False, "printed": False, "ok": False}
+    layout = QPageLayout(QPageSize(QPageSize.A4), QPageLayout.Portrait, QMarginsF(0, 0, 0, 0))
+
+    loop1 = QEventLoop()
+    def on_loaded(ok):
+        state["loaded"] = bool(ok)
+        loop1.quit()
+    view.loadFinished.connect(on_loaded)
+    t1 = QTimer(); t1.setSingleShot(True); t1.timeout.connect(loop1.quit); t1.start(8000)
+    view.setHtml(html, QUrl("about:blank"))
+    loop1.exec(); t1.stop()
+    if not state["loaded"]:
+        audit("INVOICE_HTML_LOAD_TIMEOUT", str(out_path))
+        view.deleteLater()
+        return False
+
+    loop2 = QEventLoop()
+    def on_printed(path, ok):
+        state["printed"] = True
+        state["ok"] = bool(ok)
+        loop2.quit()
+    view.pdfPrintingFinished.connect(on_printed)
+    t2 = QTimer(); t2.setSingleShot(True); t2.timeout.connect(loop2.quit); t2.start(8000)
+    view.printToPdf(str(out_path), layout)
+    loop2.exec(); t2.stop()
+    if not state["printed"]:
+        audit("INVOICE_HTML_PRINT_TIMEOUT", str(out_path))
+        view.deleteLater()
+        return False
+    view.deleteLater()
+    if not state["ok"]:
+        audit("INVOICE_HTML_PRINT_FAILED", str(out_path))
+        return False
+    if not out_path.is_file() or out_path.stat().st_size <= 1000:
+        audit("INVOICE_HTML_PDF_INVALID", str(out_path))
+        return False
+    return True
+
+def _sepa_qr_data_uri(owner, iban, bic, amount, invoice_no):
+    """Erzeugt den EPC-SEPA-QR als Base64-PNG Data-URI."""
+    try:
+        from reportlab.graphics.barcode.qr import QrCodeWidget
+        from reportlab.graphics.shapes import Drawing
+        from reportlab.graphics import renderPM
+        epc = "\n".join([
+            "BCD", "002", "1", "SCT", bic.strip(), owner.strip(),
+            iban.replace(" ", "").strip(), "EUR" + f"{float(amount):.2f}",
+            "", "", invoice_no.strip()
+        ])
+        q = QrCodeWidget(epc)
+        x1, y1, x2, y2 = q.getBounds()
+        size = 120
+        d = Drawing(size, size, transform=[size/(x2-x1), 0, 0, size/(y2-y1), 0, 0])
+        d.add(q)
+        png = renderPM.drawToString(d, fmt="PNG", bg=0xFFFFFF)
+        return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+    except Exception as e:
+        audit("INVOICE_SEPA_QR_ERROR", str(e)[:200])
+        return ""
+
 def practice_logo_path():
-    """Eigenes Praxislogo verwenden; in der Erdoğan-Standardinstallation das Original-Logo als Startwert."""
-    candidates=[]
-    custom=get_setting("logo_path","").strip()
-    if custom:
-        cp=Path(custom)
-        # Respect the selected logo itself first; only then try a sibling fallback.
-        candidates.append(cp)
-        if cp.name.lower()=="logo.png":
-            candidates.append(cp.with_name("logo.jpg"))
-    # The bundled JPEG is corrupt in CI; prefer the PNG asset.
-    candidates.append(bundled_asset("logo.png"))
-    candidates.append(bundled_asset("logo.jpg"))
-    # Validate candidates before returning them. Never select an unreadable logo.
+    """Liefert einen gültigen Logo-Pfad oder None (kein stiller Platzhalter)."""
     from reportlab.lib.utils import ImageReader
-    for candidate in candidates:
+
+    def _valid(p):
         try:
-            if candidate.is_file():
-                probe=ImageReader(str(candidate))
-                probe.getSize()
-                probe.getRGBData()
-                return candidate
-        except Exception:
-            pass
-    # Last-resort recovery: decode the bundled PNG with Qt and hand ReportLab
-    # a BMP. This deliberately avoids libpng entirely after a malformed PNG.
-    bundled=bundled_asset("logo.png")
+            p = Path(p)
+            if not p.is_file():
+                return None
+            probe = ImageReader(str(p))
+            probe.getSize()
+            probe.getRGBData()
+            return p
+        except Exception as e:
+            try:
+                audit("INVOICE_LOGO_INVALID", f"{p} :: {str(e)[:200]}")
+            except Exception:
+                pass
+            return None
+
+    candidates = []
+    custom = (get_setting("logo_path", "") or "").strip()
+    if custom:
+        cp = Path(custom)
+        candidates.append(cp)
+        if cp.suffix.lower() == ".png":
+            candidates.append(cp.with_suffix(".jpg"))
+            candidates.append(cp.with_name(cp.stem + ".jpeg"))
+
+    candidates.append(bundled_asset("logo.jpg"))
+    candidates.append(bundled_asset("logo.jpeg"))
+    candidates.append(bundled_asset("logo.png"))
+
+    for cand in candidates:
+        ok = _valid(cand)
+        if ok is not None:
+            return ok
+
+    bundled = bundled_asset("logo.png")
     try:
         if bundled.is_file():
             from PySide6.QtGui import QImage
-            img=QImage(str(bundled))
+            img = QImage(str(bundled))
             if not img.isNull():
-                repaired=Path(tempfile.gettempdir())/"PraxisPro_original_logo.bmp"
-                if img.convertToFormat(QImage.Format_RGB32).save(str(repaired),"BMP"):
-                    probe=ImageReader(str(repaired)); probe.getRGBData()
-                    return repaired
+                repaired = Path(tempfile.gettempdir()) / "PraxisPro_logo_repaired.bmp"
+                if img.convertToFormat(QImage.Format_RGB32).save(str(repaired), "BMP"):
+                    ok = _valid(repaired)
+                    if ok is not None:
+                        try: audit("INVOICE_LOGO_REPAIRED", str(ok))
+                        except Exception: pass
+                        return ok
+    except Exception as e:
+        try: audit("INVOICE_LOGO_REPAIR_ERROR", str(e)[:200])
+        except Exception: pass
+
+    try:
+        audit("INVOICE_LOGO_MISSING_HARD",
+              f"Kein gültiger Logo-Kandidat. Geprüft: {[str(c) for c in candidates]}")
     except Exception:
         pass
     return None
@@ -1840,8 +1935,204 @@ $result.Text
         details="\n".join(f'{s.get("date","")} | {s.get("start","")}–{s.get("end","")} | {s.get("minutes",0)} Min. | {s.get("type","")}' for s in rows)
         total=sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows)
         QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\n\n{details}\n\nGesamt: {total:.2f} €\n\nBitte vor PDF-Erstellung kontrollieren.")
+    def make_invoice_html(self):
+        if not self.require_edit(): return
+        for label, te in (("Beginn", self.i_start), ("Ende", self.i_end)):
+            raw = te.lineEdit().text().strip().replace("_", "")
+            parsed = QTime.fromString(raw, "HH:mm")
+            if not parsed.isValid():
+                return QMessageBox.warning(self, "Zeitangabe", f"{label}: Bitte eine gültige Uhrzeit im Format HH:MM eingeben.")
+            te.setTime(parsed)
+
+        no = self.i_no.text().strip()
+        if not no:
+            return QMessageBox.warning(self, "Fehlt", "Eine Rechnungsnummer ist erforderlich.")
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", no):
+            return QMessageBox.warning(self, "Rechnungsnummer", "Bitte nur Buchstaben, Zahlen, Punkt, Bindestrich oder Unterstrich verwenden.")
+        if any(x["number"] == no for x in DB["invoices"]):
+            return QMessageBox.warning(self, "Doppelt", "Diese Rechnungsnummer existiert bereits.")
+
+        last, first = self.i_last.text().strip(), self.i_first.text().strip()
+        if not last or not first:
+            return QMessageBox.warning(self, "Fehlt", "Vorname und Nachname sind erforderlich.")
+
+        rows = getattr(self, "pending_sessions", None) or self.manual_items
+        if rows:
+            mins = sum(int(x.get("minutes", 0)) for x in rows)
+            typ = "Sammelrechnung"
+            amt = round(sum(float(x.get("amount", amount_for(int(x.get("minutes", 0)), x.get("type", "Einzeltherapie"), bool(x.get("reduced", False))))) for x in rows), 2)
+        else:
+            mins = self.i_min.value()
+            typ = self.i_type.currentText()
+            amt = round(amount_for(mins, typ, self.i_red.isChecked()), 2)
+
+        c = next((x for x in DB["clients"] if x.get("last", "").lower() == last.lower() and x.get("first", "").lower() == first.lower()), None)
+        if not c:
+            c = {"last": last, "first": first, "dob": "", "address": self.i_addr.text().strip(), "diagnosis": self.i_diag.text().strip()}
+            DB["clients"].append(c)
+        else:
+            if self.i_addr.text().strip(): c["address"] = self.i_addr.text().strip()
+            if self.i_diag.text().strip(): c["diagnosis"] = self.i_diag.text().strip()
+
+        items = []
+        if rows:
+            for x in rows:
+                items.append({
+                    "id": x.get("id"), "date": x.get("date", ""), "start": x.get("start", ""),
+                    "end": x.get("end", ""), "minutes": int(x.get("minutes", 0)), "type": x.get("type", ""),
+                    "reduced": bool(x.get("reduced", False)),
+                    "amount": round(float(x.get("amount", amount_for(int(x.get("minutes", 0)), x.get("type", "Einzeltherapie"), bool(x.get("reduced", False))))), 2)
+                })
+        else:
+            items = [{
+                "id": None, "date": self.i_date.date().toString("yyyy-MM-dd"),
+                "start": self.i_start.time().toString("HH:mm"), "end": self.i_end.time().toString("HH:mm"),
+                "minutes": mins, "type": typ, "reduced": self.i_red.isChecked(), "amount": amt
+            }]
+
+        def parse_service_date(value):
+            value = str(value).strip()
+            for fmt in ("%Y-%m-%d", "%d.%m.%Y"):
+                try: return datetime.strptime(value, fmt).date()
+                except ValueError: pass
+            return None
+
+        parsed_dates = [parse_service_date(x.get("date", "")) for x in items]
+        parsed_dates = [d for d in parsed_dates if d is not None]
+        if not parsed_dates:
+            period = datetime.now().strftime("%d.%m.%Y")
+        elif len(parsed_dates) == 1:
+            period = parsed_dates[0].strftime("%d.%m.%Y")
+        else:
+            period = f"{min(parsed_dates).strftime('%d.%m.%Y')} - {max(parsed_dates).strftime('%d.%m.%Y')}"
+
+        owner = get_setting("owner_name", "")
+        practice_name = get_setting("practice_name", "Psychologische Privatpraxis")
+        qualifications = get_setting("qualifications", "")
+        address = get_setting("address", "")
+        phone = get_setting("phone", "")
+        landline = get_setting("landline", "")
+        fax = get_setting("fax", "")
+        email = get_setting("email", "")
+        website = get_setting("website", "")
+        tax = get_setting("tax_number", "")
+        iban = get_setting("iban", "")
+        bic = get_setting("bic", "")
+        paypal = get_setting("paypal", "")
+
+        logo_path = practice_logo_path()
+        if not logo_path:
+            QMessageBox.warning(self, "Logo fehlt",
+                "Es konnte kein gültiges Praxislogo geladen werden.\nDie Rechnung wird ohne Logo erzeugt.\nBitte prüfen Sie die Praxiseinstellungen.")
+
+        logo_html = ""
+        if logo_path:
+            try:
+                mime = "image/jpeg" if logo_path.suffix.lower() in (".jpg", ".jpeg") else ("image/bmp" if logo_path.suffix.lower() == ".bmp" else "image/png")
+                data = base64.b64encode(Path(logo_path).read_bytes()).decode("ascii")
+                logo_html = f'<img class="logo" src="data:{mime};base64,{data}" alt="Praxislogo">'
+            except Exception as e:
+                audit("INVOICE_HTML_LOGO_ERROR", str(e)[:200])
+
+        def fmt_eur(value):
+            return f"{float(value):.2f} €".replace(".", ",")
+
+        item_rows = []
+        for x in items:
+            d = parse_service_date(x.get("date", ""))
+            ds = d.strftime("%d.%m.%Y") if d else escape(str(x.get("date", "")))
+            price = fmt_eur(x.get("amount", 0))
+            item_rows.append(
+                "<tr>"
+                f"<td>{ds}</td><td>{escape(str(x.get('type','')))}</td>"
+                f"<td>{int(x.get('minutes',0))} Min.</td>"
+                f"<td class=\"num\">{price}</td><td class=\"num\">{price}</td>"
+                "</tr>"
+            )
+
+        sepa_qr_uri = _sepa_qr_data_uri(owner, iban, bic, amt, no)
+        paypal_logo_uri = ""
+        paypal_logo = bundled_asset("paypal.png")
+        if paypal_logo.is_file():
+            try:
+                paypal_logo_uri = '<img style="max-width:28mm;max-height:8mm" src="data:image/png;base64,' + base64.b64encode(paypal_logo.read_bytes()).decode("ascii") + '" alt="PayPal">'
+            except Exception as e:
+                audit("INVOICE_PAYPAL_LOGO_ERROR", str(e)[:200])
+
+        payment_block = (
+            f"<b>SEPA-Überweisung</b><br>Empfänger: {escape(owner)}<br>"
+            f"IBAN: {escape(iban)}<br>BIC: {escape(bic)}<br>"
+            f"Verwendungszweck: {escape(no)}<br>Betrag: {fmt_eur(amt)}<br><br>"
+            f"<b>PayPal</b><br>{paypal_logo_uri}<br>{escape(paypal)}"
+        )
+        contact = "<br>".join(escape(x) for x in [address, phone, ("Festnetz " + landline) if landline else "", ("Fax " + fax) if fax else "", email, website] if x)
+        footer = " · ".join(escape(x) for x in [address, email, website, ("Steuernummer " + tax) if tax else ""] if x)
+        values = {
+            "LOGO": logo_html,
+            "HEADER_CENTER": f"<b>{escape(practice_name)}</b><br>{escape(owner)}<br>{escape(qualifications)}",
+            "HEADER_RIGHT": contact,
+            "SENDER": f"{escape(owner)} · {escape(address)}",
+            "RECIPIENT": f"{escape(first)} {escape(last)}<br>{escape(self.i_addr.text().strip()).replace(chr(10), '<br>')}",
+            "INVOICE_NO": escape(no),
+            "DATE": datetime.now().strftime("%d.%m.%Y"),
+            "PERIOD": period,
+            "DIAGNOSIS": escape(self.i_diag.text().strip()),
+            "ITEMS": "".join(item_rows),
+            "TOTAL": fmt_eur(amt),
+            "PAYMENT": payment_block,
+            "SEPA_QR": f'<img class="qr" src="{sepa_qr_uri}" alt="SEPA QR-Code">' if sepa_qr_uri else "",
+            "PAYPAL_QR": "",
+            "FOOTER": footer,
+        }
+        html = render_invoice_html(values)
+        pdf = client_dir(c) / "Rechnungen" / f"Rechnung_{no}.pdf"
+        ok = render_invoice_pdf(html, pdf)
+        if not ok or not pdf.is_file() or pdf.stat().st_size < 1000:
+            audit("INVOICE_HTML_RENDER_FAIL", str(pdf))
+            try:
+                self._invoice_engine_override = "reportlab"
+                return self.make_invoice()
+            except Exception as e:
+                audit("INVOICE_HTML_FALLBACK_FAIL", str(e)[:300])
+                return QMessageBox.warning(self, "PDF-Fehler", "Weder HTML- noch ReportLab-Rechnung konnte erzeugt werden.")
+            finally:
+                if hasattr(self, "_invoice_engine_override"):
+                    del self._invoice_engine_override
+
+        DB["invoices"].append({
+            "number": no, "date": datetime.now().strftime("%Y-%m-%d"), "client": f"{last}, {first}",
+            "address": self.i_addr.text().strip(), "diagnosis": self.i_diag.text().strip(),
+            "amount": amt, "status": "offen", "paid_date": "", "pdf": str(pdf), "items": items
+        })
+        if rows:
+            ids = {x.get("id") for x in rows}
+            for x in DB["sessions"]:
+                if x.get("id") in ids:
+                    x["billed"] = True
+                    x["invoice_number"] = no
+            self.pending_sessions = None
+        self.manual_items = []
+        self.iteminfo.setText("Noch keine zusätzlichen Leistungen")
+        if hasattr(self, "itemtable"): self.itemtable.setRowCount(0)
+        save_data(); update_excel(); self.i_no.setText(next_no())
+        done = QMessageBox(self)
+        done.setIcon(QMessageBox.Information); done.setWindowTitle("Rechnung erstellt")
+        done.setText("Die PDF-Rechnung wurde erfolgreich erstellt.")
+        done.setInformativeText(str(pdf))
+        open_folder = done.addButton("Ordner öffnen", QMessageBox.ActionRole)
+        open_pdf = done.addButton("PDF öffnen", QMessageBox.ActionRole)
+        done.addButton("Schließen", QMessageBox.RejectRole); done.exec()
+        if done.clickedButton() == open_folder:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(pdf).parent)))
+        elif done.clickedButton() == open_pdf:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(pdf)))
+
     def make_invoice(self):
         if not self.require_edit(): return
+
+        if (get_setting("invoice_engine", "reportlab").lower() == "html"
+            and getattr(self, "_invoice_engine_override", None) != "reportlab"):
+            return self.make_invoice_html()
         # Eingaben zuerst sauber übernehmen; ungültige Zeiten verständlich melden.
         for label,te in (("Beginn",self.i_start),("Ende",self.i_end)):
             raw=te.lineEdit().text().strip().replace("_","")
@@ -1901,6 +2192,14 @@ $result.Text
         period=(service_dates[0] if len(service_dates)==1 else ((dd(min(str(it["date"]) for it in items if it.get("date")))+" - "+dd(max(str(it["date"]) for it in items if it.get("date")))) if service_dates else datetime.now().strftime("%d.%m.%Y")))
         # Kopf: fertiges hinterlegtes Praxislogo unverändert einsetzen.
         logo=practice_logo_path()
+        if not logo:
+            QMessageBox.warning(
+                self,
+                "Logo fehlt",
+                "Es konnte kein gültiges Praxislogo geladen werden.\n"
+                "Die Rechnung wird ohne Logo erzeugt.\n"
+                "Bitte prüfen Sie die Praxiseinstellungen."
+            )
         drawn=False
         if logo:
             try:
