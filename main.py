@@ -301,7 +301,7 @@ def practice_logo_path():
         for ext in (".png", ".jpg", ".jpeg", ".bmp", ".gif"):
             candidates.append(base.with_suffix(ext))
 
-    for name in ("logo.jpg", "logo.jpeg", "logo.png"):
+    for name in ("logo.png", "logo.jpg", "logo.jpeg"):
         p = bundled_asset(name)
         if p is not None:
             candidates.append(p)
