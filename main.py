@@ -209,65 +209,124 @@ def _sepa_qr_data_uri(owner, iban, bic, amount, invoice_no):
         return ""
 
 def practice_logo_path():
-    """Liefert einen gültigen Logo-Pfad oder None (kein stiller Platzhalter)."""
+    """Liefert einen gültigen Logo-Pfad oder None (kein stiller Platzhalter).
+
+    Änderungen gegenüber Original:
+    - bundled_asset liefert jetzt None bei Nichtfund -> wir prüfen das.
+    - Custom-Pfad wird absolut aufgelöst (relativ zum Skript, nicht zur CWD).
+    - Endungsvarianten werden IMMER ergänzt, nicht nur bei .png.
+    - Repair-Fallback (Qt -> PNG) greift für JEDEN existierenden Kandidaten,
+      nicht nur für bundled logo.png.
+    - Reparatur wird als PNG gespeichert (ReportLab-sicher), nicht als BMP.
+    """
     from reportlab.lib.utils import ImageReader
 
     def _valid(p):
+        """Prüft, ob ReportLab das Bild wirklich lesen kann."""
         try:
             p = Path(p)
             if not p.is_file():
                 return None
+
             probe = ImageReader(str(p))
             probe.getSize()
             probe.getRGBData()
             return p
+
         except Exception as e:
             try:
-                audit("INVOICE_LOGO_INVALID", f"{p} :: {str(e)[:200]}")
+                audit(
+                    "INVOICE_LOGO_INVALID",
+                    f"{p} :: {str(e)[:200]}"
+                )
             except Exception:
                 pass
             return None
 
+    def _try_repair(path):
+        """Versucht ein für ReportLab unlesbares Bild via Qt zu reparieren.
+
+        Konvertiert nach ARGB32 und speichert als PNG (ReportLab-sicher).
+        Gibt den reparierten Pfad zurück oder None.
+        """
+        try:
+            from PySide6.QtGui import QImage
+
+            img = QImage(str(path))
+            if img.isNull():
+                return None
+
+            tag = abs(hash(str(path)))
+            repaired = (
+                Path(tempfile.gettempdir())
+                / f"PraxisPro_logo_repaired_{tag}.png"
+            )
+
+            if img.convertToFormat(
+                QImage.Format_ARGB32
+            ).save(str(repaired), "PNG"):
+
+                ok = _valid(repaired)
+                if ok is not None:
+                    try:
+                        audit("INVOICE_LOGO_REPAIRED", str(ok))
+                    except Exception:
+                        pass
+                    return ok
+
+        except Exception as e:
+            try:
+                audit(
+                    "INVOICE_LOGO_REPAIR_ERROR",
+                    str(e)[:200]
+                )
+            except Exception:
+                pass
+
+        return None
+
     candidates = []
+
     custom = (get_setting("logo_path", "") or "").strip()
+
     if custom:
         cp = Path(custom)
-        candidates.append(cp)
-        if cp.suffix.lower() == ".png":
-            candidates.append(cp.with_suffix(".jpg"))
-            candidates.append(cp.with_name(cp.stem + ".jpeg"))
 
-    candidates.append(bundled_asset("logo.jpg"))
-    candidates.append(bundled_asset("logo.jpeg"))
-    candidates.append(bundled_asset("logo.png"))
+        if not cp.is_absolute():
+            cp = Path(__file__).resolve().parent / cp
+
+        candidates.append(cp)
+
+        base = cp.with_suffix("")
+        for ext in (".png", ".jpg", ".jpeg", ".bmp", ".gif"):
+            candidates.append(base.with_suffix(ext))
+
+    for name in ("logo.jpg", "logo.jpeg", "logo.png"):
+        p = bundled_asset(name)
+        if p is not None:
+            candidates.append(p)
 
     for cand in candidates:
+        if not Path(cand).is_file():
+            continue
+
         ok = _valid(cand)
         if ok is not None:
             return ok
 
-    bundled = bundled_asset("logo.png")
-    try:
-        if bundled.is_file():
-            from PySide6.QtGui import QImage
-            img = QImage(str(bundled))
-            if not img.isNull():
-                repaired = Path(tempfile.gettempdir()) / "PraxisPro_logo_repaired.bmp"
-                if img.convertToFormat(QImage.Format_RGB32).save(str(repaired), "BMP"):
-                    ok = _valid(repaired)
-                    if ok is not None:
-                        try: audit("INVOICE_LOGO_REPAIRED", str(ok))
-                        except Exception: pass
-                        return ok
-    except Exception as e:
-        try: audit("INVOICE_LOGO_REPAIR_ERROR", str(e)[:200])
-        except Exception: pass
+        repaired = _try_repair(cand)
+        if repaired is not None:
+            return repaired
 
     try:
-        audit("INVOICE_LOGO_MISSING_HARD",
-              f"Kein gültiger Logo-Kandidat. Geprüft: {[str(c) for c in candidates]}")
+        audit(
+            "INVOICE_LOGO_MISSING_HARD",
+            f"Kein gültiger Logo-Kandidat. Geprüft: "
+            f"{[str(c) for c in candidates]}"
+        )
     except Exception:
         pass
+
     return None
 
 DATA=ROOT/"praxisdaten.json.enc"
