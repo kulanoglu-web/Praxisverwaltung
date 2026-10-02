@@ -1,4 +1,6 @@
 import os, sys
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 os.environ["QT_SCALE_FACTOR"]="1"
 from PySide6.QtWidgets import QApplication, QScrollArea, QLineEdit, QComboBox, QTextEdit, QListWidget
@@ -193,7 +195,7 @@ if not pdf.exists() or pdf.stat().st_size < 1000: raise SystemExit("Testrechnung
 target=out/f"PraxisPro-Testrechnung-v{main.APP_VERSION}.pdf"
 target.write_bytes(pdf.read_bytes())
 print("Invoice generation test OK", target, target.stat().st_size)
-import fitz
+import pymupdf as fitz
 doc=fitz.open(str(target))
 page=doc[0]
 text_check = page.get_text()
