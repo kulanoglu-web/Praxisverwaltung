@@ -3,7 +3,11 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets/logo.png', 'assets')] + ([('assets/paypal.png', 'assets')] if __import__('pathlib').Path('assets/paypal.png').is_file() else []),
+    datas=(
+        [('assets/logo.png', 'assets')]
+        + ([('assets/paypal.png', 'assets')] if __import__('pathlib').Path('assets/paypal.png').is_file() else [])
+        + ([('templates', 'templates')] if __import__('pathlib').Path('templates').is_dir() else [])
+    ),
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
