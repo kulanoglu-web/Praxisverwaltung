@@ -1,14 +1,34 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+
+datas = []
+if Path("assets/logo.jpg").is_file():
+    datas.append(("assets/logo.jpg", "assets"))
+if Path("assets/logo.png").is_file():
+    datas.append(("assets/logo.png", "assets"))
+if Path("assets/paypal.png").is_file():
+    datas.append(("assets/paypal.png", "assets"))
+if Path("templates").is_dir():
+    datas.append(("templates", "templates"))
+
+datas += collect_data_files("PySide6.QtWebEngineCore")
+datas += collect_data_files("PySide6.QtWebEngineWidgets")
+binaries = collect_dynamic_libs("PySide6.QtWebEngineCore")
+
+hiddenimports = [
+    "PySide6.QtWebEngineWidgets",
+    "PySide6.QtWebEngineCore",
+    "PySide6.QtWebChannel",
+    "PySide6.QtNetwork",
+]
+
 a = Analysis(
-    ['main.py'],
+    ["main.py"],
     pathex=[],
-    binaries=[],
-    datas=(
-        [('assets/logo.png', 'assets')]
-        + ([('assets/paypal.png', 'assets')] if __import__('pathlib').Path('assets/paypal.png').is_file() else [])
-        + ([('templates', 'templates')] if __import__('pathlib').Path('templates').is_dir() else [])
-    ),
-    hiddenimports=[],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -16,4 +36,21 @@ a = Analysis(
     noarchive=False,
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name='PraxisPro', debug=False, bootloader_ignore_signals=False, strip=False, upx=True, console=False)
+exe = EXE(
+    pyz, a.scripts, [],
+    exclude_binaries=True,
+    name="Praxisverwaltung",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=False,
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name="Praxisverwaltung",
+)
