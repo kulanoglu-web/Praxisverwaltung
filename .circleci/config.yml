@@ -67,6 +67,12 @@ jobs:
             }
             $exe = Join-Path $target "Praxisverwaltung.exe"
             if (!(Test-Path $exe)) { throw "Installed EXE missing" }
+            $expected = "e8442deacfcdffa942148776975d5e556c34d56ec9d191622565d0ba02c4e9a6"
+            $installedLogo = Join-Path $target "assets\\logo.png"
+            if (!(Test-Path $installedLogo)) { throw "Installed logo.png missing" }
+            $installedHash = (Get-FileHash $installedLogo -Algorithm SHA256).Hash.ToLower()
+            if ($installedHash -ne $expected) { throw "Installed logo hash mismatch: $installedHash" }
+            Write-Host "Installed logo OK: $installedHash"
             $proc = Start-Process $exe -PassThru
             Start-Sleep -Seconds 12
             if ($proc.HasExited) { throw "PraxisPro exited during startup smoke test" }
