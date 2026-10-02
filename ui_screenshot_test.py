@@ -199,7 +199,7 @@ import pymupdf as fitz
 doc=fitz.open(str(target))
 page=doc[0]
 text_check = page.get_text()
-print("Invoice text sample:", text_check[:400])
+print("Invoice text sample:", text_check[:400].encode("ascii", "replace").decode("ascii"))
 if len(text_check.strip()) < 50:
     raise SystemExit("RECHNUNGSTEXT IM PDF FEHLT ODER IST ZU KURZ")
 for token in ("Rechnung", "Kulano", "Muster"):
