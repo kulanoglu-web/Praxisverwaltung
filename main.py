@@ -90,19 +90,37 @@ class InkCanvas(QWidget):
 from openpyxl import Workbook, load_workbook
 
 def bundled_asset(name):
-    """Findet Assets in Entwicklung sowie in PyInstaller onefile/onedir."""
+    """Findet Assets in Entwicklung sowie in PyInstaller onefile/onedir.
+
+    WICHTIG: Gibt bei Nichtfund jetzt None zurück, nicht mehr den ersten
+    (nicht existierenden) Kandidaten. Dadurch können Aufrufer sauber
+    zwischen 'gefunden' und 'nicht gefunden' unterscheiden.
+    """
     candidates = []
+
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
+        # PyInstaller onefile: entpackter Temp-Ordner
         candidates.append(Path(meipass) / "assets" / name)
+
     if getattr(sys, "frozen", False):
-        candidates.append(Path(sys.executable).resolve().parent / "assets" / name)
-    candidates.append(Path(__file__).resolve().parent / "assets" / name)
+        # PyInstaller onefile UND onedir: Verzeichnis der EXE
+        candidates.append(
+            Path(sys.executable).resolve().parent / "assets" / name
+        )
+
+    # Entwicklungsmodus: Verzeichnis dieser .py-Datei
+    candidates.append(
+        Path(__file__).resolve().parent / "assets" / name
+    )
+
     for path in candidates:
         if path.is_file():
             return path
-    # Path zurückgeben, damit bestehende Aufrufer weiterhin .is_file() verwenden können.
-    return candidates[0] if candidates else Path(__file__).resolve().parent / "assets" / name
+
+    # NEU: ehrlich None zurückgeben, statt Phantom-Pfad.
+    # Aufrufer muss jetzt explizit auf None prüfen.
+    return None
 
 def bundled_template(name):
     """Return a template shipped both from source and from the PyInstaller setup."""
