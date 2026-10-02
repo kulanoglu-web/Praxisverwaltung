@@ -159,7 +159,18 @@ main.set_setting("logo_x_mm","18")
 main.set_setting("logo_y_mm","10")
 main.set_setting("logo_width_mm","72")
 main.set_setting("logo_height_mm","22")
+logo_setting = main.get_setting("logo_path", "")
+print("logo_path aus Settings:", repr(logo_setting))
+print("Existiert:", Path(logo_setting).is_file() if logo_setting else False)
+print("frozen:", getattr(sys, "frozen", False))
+print("_MEIPASS:", getattr(sys, "_MEIPASS", None))
+print("executable:", sys.executable)
+print("script dir:", Path(__file__).resolve().parent)
+for name in ("logo.png", "logo.jpg", "logo.jpeg"):
+    print(name, "->", main.bundled_asset(name))
+
 logo_check=main.practice_logo_path()
+print("practice_logo_path() ->", logo_check)
 print("Invoice logo path:", logo_check)
 if logo_check and Path(logo_check).is_file():
     print("External invoice logo asset OK")
