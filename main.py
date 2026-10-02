@@ -93,6 +93,19 @@ def bundled_asset(name):
     base=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent))
     return base/"assets"/name
 
+def bundled_template(name):
+    """Return a template shipped both from source and from the PyInstaller setup."""
+    base=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent))
+    return base/"templates"/name
+
+def render_invoice_html(values):
+    """Render the packaged UTF-8 invoice template without changing invoice data."""
+    from html import escape
+    template=bundled_template("invoice.html").read_text(encoding="utf-8")
+    for key,value in values.items():
+        template=template.replace("{{"+str(key)+"}}",str(value))
+    return template
+
 def practice_logo_path():
     """Eigenes Praxislogo verwenden; in der Erdoğan-Standardinstallation das Original-Logo als Startwert."""
     candidates=[]
