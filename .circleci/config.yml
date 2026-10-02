@@ -1,5 +1,5 @@
 version: 2.1
-# ci-trigger: 2026-10-02-01
+# ci-trigger: 2026-10-02-original-logo-setup
 
 orbs:
   win: circleci/windows@5.0.0
