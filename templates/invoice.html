@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><style>
+@page{size:A4;margin:16mm 18mm 14mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#000;font-size:10.5pt;margin:0}.header{display:grid;grid-template-columns:1fr 1fr 1fr;min-height:34mm;align-items:start}.logo{max-width:72mm;max-height:22mm;object-fit:contain}.center{text-align:center}.right{text-align:right}.rule{border:0;border-top:1.4px solid #7a563f;margin:2mm 0 7mm}.meta{margin-left:auto;border-collapse:collapse}.meta td{padding:1mm 0 1mm 6mm}.items{width:100%;border-collapse:collapse;margin-top:7mm}.items th,.items td{padding:2.2mm 1.5mm;border-bottom:1px solid #ddd;text-align:left}.items .num{text-align:right}.total{text-align:right;font-weight:bold;margin-top:4mm}.footer{position:fixed;bottom:0;left:0;right:0;font-size:8.5pt}.payment{margin-top:8mm}.note{margin-top:6mm;font-size:8.5pt}
+</style></head><body>
+<div class="header"><div>{{LOGO}}</div><div class="center">{{HEADER_CENTER}}</div><div class="right">{{HEADER_RIGHT}}</div></div>
+<hr class="rule"><div>{{SENDER}}</div><div style="margin-top:5mm">{{RECIPIENT}}</div>
+<table class="meta"><tr><td>Rechnungsnummer:</td><td>{{INVOICE_NO}}</td></tr><tr><td>Datum:</td><td>{{DATE}}</td></tr></table>
+<h2>Rechnung</h2><table class="items"><thead><tr><th>Leistung</th><th>Zeitraum</th><th class="num">Betrag</th></tr></thead><tbody>{{ITEMS}}</tbody></table>
+<div class="total">Gesamtbetrag: {{TOTAL}}</div><div class="payment">{{PAYMENT}}</div><div>{{PAYPAL_QR}}</div>
+<div class="note">Diese Rechnung wurde elektronisch erstellt und ist ohne Unterschrift gültig.</div><div class="footer">{{FOOTER}}</div>
+</body></html>
