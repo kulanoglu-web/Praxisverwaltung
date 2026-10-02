@@ -1,19 +1,24 @@
 version: 2.1
-# ci-trigger: 2026-09-29-01
+# ci-trigger: 2026-10-02-01
+
 orbs:
   win: circleci/windows@5.0.0
+
 jobs:
   windows-build-test:
     executor:
       name: win/server-2022
       size: medium
+
     steps:
       - checkout
+
       - run:
           name: Use preinstalled Python
           command: |
             python --version
             python -m pip --version
+
       - run:
           name: Dependencies and syntax
           command: |
@@ -21,21 +26,20 @@ jobs:
             python -m pip install -r requirements.txt
             python -m pip install pymupdf
             python -m py_compile main.py ui_screenshot_test.py
+
       - run:
-          name: UI smoke test
+          name: UI smoke test (keine Laufzeit-Mutation)
           command: |
-            python -c "from pathlib import Path; p=Path('ui_screenshot_test.py'); s=p.read_text(encoding='utf-8'); s=s.replace('Praxislogos.\\\\npix=', 'Praxislogos.\\npix='); s=s.replace('# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\\npix=', '# Keine inhaltliche oder farbliche Prüfung des fertigen Praxislogos.\\npix='); p.write_text(s, encoding='utf-8')"
-            (Get-Content ui_screenshot_test.py -Raw).Replace(')\ninvoice_png=out/f', ")`ninvoice_png=out/f") | Set-Content ui_screenshot_test.py -Encoding UTF8
-            python -c "from pathlib import Path; p=Path('ui_screenshot_test.py'); s=p.read_text(encoding='utf-8'); s=s.replace('win.symptom_list.item(0).setSelected(True); app.processEvents()', 'win.symptom_list.setCurrentRow(0); win.symptom_list.item(0).setSelected(True); app.processEvents()'); p.write_text(s, encoding='utf-8')"
             python ui_screenshot_test.py
+
       - run:
-          name: Build EXE
+          name: Build onedir bundle from spec
           command: |
-            $a = @("--noconfirm","--clean","--onefile","--windowed","--name","Praxisverwaltung","--add-data","assets/logo.png;assets","--add-data","templates;templates")
-            if (Test-Path "assets/paypal.png") { $a += @("--add-data","assets/paypal.png;assets") }
-            $a += "main.py"
-            python -m PyInstaller @a
-            if (!(Test-Path "dist\Praxisverwaltung.exe")) { throw "Praxisverwaltung.exe missing" }
+            python -m PyInstaller --noconfirm --clean PraxisPro.spec
+            if (!(Test-Path "dist\Praxisverwaltung\Praxisverwaltung.exe")) {
+              throw "Praxisverwaltung.exe missing"
+            }
+
       - run:
           name: Build installer
           command: |
@@ -43,6 +47,7 @@ jobs:
             $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
             & $iscc "/DMyAppVersion=0.12.18" "PraxisPro.iss"
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+
       - run:
           name: Install and launch smoke test
           command: |
@@ -50,26 +55,32 @@ jobs:
             if (!$setup) { throw "Installer missing" }
             $target = Join-Path $env:TEMP "PraxisPro_CI"
             $installLog = Join-Path $env:TEMP "PraxisPro-install.log"
-            $installArgs = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART",('/DIR="' + $target + '"'),('/LOG="' + $installLog + '"'))
-            $installerProcess = Start-Process -FilePath $setup.FullName -ArgumentList $installArgs -Wait -PassThru
-            $installExit = $installerProcess.ExitCode
-            if ($installExit -ne 0) {
+            $installArgs = @(
+              "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART",
+              ('/DIR="' + $target + '"'),
+              ('/LOG="' + $installLog + '"')
+            )
+            $p = Start-Process -FilePath $setup.FullName -ArgumentList $installArgs -Wait -PassThru
+            if ($p.ExitCode -ne 0) {
               if (Test-Path $installLog) { Get-Content $installLog -Tail 200 }
-              throw "Installation failed with exit code $installExit"
+              throw "Installation failed with exit code $($p.ExitCode)"
             }
             $exe = Join-Path $target "Praxisverwaltung.exe"
             if (!(Test-Path $exe)) { throw "Installed EXE missing" }
-            $p = Start-Process $exe -PassThru
+            $proc = Start-Process $exe -PassThru
             Start-Sleep -Seconds 12
-            if ($p.HasExited) { throw "PraxisPro exited during startup smoke test" }
-            Stop-Process -Id $p.Id -Force
+            if ($proc.HasExited) { throw "PraxisPro exited during startup smoke test" }
+            Stop-Process -Id $proc.Id -Force
+
       - store_artifacts:
           path: installer
           destination: PraxisPro-Installer
           when: always
+
       - store_artifacts:
           path: ui_test_output
           destination: UI-Test
+
 workflows:
   praxispro-windows:
     jobs:
