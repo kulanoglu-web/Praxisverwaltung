@@ -215,17 +215,17 @@ def effective_practice_logo():
     from reportlab.lib.utils import ImageReader
 
     def usable(path):
+        # Der Resolver entscheidet nur, ob die Bilddatei vorhanden ist.
+        # Das tatsächliche Decodieren/Zeichnen erfolgt erst im PDF-Renderer,
+        # damit ein CI-/ReportLab-Decoderfehler nicht ein vorhandenes Standardlogo
+        # fälschlich zu "nicht vorhanden" macht.
         try:
             p = Path(path)
-            if not p.is_file():
-                return None
-            probe = ImageReader(str(p))
-            probe.getSize()
-            probe.getRGBData()
-            return p
+            if p.is_file() and p.stat().st_size > 0:
+                return p
         except Exception as e:
-            audit("INVOICE_LOGO_INVALID", f"{path} :: {str(e)[:200]}")
-            return None
+            audit("INVOICE_LOGO_PATH_ERROR", f"{path} :: {str(e)[:200]}")
+        return None
 
     custom = (get_setting("logo_path", "") or "").strip()
     if custom:
