@@ -1419,6 +1419,53 @@ $result.Text
         self.couple_resources=QLineEdit(); self.couple_resources.setPlaceholderText("Gemeinsame Ressourcen / positive Ausnahmen …"); pair_body_layout.addWidget(self.couple_resources)
         cr=QHBoxLayout(); self.couple_violence=QCheckBox("Hinweis auf Gewalt / Drohung / Zwang / Kontrolle"); self.couple_children=QCheckBox("Kinder / Elternebene betroffen"); cr.addWidget(self.couple_violence); cr.addWidget(self.couple_children); cr.addStretch(); pair_body_layout.addLayout(cr)
         couplehint=QLabel("Bei Gewalt, Zwang oder akuter Gefährdung: Sicherheit und getrennte Risikoabklärung vor üblichen Paarinterventionen priorisieren."); couplehint.setWordWrap(True); pair_body_layout.addWidget(couplehint); cv.addWidget(pair_body); self.couple_mode.toggled.connect(pair_body.setVisible); v.addWidget(couple)
+        # Therapieplan-Assistent: Vorschläge aus Verdachtsdiagnose und Paaranamnese.
+        planbox=QFrame(); planbox.setObjectName("formCard"); pv=QVBoxLayout(planbox)
+        ph=QHBoxLayout(); ptitle=QLabel("Therapieplan / Behandlungsvorschläge"); ptitle.setObjectName("sectionTitle"); ph.addWidget(ptitle); ph.addStretch()
+        planbtn=QPushButton("✦ Therapieplan vorschlagen"); ph.addWidget(planbtn); pv.addLayout(ph)
+        self.therapy_plan=QTextEdit(); self.therapy_plan.setPlaceholderText("Vorschläge werden aus Verdachtsdiagnose, Anliegen und Paarmodus abgeleitet und können frei bearbeitet werden."); self.therapy_plan.setMinimumHeight(150); pv.addWidget(self.therapy_plan)
+        planhint=QLabel("Entscheidungshilfe, keine automatische Indikations- oder Diagnoseentscheidung. Verfahren, Kontraindikationen, Komorbidität, Medikation und Behandlungssetting klinisch prüfen."); planhint.setWordWrap(True); pv.addWidget(planhint); v.addWidget(planbox)
+
+        def suggest_therapy_plan():
+            d=(self.session_diag.text().strip().upper() if hasattr(self,"session_diag") else "")
+            sections=[]
+            if d.startswith(("F32","F33")):
+                sections=["KVT / Verhaltenstherapie: Verhaltensaktivierung, Tagesstruktur, Aktivitätsaufbau, kognitive Arbeit an automatischen Gedanken und Grundannahmen, Rückfallprophylaxe.",
+                          "TP / psychodynamisch: Beziehungsmuster, Konflikte, Selbstwert, Verlust-/Bindungsthemen und wiederkehrende interpersonelle Muster explorieren.",
+                          "Begleitend: Ressourcenaktivierung, Schlaf/Bewegung, soziale Unterstützung; Suizidalität und Schweregrad regelmäßig prüfen."]
+            elif d.startswith(("F40","F41")):
+                sections=["KVT / Verhaltenstherapie: Psychoedukation, Angstmodell, Exposition/Verhaltensexperimente, Abbau von Vermeidung und Sicherheitsverhalten, kognitive Neubewertung.",
+                          "TP / psychodynamisch: Konflikt- und Beziehungsmuster, Affektwahrnehmung sowie Funktion der Angstsymptomatik im biografischen Kontext bearbeiten.",
+                          "Begleitend: Atem-/Entspannungsverfahren nur ergänzend; Verlauf und Funktionsniveau dokumentieren."]
+            elif d.startswith("F43.1"):
+                sections=["Traumafokussierte KVT: Psychoedukation, Stabilisierung nach Bedarf, traumafokussierte Bearbeitung durch entsprechend qualifizierte Behandler, Trigger- und Vermeidungsarbeit.",
+                          "TP / psychodynamisch: Affektregulation, Beziehungssicherheit, traumabezogene Konflikte und Selbst-/Beziehungsrepräsentationen bearbeiten.",
+                          "Sicherheit: Dissoziation, Suizidalität, Substanzkonsum und aktuelle Gefährdung prüfen; keine unvorbereitete Konfrontation."]
+            elif d.startswith(("F42",)):
+                sections=["KVT / Verhaltenstherapie: Exposition mit Reaktionsmanagement, funktionale Analyse, Arbeit an Zwangsbewertungen und Rückfallprophylaxe.",
+                          "TP / psychodynamisch: zugrunde liegende Konflikte, Affekte, Beziehungsmuster und Funktion der Symptomatik explorieren."]
+            elif d.startswith(("F50",)):
+                sections=["Störungsspezifische Psychotherapie: Essverhalten, Gewicht/Körperbild, aufrechterhaltende Kognitionen und Verhaltensmuster strukturiert bearbeiten.",
+                          "Somatische Mitbehandlung: medizinische Risiken und Ernährungszustand klären; bei Bedarf multiprofessionelles Setting."]
+            else:
+                sections=["KVT / Verhaltenstherapie: Problem- und Bedingungsanalyse, konkrete Ziele, Ressourcen, aufrechterhaltende Gedanken/Verhaltensmuster und alltagsnahe Übungen.",
+                          "TP / psychodynamisch: biografische und aktuelle Konflikte, Beziehungsmuster, Affekte, Abwehr und wiederkehrende interpersonelle Themen explorieren.",
+                          "Systemisch: Kontext, Beziehungen, Ressourcen, Ausnahmen, zirkuläre Muster und konkrete Veränderungsaufträge einbeziehen."]
+
+            if hasattr(self,"couple_mode") and self.couple_mode.isChecked():
+                pair=["Paartherapie / systemisch: gemeinsamen Auftrag und individuelle Ziele beider Partner klären; Eskalationskreislauf externalisieren und typische Trigger/Positionen sichtbar machen.",
+                      "Kommunikation: Zuhören/Validierung, Ich-Botschaften, Bedürfnis- und Grenzklärung, Deeskalations- und Reparaturstrategien praktisch üben.",
+                      "Bindungs-/emotionsfokussiert: verletzliche Primäremotionen, Bindungsbedürfnisse, Nähe-Distanz-Muster und sichere wechselseitige Responsivität bearbeiten.",
+                      "Verhaltensorientiert: positive Interaktionen gezielt erhöhen, konkrete Vereinbarungen, Problemlösetraining und Transferaufgaben zwischen Sitzungen.",
+                      "Vertrauen/Verletzungen: bei Affären oder Vertrauensbruch Stabilisierung, Transparenz, Verantwortungsübernahme und schrittweise Wiederannäherung; Ergebnisoffenheit wahren.",
+                      "Elternebene: Paar- und Elternebene trennen, Kooperation und kindzentrierte Absprachen stärken, sofern Kinder betroffen sind."]
+                if getattr(self,"couple_violence",None) and self.couple_violence.isChecked():
+                    pair.insert(0,"SICHERHEIT VOR PAARINTERVENTION: Bei Gewalt, Drohung, Zwang oder Kontrolle zunächst getrennte Risiko- und Sicherheitsklärung; gemeinsame Paararbeit nur bei geeigneter Sicherheitslage.")
+                sections=["PAARTHERAPIE"]+pair+["EINZEL-/STÖRUNGSSPEZIFISCHE ERGÄNZUNG"]+sections
+
+            self.therapy_plan.setPlainText("\n\n".join("• "+x for x in sections))
+        planbtn.clicked.connect(suggest_therapy_plan)
+
         screening_catalog={
           "Depressive Beschwerden":["Besteht seit mindestens zwei Wochen an den meisten Tagen eine deutlich gedrückte Stimmung?","Besteht deutlich weniger Interesse oder Freude an sonst wichtigen Aktivitäten?","Sind Antrieb oder Energie deutlich vermindert?","Bestehen Schlaf-, Appetit- oder Konzentrationsveränderungen?","Bestehen Hoffnungslosigkeit, starke Schuldgefühle oder Gedanken, nicht mehr leben zu wollen?"],
           "Angst / Panik":["Treten wiederholt plötzlich starke Angstspitzen auf?","Bestehen dabei deutliche körperliche Symptome wie Herzrasen, Atemnot, Zittern oder Schwindel?","Besteht anhaltende Sorge vor weiteren Anfällen?","Werden Situationen aus Angst vermieden?","Wie stark beeinträchtigt dies Alltag, Arbeit oder Beziehungen?"],
