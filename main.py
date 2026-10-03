@@ -2207,7 +2207,7 @@ $result.Text
         # Finale A4-Rechnung: feste Markenfarben und Proportionen der freigegebenen Vorlage.
         # Markenfarben direkt aus dem eingebundenen Praxislogo.
         NAVY=HexColor("#000000"); TEAL=HexColor("#000000"); GOLD=HexColor("#A62908")
-        BROWN=HexColor("#684643"); CREAM=HexColor("#FFFFFF"); BORDER=BROWN; WHITE=HexColor("#FFFFFF")
+        BROWN=HexColor("#582808"); CREAM=HexColor("#FFFFFF"); BORDER=BROWN; WHITE=HexColor("#FFFFFF")
         regular,bold="Helvetica","Helvetica-Bold"
         try:
             arial=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arial.ttf"; arial_b=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arialbd.ttf"
@@ -2338,7 +2338,15 @@ $result.Text
                 paypal_logo_drawn=True
             except Exception as e: audit("PAYPAL_LOGO_ERROR",str(e)[:300],self.current_user.get("username","") if self.current_user else "")
         if not paypal_logo_drawn:
-            can.setFillColor(NAVY); can.setFont(bold,11); can.drawString(px,py+1*mm,"PayPal")
+            # Vektor-Fallback im PayPal-Markenbild, damit die Rechnung nie wieder nur schwarzen Text zeigt.
+            can.saveState()
+            can.setFont("Helvetica-BoldOblique",15)
+            can.setFillColor(HexColor("#003087"))
+            can.drawString(px,py-1*mm,"Pay")
+            pay_w=can.stringWidth("Pay","Helvetica-BoldOblique",15)
+            can.setFillColor(HexColor("#0070E0"))
+            can.drawString(px+pay_w,py-1*mm,"Pal")
+            can.restoreState()
         can.setFont(regular,7); can.drawString(px,py-4*mm,"PayPal-Konto:")
         can.setFont(bold,7); can.setFillColor(TEAL); can.drawString(px,py-9*mm,paypal); can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-14*mm,f"Verwendungszweck: {no}")
         try:
