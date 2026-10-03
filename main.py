@@ -2919,11 +2919,24 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("practice_subtitle","Zusatz / Spezialisierung"),("address","Anschrift"),("phone","Mobil / Telefon"),("landline","Festnetz"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
         for key,label in labels:
             ed=QLineEdit(get_setting(key)); ed.setFixedHeight(34); ed.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); fields[key]=ed; form.addRow(label,ed)
-        logo=QLineEdit(get_setting("logo_path")); logo.setFixedHeight(34); logo.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); fields["logo_path"]=logo; choose=QPushButton("Logo auswählen …"); choose.setFixedHeight(34)
+        # Das mitgelieferte Praxislogo ist der Standard. logo_path bleibt nur
+        # eine optionale Überschreibung durch den Benutzer.
+        custom_logo_value = (get_setting("logo_path", "") or "").strip()
+        logo=QLineEdit(custom_logo_value)
+        logo.setFixedHeight(34); logo.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
+        logo.setPlaceholderText("Standardlogo (mitgeliefert)")
+        fields["logo_path"]=logo
+        choose=QPushButton("Logo ersetzen …"); choose.setFixedHeight(34)
+        reset_logo=QPushButton("Standardlogo"); reset_logo.setFixedHeight(34)
         def pick_logo():
             p,_=QFileDialog.getOpenFileName(self,"Praxislogo auswählen","","Bilder (*.png *.jpg *.jpeg)")
             if p: logo.setText(p)
-        choose.clicked.connect(pick_logo); lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); form.addRow("Praxislogo",lr)
+        def use_default_logo():
+            logo.clear()
+        choose.clicked.connect(pick_logo)
+        reset_logo.clicked.connect(use_default_logo)
+        lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); lr.addWidget(reset_logo)
+        form.addRow("Praxislogo",lr)
         logo_x=QDoubleSpinBox(); logo_x.setRange(0,180); logo_x.setValue(float(get_setting("logo_x_mm","18"))); logo_x.setSuffix(" mm")
         logo_y=QDoubleSpinBox(); logo_y.setRange(0,80); logo_y.setValue(float(get_setting("logo_y_mm","7"))); logo_y.setSuffix(" mm")
         logo_w=QDoubleSpinBox(); logo_w.setRange(15,120); logo_w.setValue(float(get_setting("logo_width_mm","72"))); logo_w.setSuffix(" mm")
