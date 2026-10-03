@@ -2235,9 +2235,9 @@ $result.Text
             except:return str(value)
         service_dates=[dd(it["date"]) for it in items if it.get("date")]
         period=(service_dates[0] if len(service_dates)==1 else ((dd(min(str(it["date"]) for it in items if it.get("date")))+" - "+dd(max(str(it["date"]) for it in items if it.get("date")))) if service_dates else datetime.now().strftime("%d.%m.%Y")))
-        # Kopfbereich bewusst vollständig entfernt. Neuer Kopf wird separat neu aufgebaut.
-        audit("INVOICE_HEADER", "cleared", self.current_user.get("username","") if self.current_user else "")
-        # Neuer, einfacher Rechnungskopf: genau eine Bildflaeche.
+        # Rechnungskopf: Praxislogo plus vollständige Praxisangaben aus der freigegebenen Vorlage.
+        audit("INVOICE_HEADER", "logo_and_practice_text", self.current_user.get("username","") if self.current_user else "")
+        # Logo links oben; darunter die vollständigen Praxisangaben.
         logo = effective_practice_logo()
         if not logo:
             audit("INVOICE_LOGO_MISSING", "Standardlogo konnte nicht geladen werden", self.current_user.get("username","") if self.current_user else "")
@@ -2259,7 +2259,24 @@ $result.Text
             audit("INVOICE_HEADER_IMAGE", f"failed:{str(e)[:300]}", self.current_user.get("username","") if self.current_user else "")
             return QMessageBox.warning(self, "Logo-Fehler", "Das Praxislogo konnte nicht in die Rechnung gezeichnet werden. Rechnung wurde nicht erstellt.")
 
-        # Empfänger und Rechnungsmetadaten
+        # Vollständiger Kopftext unter dem Logo; Kontaktdaten rechts.
+        can.setFillColor(NAVY)
+        can.setFont(bold,7.8)
+        can.drawString(18*mm,H-34*mm,owner or "Erdoğan Kulanoğlu")
+        can.setFont(regular,7.5)
+        can.drawString(18*mm,H-39*mm,practice_name or "Psychologische Privatpraxis")
+        can.drawString(18*mm,H-44*mm,qualifications or "Psychologe M.Sc. | Sozialarbeiter B.A.")
+        can.drawString(18*mm,H-49*mm,"Ehe-, Familien- und Lebensberatung | Zertifizierter Systemischer Berater und")
+        can.drawString(18*mm,H-54*mm,"Therapeut nach dem SIT-Modell")
+        hx=132*mm
+        can.setStrokeColor(BROWN); can.setLineWidth(0.7); can.line(hx-5*mm,H-31*mm,hx-5*mm,H-57*mm)
+        can.setFillColor(NAVY); can.setFont(regular,7.5); hy=H-34*mm
+        for line in [address, ("Handy "+phone) if phone else "", ("Festnetz "+landline) if landline else "", ("Fax: "+fax) if fax else "", email, website]:
+            if line:
+                can.drawString(hx,hy,line); hy-=4.3*mm
+        can.setStrokeColor(BROWN); can.setLineWidth(0.9); can.line(18*mm,H-61*mm,W-18*mm,H-61*mm)
+
+        # Empfänger und Rechnungsmetadten
         y=H-70*mm; can.setFillColor(NAVY); can.setFont(regular,10)
         can.drawString(18*mm,y,f"{first} {last}"); y-=5*mm
         for line in (self.i_addr.text().strip().splitlines() or [""]): can.drawString(18*mm,y,line); y-=5*mm
