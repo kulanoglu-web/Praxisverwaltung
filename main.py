@@ -183,7 +183,9 @@ def render_invoice_pdf(html, out_path):
         return False
     if not out_path.is_file() or out_path.stat().st_size <= 1000:
         audit("INVOICE_HTML_PDF_INVALID", str(out_path))
+        audit("INVOICE_PDF_RESULT", f"ok=False path={out_path} size={out_path.stat().st_size if out_path.is_file() else 0}")
         return False
+    audit("INVOICE_PDF_RESULT", f"ok=True path={out_path} size={out_path.stat().st_size}")
     return True
 
 def _sepa_qr_data_uri(owner, iban, bic, amount, invoice_no):
@@ -2222,7 +2224,7 @@ $result.Text
         service_dates=[dd(it["date"]) for it in items if it.get("date")]
         period=(service_dates[0] if len(service_dates)==1 else ((dd(min(str(it["date"]) for it in items if it.get("date")))+" - "+dd(max(str(it["date"]) for it in items if it.get("date")))) if service_dates else datetime.now().strftime("%d.%m.%Y")))
         # Kopf: fertiges hinterlegtes Praxislogo unverändert einsetzen.
-        logo=practice_logo_path()
+        logo=effective_practice_logo()
         if not logo:
             QMessageBox.warning(
                 self,
