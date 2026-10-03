@@ -1179,12 +1179,13 @@ class Main(QMainWindow):
         QMessageBox.information(self,"Freihand-Notiz","Die Freihand-Notiz wurde verschlüsselt beim Klienten gespeichert.\n\n"+str(Path(enc).name))
 
     def ink_to_text(self):
-        """Handschrift lokal mit Windows OCR erkennen."""
+        """Handschrift lokal über Windows OCR erkennen – mit robustem WinRT-Async-Bridge."""
         if not hasattr(self,"ink") or self.ink.image.isNull():
             return QMessageBox.warning(self,"Handschrift erkennen","Keine Handschrift vorhanden.")
         tmp=Path(tempfile.gettempdir())/f"PraxisPro_OCR_{os.getpid()}_{int(time.time()*1000)}.png"
-        src=self.ink.image
-        work=src.convertToFormat(QImage.Format_Grayscale8).scaled(src.width()*2,src.height()*2,Qt.KeepAspectRatio,Qt.SmoothTransformation)
+        src=self.ink.image.convertToFormat(QImage.Format_Grayscale8)
+        # Windows OCR profitiert bei Stiftstrichen von einer größeren, kontrastreichen Vorlage.
+        work=src.scaled(max(1600,src.width()*2),max(900,src.height()*2),Qt.KeepAspectRatio,Qt.SmoothTransformation)
         if not work.save(str(tmp),"PNG"):
             return QMessageBox.warning(self,"Handschrift erkennen","Die Zeichenfläche konnte nicht vorbereitet werden.")
         ps=r'''$ErrorActionPreference="Stop"
@@ -1192,50 +1193,78 @@ Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
 $null=[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
 $null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
-function Await($op,$type) {
-  $asTask=([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {$_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1} | Select-Object -First 1)
-  $task=$asTask.MakeGenericMethod($type).Invoke($null,@($op))
-  $task.Wait()
-  return $task.Result
+
+function Await-WinRT($Operation, [Type]$ResultType) {
+  $methods=[System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
+    $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetGenericArguments().Count -eq 1 -and $_.GetParameters().Count -eq 1
+  }
+  foreach($m in $methods) {
+    try {
+      $gm=$m.MakeGenericMethod($ResultType)
+      $task=$gm.Invoke($null,@($Operation))
+      if($null -ne $task) { $task.GetAwaiter().GetResult(); return $task.Result }
+    } catch {}
+  }
+  throw ('WinRT-Operation konnte nicht ausgewertet werden: '+$ResultType.FullName)
 }
+
 $path=$env:PRAXISPRO_OCR_PATH
-$file=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
-$stream=Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
-$decoder=Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-$bitmap=Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-$langs=[Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages
-$preferred=$langs | Where-Object { $_.LanguageTag -like 'de-*' } | Select-Object -First 1
-if ($null -eq $preferred) { $preferred=$langs | Where-Object { $_.LanguageTag -like 'tr-*' } | Select-Object -First 1 }
-if ($null -eq $preferred) { $preferred=$langs | Select-Object -First 1 }
-if ($null -eq $preferred) { throw 'Keine Windows-OCR-Sprache installiert. Bitte Deutsch oder Türkisch als Windows-Sprachfunktion installieren.' }
+if(-not (Test-Path -LiteralPath $path)){ throw 'OCR-Bilddatei wurde nicht gefunden.' }
+$file=Await-WinRT ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
+$stream=Await-WinRT ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+$decoder=Await-WinRT ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$bitmap=Await-WinRT ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$langs=@([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages)
+$preferred=$langs | Where-Object {$_.LanguageTag -match '^de(-|$)'} | Select-Object -First 1
+if($null -eq $preferred){$preferred=$langs | Where-Object {$_.LanguageTag -match '^tr(-|$)'} | Select-Object -First 1}
+if($null -eq $preferred){$preferred=$langs | Where-Object {$_.LanguageTag -match '^en(-|$)'} | Select-Object -First 1}
+if($null -eq $preferred){$preferred=$langs | Select-Object -First 1}
+if($null -eq $preferred){throw 'Keine Windows-OCR-Sprache installiert. Bitte Deutsch oder Türkisch in Windows als OCR-Sprachfunktion installieren.'}
 $engine=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($preferred)
-if ($null -eq $engine) { throw ('Windows OCR konnte nicht gestartet werden: '+$preferred.LanguageTag) }
-$result=Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-[Console]::OutputEncoding=[Text.Encoding]::UTF8
-$result.Text
+if($null -eq $engine){throw ('OCR-Engine konnte für '+$preferred.LanguageTag+' nicht gestartet werden.')}
+$result=Await-WinRT ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+Write-Output ('__LANG__='+$preferred.LanguageTag)
+Write-Output $result.Text
 '''
         try:
             env=os.environ.copy(); env["PRAXISPRO_OCR_PATH"]=str(tmp.resolve())
             QApplication.setOverrideCursor(Qt.WaitCursor); QApplication.processEvents()
-            run=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",ps],env=env,capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=45)
-            recognized=run.stdout.strip()
-            if run.returncode!=0 or not recognized:
-                detail=(run.stderr or "Keine Schrift erkannt.").strip()[:900]
-                audit("INK_OCR_ERROR",detail,self.current_user.get("username","") if self.current_user else "")
-                return QMessageBox.warning(self,"Handschrift erkennen","OCR konnte keinen Text liefern.\n\n"+detail)
+            run=subprocess.run(["powershell.exe","-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",ps],
+                               env=env,capture_output=True,text=True,encoding="utf-8-sig",errors="replace",timeout=60,
+                               creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+            output=(run.stdout or "").strip(); err=(run.stderr or "").strip()
+            lang=""; lines=output.splitlines()
+            if lines and lines[0].startswith("__LANG__="):
+                lang=lines.pop(0).split("=",1)[1].strip()
+            recognized="\n".join(lines).strip()
+            if run.returncode!=0:
+                detail=(err or output or "Windows OCR wurde mit einem Fehler beendet.")[:1200]
+                audit("INK_OCR_ERROR",f"exit={run.returncode} {detail}",self.current_user.get("username","") if self.current_user else "")
+                return QMessageBox.warning(self,"Handschrift erkennen","OCR konnte nicht gestartet werden.\n\n"+detail)
+            if not recognized:
+                detail="OCR läuft, konnte in der Handschrift aber keinen Text erkennen."
+                if lang: detail+=f"\nVerwendete Sprache: {lang}"
+                audit("INK_OCR_EMPTY",detail,self.current_user.get("username","") if self.current_user else "")
+                return QMessageBox.information(self,"Handschrift erkennen",detail+"\n\nBitte etwas größer und mit deutlichem Kontrast schreiben und erneut versuchen.")
+            audit("INK_OCR_SUCCESS",f"language={lang or 'unknown'} chars={len(recognized)}",self.current_user.get("username","") if self.current_user else "")
             dlg=QDialog(self); dlg.setWindowTitle("Handschrift → Text prüfen"); dlg.resize(720,500); v=QVBoxLayout(dlg)
-            v.addWidget(QLabel("Erkannten Text prüfen und bei Bedarf korrigieren (Deutsch/Türkisch):"))
+            v.addWidget(QLabel("Erkannten Text prüfen und bei Bedarf korrigieren"+(f" · OCR-Sprache: {lang}" if lang else "")+":"))
             edit=QTextEdit(); edit.setPlainText(recognized); v.addWidget(edit,1)
             buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); buttons.button(QDialogButtonBox.Save).setText("In Therapienotiz übernehmen"); v.addWidget(buttons)
             def accept_text():
                 cleaned=edit.toPlainText().strip()
                 if cleaned:
                     existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+cleaned)
+                    self.current_ocr_text=cleaned
                 dlg.accept()
             buttons.accepted.connect(accept_text); buttons.rejected.connect(dlg.reject); dlg.exec()
+        except subprocess.TimeoutExpired:
+            audit("INK_OCR_TIMEOUT","Windows OCR timeout",self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.warning(self,"Handschrift erkennen","OCR hat nach 60 Sekunden nicht geantwortet. Bitte Windows-OCR-Sprachpaket prüfen.")
         except Exception as e:
-            audit("INK_OCR_EXCEPTION",str(e)[:900],self.current_user.get("username","") if self.current_user else "")
-            QMessageBox.warning(self,"Handschrift erkennen","OCR-Fehler:\n\n"+str(e)[:900])
+            audit("INK_OCR_EXCEPTION",str(e)[:1200],self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.warning(self,"Handschrift erkennen","OCR-Fehler:\n\n"+str(e)[:1200])
         finally:
             if QApplication.overrideCursor() is not None: QApplication.restoreOverrideCursor()
             try: tmp.unlink(missing_ok=True)
