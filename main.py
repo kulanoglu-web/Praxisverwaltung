@@ -248,18 +248,18 @@ def effective_practice_logo():
     candidates = []
     # Das vorhandene Praxislogo kann je nach Projekt-/Paketstand PNG oder JPG sein.
     # Beide Formate sind gleichwertige Standardlogos; der Benutzer muss nichts auswählen.
-    for logo_name in ("logo.png", "logo.jpg", "logo.jpeg"):
+    for logo_name in ("logo.jpg", "logo.jpeg", "logo.png"):
         bundled = bundled_asset(logo_name)
         if bundled is not None:
             candidates.append(bundled)
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
-        for logo_name in ("logo.png", "logo.jpg", "logo.jpeg"):
+        for logo_name in ("logo.jpg", "logo.jpeg", "logo.png"):
             candidates += [
                 exe_dir / "_internal" / "assets" / logo_name,
                 exe_dir / "assets" / logo_name,
             ]
-    for logo_name in ("logo.png", "logo.jpg", "logo.jpeg"):
+    for logo_name in ("logo.jpg", "logo.jpeg", "logo.png"):
         candidates.append(Path(__file__).resolve().parent / "assets" / logo_name)
 
     seen = set()
