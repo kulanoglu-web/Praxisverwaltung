@@ -2225,6 +2225,28 @@ $result.Text
         period=(service_dates[0] if len(service_dates)==1 else ((dd(min(str(it["date"]) for it in items if it.get("date")))+" - "+dd(max(str(it["date"]) for it in items if it.get("date")))) if service_dates else datetime.now().strftime("%d.%m.%Y")))
         # Kopfbereich bewusst vollständig entfernt. Neuer Kopf wird separat neu aufgebaut.
         audit("INVOICE_HEADER", "cleared", self.current_user.get("username","") if self.current_user else "")
+        # Neuer, einfacher Rechnungskopf: genau eine Bildflaeche.
+        logo = effective_practice_logo()
+        if not logo:
+            audit("INVOICE_LOGO_MISSING", "Standardlogo konnte nicht geladen werden", self.current_user.get("username","") if self.current_user else "")
+            return QMessageBox.warning(self, "Logo fehlt", "Das Standardlogo konnte nicht geladen werden. Rechnung wurde nicht erstellt.")
+        try:
+            from reportlab.lib.utils import ImageReader
+            im = ImageReader(str(logo)); iw, ih = im.getSize(); im.getRGBData()
+            mw=float(get_setting("logo_width_mm","72"))*mm
+            mh=float(get_setting("logo_height_mm","22"))*mm
+            scale=min(mw/iw,mh/ih)
+            lw,lh=iw*scale,ih*scale
+            zone=get_setting("invoice_header_logo_zone","Links") or "Links"
+            lefts={"Links":18.0,"Mitte":(210.0-float(get_setting("logo_width_mm","72")))/2.0,"Rechts":210.0-18.0-float(get_setting("logo_width_mm","72"))}
+            lx=lefts.get(zone,18.0)*mm
+            top=float(get_setting("logo_y_mm","7"))*mm
+            can.drawImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")
+            audit("INVOICE_HEADER_IMAGE", f"ok zone={zone} path={logo}", self.current_user.get("username","") if self.current_user else "")
+        except Exception as e:
+            audit("INVOICE_HEADER_IMAGE", f"failed:{str(e)[:300]}", self.current_user.get("username","") if self.current_user else "")
+            return QMessageBox.warning(self, "Logo-Fehler", "Das Praxislogo konnte nicht in die Rechnung gezeichnet werden. Rechnung wurde nicht erstellt.")
+
         # Empfänger und Rechnungsmetadaten
         y=H-70*mm; can.setFillColor(NAVY); can.setFont(regular,10)
         can.drawString(18*mm,y,f"{first} {last}"); y-=5*mm
@@ -2794,33 +2816,63 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("practice_subtitle","Zusatz / Spezialisierung"),("address","Anschrift"),("phone","Mobil / Telefon"),("landline","Festnetz"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
         for key,label in labels:
             ed=QLineEdit(get_setting(key)); ed.setFixedHeight(34); ed.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); fields[key]=ed; form.addRow(label,ed)
-        # Das mitgelieferte Praxislogo ist der Standard. logo_path bleibt nur
-        # eine optionale Überschreibung durch den Benutzer.
+        # Rechnungskopf: eine sichtbare Bildflaeche mit dem mitgelieferten Praxislogo als Standard.
         custom_logo_value = (get_setting("logo_path", "") or "").strip()
         logo=QLineEdit(custom_logo_value)
         logo.setFixedHeight(34); logo.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
         logo.setPlaceholderText("Standardlogo (mitgeliefert)")
         fields["logo_path"]=logo
+
+        logo_preview=QLabel()
+        logo_preview.setFixedSize(300,110)
+        logo_preview.setAlignment(Qt.AlignCenter)
+        logo_preview.setStyleSheet("QLabel { border: 1px solid #b8b8b8; background: white; padding: 6px; }")
+
+        def refresh_logo_preview():
+            p=effective_practice_logo()
+            if p and Path(p).is_file():
+                px=QPixmap(str(p))
+                if not px.isNull():
+                    logo_preview.setPixmap(px.scaled(286,96,Qt.KeepAspectRatio,Qt.SmoothTransformation))
+                    logo_preview.setText("")
+                    return
+            logo_preview.setPixmap(QPixmap())
+            logo_preview.setText("Standardlogo nicht gefunden")
+
         choose=QPushButton("Logo ersetzen …"); choose.setFixedHeight(34)
         reset_logo=QPushButton("Standardlogo"); reset_logo.setFixedHeight(34)
         def pick_logo():
             p,_=QFileDialog.getOpenFileName(self,"Praxislogo auswählen","","Bilder (*.png *.jpg *.jpeg)")
-            if p: logo.setText(p)
+            if p:
+                logo.setText(p)
+                set_setting("logo_path",p)
+                refresh_logo_preview()
         def use_default_logo():
             logo.clear()
+            set_setting("logo_path","")
+            refresh_logo_preview()
         choose.clicked.connect(pick_logo)
         reset_logo.clicked.connect(use_default_logo)
         lr=QHBoxLayout(); lr.addWidget(logo,1); lr.addWidget(choose); lr.addWidget(reset_logo)
         form.addRow("Praxislogo",lr)
-        logo_x=QDoubleSpinBox(); logo_x.setRange(0,180); logo_x.setValue(float(get_setting("logo_x_mm","18"))); logo_x.setSuffix(" mm")
-        logo_y=QDoubleSpinBox(); logo_y.setRange(0,80); logo_y.setValue(float(get_setting("logo_y_mm","7"))); logo_y.setSuffix(" mm")
+        form.addRow("Bildfläche Rechnungskopf",logo_preview)
+
+        logo_zone=QComboBox()
+        logo_zone.addItems(["Links","Mitte","Rechts"])
+        logo_zone.setCurrentText(get_setting("invoice_header_logo_zone","Links") or "Links")
+        form.addRow("Bildposition im Rechnungskopf",logo_zone)
+
         logo_w=QDoubleSpinBox(); logo_w.setRange(15,120); logo_w.setValue(float(get_setting("logo_width_mm","72"))); logo_w.setSuffix(" mm")
         logo_h=QDoubleSpinBox(); logo_h.setRange(8,45); logo_h.setValue(float(get_setting("logo_height_mm","22"))); logo_h.setSuffix(" mm")
-        lpos=QHBoxLayout(); lpos.addWidget(QLabel("Links")); lpos.addWidget(logo_x); lpos.addWidget(QLabel("Oben")); lpos.addWidget(logo_y); lpos.addWidget(QLabel("Breite")); lpos.addWidget(logo_w); lpos.addWidget(QLabel("Höhe")); lpos.addWidget(logo_h)
-        form.addRow("Logo auf Rechnung",lpos)
-        logo_zone=QComboBox(); logo_zone.addItems(["Links","Mitte","Rechts"]); logo_zone.setCurrentText(get_setting("invoice_header_logo_zone","Links")); form.addRow("Logo-Bereich im Rechnungskopf",logo_zone)
-        header_middle=QComboBox(); header_middle.addItems(["Praxisdaten","Kontaktdaten","Leer"]); header_middle.setCurrentText(get_setting("invoice_header_middle","Praxisdaten")); form.addRow("Kopfbereich Mitte",header_middle)
-        header_right=QComboBox(); header_right.addItems(["Kontaktdaten","Praxisdaten","Leer"]); header_right.setCurrentText(get_setting("invoice_header_right","Kontaktdaten")); form.addRow("Kopfbereich Rechts",header_right)
+        size_row=QHBoxLayout(); size_row.addWidget(QLabel("Breite")); size_row.addWidget(logo_w); size_row.addWidget(QLabel("Höhe")); size_row.addWidget(logo_h); size_row.addStretch()
+        form.addRow("Bildgröße",size_row)
+
+        # Standardposition: links oben. X/Y bleiben intern fuer bestehende Installationen erhalten.
+        logo_x=QDoubleSpinBox(); logo_x.setRange(0,180); logo_x.setValue(float(get_setting("logo_x_mm","18"))); logo_x.setSuffix(" mm"); logo_x.setVisible(False)
+        logo_y=QDoubleSpinBox(); logo_y.setRange(0,80); logo_y.setValue(float(get_setting("logo_y_mm","7"))); logo_y.setSuffix(" mm"); logo_y.setVisible(False)
+        header_middle=QComboBox(); header_middle.addItems(["Leer"]); header_middle.setCurrentText("Leer"); header_middle.setVisible(False)
+        header_right=QComboBox(); header_right.addItems(["Leer"]); header_right.setCurrentText("Leer"); header_right.setVisible(False)
+        refresh_logo_preview()
         gv.addLayout(form)
         appearance=QFrame(); appearance.setObjectName("formCard"); appearance.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
         # Darstellungsoptionen kompakt in einer Zeile: sie dürfen die Praxisdaten nicht überdecken.
