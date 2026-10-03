@@ -246,16 +246,21 @@ def effective_practice_logo():
     # therefore remains the primary resolver. Explicit fallbacks make the
     # standard-logo contract robust across onefile/onedir/development.
     candidates = []
-    bundled = bundled_asset("logo.png")
-    if bundled is not None:
-        candidates.append(bundled)
+    # Das vorhandene Praxislogo kann je nach Projekt-/Paketstand PNG oder JPG sein.
+    # Beide Formate sind gleichwertige Standardlogos; der Benutzer muss nichts auswählen.
+    for logo_name in ("logo.png", "logo.jpg", "logo.jpeg"):
+        bundled = bundled_asset(logo_name)
+        if bundled is not None:
+            candidates.append(bundled)
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
-        candidates += [
-            exe_dir / "_internal" / "assets" / "logo.png",
-            exe_dir / "assets" / "logo.png",
-        ]
-    candidates.append(Path(__file__).resolve().parent / "assets" / "logo.png")
+        for logo_name in ("logo.png", "logo.jpg", "logo.jpeg"):
+            candidates += [
+                exe_dir / "_internal" / "assets" / logo_name,
+                exe_dir / "assets" / logo_name,
+            ]
+    for logo_name in ("logo.png", "logo.jpg", "logo.jpeg"):
+        candidates.append(Path(__file__).resolve().parent / "assets" / logo_name)
 
     seen = set()
     for candidate in candidates:
