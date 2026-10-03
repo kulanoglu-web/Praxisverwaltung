@@ -2207,7 +2207,7 @@ $result.Text
         # Finale A4-Rechnung: feste Markenfarben und Proportionen der freigegebenen Vorlage.
         # Markenfarben direkt aus dem eingebundenen Praxislogo.
         NAVY=HexColor("#000000"); TEAL=HexColor("#000000"); GOLD=HexColor("#A62908")
-        BROWN=HexColor("#582808"); CREAM=HexColor("#FFFFFF"); BORDER=BROWN; WHITE=HexColor("#FFFFFF")
+        BROWN=HexColor("#6A3517"); CREAM=HexColor("#FFFFFF"); BORDER=BROWN; WHITE=HexColor("#FFFFFF")
         regular,bold="Helvetica","Helvetica-Bold"
         try:
             arial=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arial.ttf"; arial_b=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arialbd.ttf"
@@ -2269,12 +2269,12 @@ $result.Text
         can.drawString(18*mm,H-49*mm,"Ehe-, Familien- und Lebensberatung | Zertifizierter Systemischer Berater und")
         can.drawString(18*mm,H-54*mm,"Therapeut nach dem SIT-Modell")
         hx=132*mm
-        can.setStrokeColor(BROWN); can.setLineWidth(0.7); can.line(hx-5*mm,H-31*mm,hx-5*mm,H-57*mm)
+        can.setStrokeColor(BROWN); can.setLineWidth(0.35); can.line(hx-5*mm,H-31*mm,hx-5*mm,H-57*mm)
         can.setFillColor(NAVY); can.setFont(regular,7.5); hy=H-34*mm
         for line in [address, ("Handy "+phone) if phone else "", ("Festnetz "+landline) if landline else "", ("Fax: "+fax) if fax else "", email, website]:
             if line:
                 can.drawString(hx,hy,line); hy-=4.3*mm
-        can.setStrokeColor(BROWN); can.setLineWidth(0.9); can.line(18*mm,H-61*mm,W-18*mm,H-61*mm)
+        can.setStrokeColor(BROWN); can.setLineWidth(0.35); can.line(18*mm,H-61*mm,W-18*mm,H-61*mm)
 
         # Empfänger und Rechnungsmetadten
         y=H-70*mm; can.setFillColor(NAVY); can.setFont(regular,10)
@@ -2342,10 +2342,10 @@ $result.Text
             can.saveState()
             can.setFont("Helvetica-BoldOblique",15)
             can.setFillColor(HexColor("#003087"))
-            can.drawString(px,py-1*mm,"Pay")
+            can.drawString(px,py+1*mm,"Pay")
             pay_w=can.stringWidth("Pay","Helvetica-BoldOblique",15)
             can.setFillColor(HexColor("#0070E0"))
-            can.drawString(px+pay_w,py-1*mm,"Pal")
+            can.drawString(px+pay_w,py+1*mm,"Pal")
             can.restoreState()
         can.setFont(regular,7); can.drawString(px,py-4*mm,"PayPal-Konto:")
         can.setFont(bold,7); can.setFillColor(TEAL); can.drawString(px,py-9*mm,paypal); can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-14*mm,f"Verwendungszweck: {no}")
