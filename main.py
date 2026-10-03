@@ -2207,7 +2207,7 @@ $result.Text
         # Finale A4-Rechnung: feste Markenfarben und Proportionen der freigegebenen Vorlage.
         # Markenfarben direkt aus dem eingebundenen Praxislogo.
         NAVY=HexColor("#000000"); TEAL=HexColor("#000000"); GOLD=HexColor("#A62908")
-        BROWN=HexColor("#6A3517"); CREAM=HexColor("#FFFFFF"); BORDER=BROWN; WHITE=HexColor("#FFFFFF")
+        BROWN=HexColor("#6B310B"); CREAM=HexColor("#FFFFFF"); BORDER=BROWN; WHITE=HexColor("#FFFFFF")
         regular,bold="Helvetica","Helvetica-Bold"
         try:
             arial=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arial.ttf"; arial_b=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arialbd.ttf"
