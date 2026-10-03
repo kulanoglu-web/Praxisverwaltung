@@ -208,126 +208,70 @@ def _sepa_qr_data_uri(owner, iban, bic, amount, invoice_no):
         audit("INVOICE_SEPA_QR_ERROR", str(e)[:200])
         return ""
 
-def practice_logo_path():
-    """Liefert einen gültigen Logo-Pfad oder None (kein stiller Platzhalter).
-
-    Änderungen gegenüber Original:
-    - bundled_asset liefert jetzt None bei Nichtfund -> wir prüfen das.
-    - Custom-Pfad wird absolut aufgelöst (relativ zum Skript, nicht zur CWD).
-    - Endungsvarianten werden IMMER ergänzt, nicht nur bei .png.
-    - Repair-Fallback (Qt -> PNG) greift für JEDEN existierenden Kandidaten,
-      nicht nur für bundled logo.png.
-    - Reparatur wird als PNG gespeichert (ReportLab-sicher), nicht als BMP.
-    """
+def effective_practice_logo():
+    """Benutzerlogo wenn brauchbar, sonst immer das mitgelieferte Standardlogo."""
     from reportlab.lib.utils import ImageReader
 
-    def _valid(p):
-        """Prüft, ob ReportLab das Bild wirklich lesen kann."""
+    def usable(path):
         try:
-            p = Path(p)
+            p = Path(path)
             if not p.is_file():
                 return None
-
             probe = ImageReader(str(p))
             probe.getSize()
             probe.getRGBData()
             return p
-
         except Exception as e:
-            try:
-                audit(
-                    "INVOICE_LOGO_INVALID",
-                    f"{p} :: {str(e)[:200]}"
-                )
-            except Exception:
-                pass
+            audit("INVOICE_LOGO_INVALID", f"{path} :: {str(e)[:200]}")
             return None
 
-    def _try_repair(path):
-        """Versucht ein für ReportLab unlesbares Bild via Qt zu reparieren.
-
-        Konvertiert nach ARGB32 und speichert als PNG (ReportLab-sicher).
-        Gibt den reparierten Pfad zurück oder None.
-        """
-        try:
-            from PySide6.QtGui import QImage
-
-            img = QImage(str(path))
-            if img.isNull():
-                return None
-
-            tag = abs(hash(str(path)))
-            repaired = (
-                Path(tempfile.gettempdir())
-                / f"PraxisPro_logo_repaired_{tag}.png"
-            )
-
-            if img.convertToFormat(
-                QImage.Format_ARGB32
-            ).save(str(repaired), "PNG"):
-
-                ok = _valid(repaired)
-                if ok is not None:
-                    try:
-                        audit("INVOICE_LOGO_REPAIRED", str(ok))
-                    except Exception:
-                        pass
-                    return ok
-
-        except Exception as e:
-            try:
-                audit(
-                    "INVOICE_LOGO_REPAIR_ERROR",
-                    str(e)[:200]
-                )
-            except Exception:
-                pass
-
-        return None
-
-    candidates = []
-
     custom = (get_setting("logo_path", "") or "").strip()
-
     if custom:
         cp = Path(custom)
-
+        custom_candidates = [cp]
         if not cp.is_absolute():
-            cp = Path(__file__).resolve().parent / cp
+            custom_candidates += [
+                ROOT / cp,
+                Path(__file__).resolve().parent / cp,
+            ]
+        for candidate in custom_candidates:
+            ok = usable(candidate)
+            if ok is not None:
+                audit("INVOICE_LOGO_SOURCE", f"custom:{ok}")
+                return ok
 
-        candidates.append(cp)
+    # PyInstaller 6 onedir uses _MEIPASS == <app>/_internal. bundled_asset()
+    # therefore remains the primary resolver. Explicit fallbacks make the
+    # standard-logo contract robust across onefile/onedir/development.
+    candidates = []
+    bundled = bundled_asset("logo.png")
+    if bundled is not None:
+        candidates.append(bundled)
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates += [
+            exe_dir / "_internal" / "assets" / "logo.png",
+            exe_dir / "assets" / "logo.png",
+        ]
+    candidates.append(Path(__file__).resolve().parent / "assets" / "logo.png")
 
-        base = cp.with_suffix("")
-        for ext in (".png", ".jpg", ".jpeg", ".bmp", ".gif"):
-            candidates.append(base.with_suffix(ext))
-
-    for name in ("logo.png", "logo.jpg", "logo.jpeg"):
-        p = bundled_asset(name)
-        if p is not None:
-            candidates.append(p)
-
-    for cand in candidates:
-        if not Path(cand).is_file():
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
             continue
-
-        ok = _valid(cand)
+        seen.add(key)
+        ok = usable(candidate)
         if ok is not None:
+            audit("INVOICE_LOGO_SOURCE", f"bundled:{ok}")
             return ok
 
-        repaired = _try_repair(cand)
-        if repaired is not None:
-            return repaired
-
-    try:
-        audit(
-            "INVOICE_LOGO_MISSING_HARD",
-            f"Kein gültiger Logo-Kandidat. Geprüft: "
-            f"{[str(c) for c in candidates]}"
-        )
-    except Exception:
-        pass
-
+    audit("INVOICE_LOGO_SOURCE", "missing:no_logo_found")
     return None
+
+# Kompatibilitaet fuer bestehende UI-/Rechnungsaufrufe.
+def practice_logo_path():
+    return effective_practice_logo()
 
 DATA=ROOT/"praxisdaten.json.enc"
 for p in [ROOT/"Klienten",ROOT/"Einnahmen",ROOT/"Backups",DBDIR]: p.mkdir(parents=True,exist_ok=True)
@@ -2025,6 +1969,7 @@ $result.Text
         QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\n\n{details}\n\nGesamt: {total:.2f} €\n\nBitte vor PDF-Erstellung kontrollieren.")
     def make_invoice_html(self):
         if not self.require_edit(): return
+        audit("INVOICE_ENGINE", "html", self.current_user.get("username","") if self.current_user else "")
         for label, te in (("Beginn", self.i_start), ("Ende", self.i_end)):
             raw = te.lineEdit().text().strip().replace("_", "")
             parsed = QTime.fromString(raw, "HH:mm")
@@ -2108,25 +2053,7 @@ $result.Text
         bic = get_setting("bic", "")
         paypal = get_setting("paypal", "")
 
-        # HTML-Rechnung: das Bild wird als Base64-Data-URI eingebettet.
-        # Dafür ist keine ReportLab-Validierung nötig. Zuerst ein vorhandenes
-        # benutzerdefiniertes Logo verwenden, sonst das gebündelte Original.
-        logo_path = None
-        custom_logo = (get_setting("logo_path", "") or "").strip()
-        if custom_logo:
-            cp = Path(custom_logo)
-            if not cp.is_absolute():
-                cp = Path(__file__).resolve().parent / cp
-            if cp.is_file():
-                logo_path = cp
-        if logo_path is None:
-            for logo_name in ("logo.png", "logo.jpg", "logo.jpeg"):
-                candidate = bundled_asset(logo_name)
-                if candidate is not None and candidate.is_file():
-                    logo_path = candidate
-                    break
-        if not logo_path:
-            audit("INVOICE_HTML_LOGO_MISSING", "Kein vorhandenes Logo für HTML-Rechnung gefunden")
+        logo_path = effective_practice_logo()
 
         logo_html = ""
         if logo_path:
@@ -2236,6 +2163,7 @@ $result.Text
         if (get_setting("invoice_engine", "reportlab").lower() == "html"
             and getattr(self, "_invoice_engine_override", None) != "reportlab"):
             return self.make_invoice_html()
+        audit("INVOICE_ENGINE", "reportlab", self.current_user.get("username","") if self.current_user else "")
         # Eingaben zuerst sauber übernehmen; ungültige Zeiten verständlich melden.
         for label,te in (("Beginn",self.i_start),("Ende",self.i_end)):
             raw=te.lineEdit().text().strip().replace("_","")
