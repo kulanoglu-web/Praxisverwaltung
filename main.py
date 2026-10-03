@@ -2223,63 +2223,8 @@ $result.Text
             except:return str(value)
         service_dates=[dd(it["date"]) for it in items if it.get("date")]
         period=(service_dates[0] if len(service_dates)==1 else ((dd(min(str(it["date"]) for it in items if it.get("date")))+" - "+dd(max(str(it["date"]) for it in items if it.get("date")))) if service_dates else datetime.now().strftime("%d.%m.%Y")))
-        # Kopf: fertiges hinterlegtes Praxislogo unverändert einsetzen.
-        logo=effective_practice_logo()
-        if not logo:
-            QMessageBox.warning(
-                self,
-                "Logo fehlt",
-                "Es konnte kein gültiges Praxislogo geladen werden.\n"
-                "Die Rechnung wird ohne Logo erzeugt.\n"
-                "Bitte prüfen Sie die Praxiseinstellungen."
-            )
-        drawn=False
-        if logo:
-            try:
-                # Fertiges Praxislogo unverändert als Datei in den vorgesehenen Kopfbereich einsetzen.
-                from reportlab.lib.utils import ImageReader
-                im=ImageReader(str(logo)); iw,ih=im.getSize()
-                mw=float(get_setting("logo_width_mm","72"))*mm; mh=float(get_setting("logo_height_mm","22"))*mm
-                sc=min(mw/iw,mh/ih); lw,lh=iw*sc,ih*sc
-                zone=get_setting("invoice_header_logo_zone","Links")
-                zone_base={"Links":18.0,"Mitte":74.0,"Rechts":132.0}.get(zone,18.0)
-                lx=(zone_base + max(0.0,float(get_setting("logo_x_mm","18"))-18.0))*mm
-                top=float(get_setting("logo_y_mm","7"))*mm
-                # Decode now so a corrupt asset cannot be embedded invisibly.
-                im.getRGBData()
-                can.drawImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")
-                drawn=True
-            except Exception as e: audit("INVOICE_LOGO_ERROR",str(e)[:500],self.current_user.get("username","") if self.current_user else "")
-        if not drawn:
-            # Kein erfundenes Ersatzlogo: Die Rechnung soll ausschließlich das echte Praxislogo verwenden.
-            audit("INVOICE_LOGO_MISSING","Echtes Praxislogo konnte nicht geladen werden",self.current_user.get("username","") if self.current_user else "")
-        # Kopf exakt nach Referenz: Logo links, Qualifikationen darunter, Kontaktdaten rechts.
-        can.setFillColor(NAVY); can.setFont(regular,7.7)
-        qy=H-35.5*mm
-        for line in (owner,practice_name,qualifications):
-            if line:
-                can.drawString(18*mm,qy,line); qy-=4.2*mm
-        if practice_subtitle:
-            # Lange Berufs-/Zusatzbezeichnung im Kopf sauber umbrechen.
-            maxw=102*mm
-            words=practice_subtitle.split(); cur=""
-            for word in words:
-                trial=(cur+" "+word).strip()
-                if cur and can.stringWidth(trial,regular,7.7)>maxw:
-                    can.drawString(18*mm,qy,cur); qy-=4.2*mm; cur=word
-                else: cur=trial
-            if cur: can.drawString(18*mm,qy,cur); qy-=4.2*mm
-        can.setStrokeColor(BORDER); can.setLineWidth(.6); can.line(126*mm,H-14*mm,126*mm,H-48*mm)
-        can.setFillColor(NAVY); can.setFont(regular,8.2); tx=132*mm; ty=H-17*mm
-        addr_lines=[x.strip() for x in address.replace(",", "\n",1).splitlines() if x.strip()]
-        contact_lines=list(addr_lines)
-        if phone: contact_lines.append("Handy "+phone)
-        if landline: contact_lines.append("Festnetz "+landline)
-        if fax: contact_lines += ["Fax: "+fax]
-        contact_lines += [x for x in (email,website) if x]
-        for line in contact_lines:
-            can.drawString(tx,ty,line); ty-=4.3*mm
-        can.setStrokeColor(NAVY); can.setLineWidth(.75); can.line(18*mm,H-58*mm,W-18*mm,H-58*mm)
+        # Kopfbereich bewusst vollständig entfernt. Neuer Kopf wird separat neu aufgebaut.
+        audit("INVOICE_HEADER", "cleared", self.current_user.get("username","") if self.current_user else "")
         # Empfänger und Rechnungsmetadaten
         y=H-70*mm; can.setFillColor(NAVY); can.setFont(regular,10)
         can.drawString(18*mm,y,f"{first} {last}"); y-=5*mm
