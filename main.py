@@ -246,8 +246,8 @@ def effective_practice_logo():
     # therefore remains the primary resolver. Explicit fallbacks make the
     # standard-logo contract robust across onefile/onedir/development.
     candidates = []
-    # Das vorhandene Praxislogo kann je nach Projekt-/Paketstand PNG oder JPG sein.
-    # Beide Formate sind gleichwertige Standardlogos; der Benutzer muss nichts auswählen.
+    # Das mitgelieferte Standardlogo muss vom PDF-Renderer wirklich lesbar sein.
+    # Beschädigte Altdateien werden übersprungen, statt die Rechnung abzubrechen.
     for logo_name in ("logo.jpg", "logo.jpeg", "logo.png"):
         bundled = bundled_asset(logo_name)
         if bundled is not None:
@@ -269,9 +269,16 @@ def effective_practice_logo():
             continue
         seen.add(key)
         ok = usable(candidate)
-        if ok is not None:
+        if ok is None:
+            continue
+        try:
+            probe = ImageReader(str(ok))
+            probe.getSize()
+            probe.getRGBData()
             audit("INVOICE_LOGO_SOURCE", f"bundled:{ok}")
             return ok
+        except Exception as e:
+            audit("INVOICE_LOGO_INVALID", f"{ok} :: {str(e)[:200]}")
 
     audit("INVOICE_LOGO_SOURCE", "missing:no_logo_found")
     return None
