@@ -2108,10 +2108,25 @@ $result.Text
         bic = get_setting("bic", "")
         paypal = get_setting("paypal", "")
 
-        logo_path = practice_logo_path()
+        # HTML-Rechnung: das Bild wird als Base64-Data-URI eingebettet.
+        # Dafür ist keine ReportLab-Validierung nötig. Zuerst ein vorhandenes
+        # benutzerdefiniertes Logo verwenden, sonst das gebündelte Original.
+        logo_path = None
+        custom_logo = (get_setting("logo_path", "") or "").strip()
+        if custom_logo:
+            cp = Path(custom_logo)
+            if not cp.is_absolute():
+                cp = Path(__file__).resolve().parent / cp
+            if cp.is_file():
+                logo_path = cp
+        if logo_path is None:
+            for logo_name in ("logo.png", "logo.jpg", "logo.jpeg"):
+                candidate = bundled_asset(logo_name)
+                if candidate is not None and candidate.is_file():
+                    logo_path = candidate
+                    break
         if not logo_path:
-            QMessageBox.warning(self, "Logo fehlt",
-                "Es konnte kein gültiges Praxislogo geladen werden.\nDie Rechnung wird ohne Logo erzeugt.\nBitte prüfen Sie die Praxiseinstellungen.")
+            audit("INVOICE_HTML_LOGO_MISSING", "Kein vorhandenes Logo für HTML-Rechnung gefunden")
 
         logo_html = ""
         if logo_path:
