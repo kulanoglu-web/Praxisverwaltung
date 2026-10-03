@@ -1457,42 +1457,92 @@ Write-Output $result.Text
 
         def suggest_therapy_plan():
             d=(self.session_diag.text().strip().upper() if hasattr(self,"session_diag") else "")
-            sections=[]
-            if d.startswith(("F32","F33")):
-                sections=["KVT / Verhaltenstherapie: Verhaltensaktivierung, Tagesstruktur, Aktivitätsaufbau, kognitive Arbeit an automatischen Gedanken und Grundannahmen, Rückfallprophylaxe.",
-                          "TP / psychodynamisch: Beziehungsmuster, Konflikte, Selbstwert, Verlust-/Bindungsthemen und wiederkehrende interpersonelle Muster explorieren.",
-                          "Begleitend: Ressourcenaktivierung, Schlaf/Bewegung, soziale Unterstützung; Suizidalität und Schweregrad regelmäßig prüfen."]
-            elif d.startswith(("F40","F41")):
-                sections=["KVT / Verhaltenstherapie: Psychoedukation, Angstmodell, Exposition/Verhaltensexperimente, Abbau von Vermeidung und Sicherheitsverhalten, kognitive Neubewertung.",
-                          "TP / psychodynamisch: Konflikt- und Beziehungsmuster, Affektwahrnehmung sowie Funktion der Angstsymptomatik im biografischen Kontext bearbeiten.",
-                          "Begleitend: Atem-/Entspannungsverfahren nur ergänzend; Verlauf und Funktionsniveau dokumentieren."]
-            elif d.startswith("F43.1"):
-                sections=["Traumafokussierte KVT: Psychoedukation, Stabilisierung nach Bedarf, traumafokussierte Bearbeitung durch entsprechend qualifizierte Behandler, Trigger- und Vermeidungsarbeit.",
-                          "TP / psychodynamisch: Affektregulation, Beziehungssicherheit, traumabezogene Konflikte und Selbst-/Beziehungsrepräsentationen bearbeiten.",
-                          "Sicherheit: Dissoziation, Suizidalität, Substanzkonsum und aktuelle Gefährdung prüfen; keine unvorbereitete Konfrontation."]
-            elif d.startswith(("F42",)):
-                sections=["KVT / Verhaltenstherapie: Exposition mit Reaktionsmanagement, funktionale Analyse, Arbeit an Zwangsbewertungen und Rückfallprophylaxe.",
-                          "TP / psychodynamisch: zugrunde liegende Konflikte, Affekte, Beziehungsmuster und Funktion der Symptomatik explorieren."]
-            elif d.startswith(("F50",)):
-                sections=["Störungsspezifische Psychotherapie: Essverhalten, Gewicht/Körperbild, aufrechterhaltende Kognitionen und Verhaltensmuster strukturiert bearbeiten.",
-                          "Somatische Mitbehandlung: medizinische Risiken und Ernährungszustand klären; bei Bedarf multiprofessionelles Setting."]
-            else:
-                sections=["KVT / Verhaltenstherapie: Problem- und Bedingungsanalyse, konkrete Ziele, Ressourcen, aufrechterhaltende Gedanken/Verhaltensmuster und alltagsnahe Übungen.",
-                          "TP / psychodynamisch: biografische und aktuelle Konflikte, Beziehungsmuster, Affekte, Abwehr und wiederkehrende interpersonelle Themen explorieren.",
-                          "Systemisch: Kontext, Beziehungen, Ressourcen, Ausnahmen, zirkuläre Muster und konkrete Veränderungsaufträge einbeziehen."]
+            catalog=[
+              (("F32","F33"),"Depressive Störung",
+               ["Symptomreduktion und Stabilisierung","Aktivitätsniveau und Tagesstruktur aufbauen","Selbstwert und soziale Teilhabe stärken","Rückfallprophylaxe entwickeln"],
+               ["KVT/VT: Verhaltensaktivierung, Aktivitätsaufbau, Problemlösetraining, kognitive Umstrukturierung, Arbeit an automatischen Gedanken und dysfunktionalen Grundannahmen.",
+                "TP/psychodynamisch: Beziehungsmuster, Selbstwertregulation, Verlust-/Bindungsthemen, zentrale Konflikte und wiederkehrende interpersonelle Muster bearbeiten.",
+                "Systemisch: Ressourcen und Ausnahmen aktivieren, Beziehungskontext und Wechselwirkungen einbeziehen, hilfreiche Unterstützungsstrukturen stärken."],
+               ["Aktivitäts- und Stimmungstagebuch","kleine angenehme/sinnvolle Aktivität planen","automatische Gedanken und alternative Bewertungen notieren"]),
+              (("F40","F41"),"Angst / Panik",
+               ["Angstverständnis verbessern","Vermeidung und Sicherheitsverhalten reduzieren","Selbstwirksamkeit erhöhen","Rückfallprophylaxe"],
+               ["KVT/VT: individuelles Angstmodell, Psychoedukation, Exposition/Verhaltensexperimente, Abbau von Sicherheitsverhalten, kognitive Neubewertung.",
+                "TP/psychodynamisch: Funktion der Angst, Affektwahrnehmung, Beziehungsmuster und zugrunde liegende Konflikte explorieren.",
+                "Systemisch: Kontextbedingungen, Interaktionsmuster, Ressourcen und mögliche symptomstabilisierende Rückkopplungen bearbeiten."],
+               ["Angstprotokoll","vereinbarte graduierte Annäherungsübung","Sicherheitsverhalten beobachten und reduzieren"]),
+              (("F42",),"Zwang",
+               ["Zwangskreislauf verstehen","Rituale und Vermeidung reduzieren","Unsicherheitstoleranz erhöhen","Alltagsfunktion verbessern"],
+               ["KVT/VT: funktionale Analyse, Exposition mit Reaktionsmanagement, Arbeit an Zwangsbewertungen, Rückfallprophylaxe.",
+                "TP/psychodynamisch: Konflikte, Affekte, Kontrolle, Beziehungsmuster und Funktion der Symptomatik explorieren.",
+                "Systemisch: familiäre/partnerschaftliche Anpassungen an Zwänge und Rückversicherung identifizieren und verändern."],
+               ["Zwangsauslöser und Rituale protokollieren","vereinbarte ERP-Übung","Rückversicherung beobachten"]),
+              (("F43.1",),"PTBS / Trauma",
+               ["Sicherheit und Stabilität herstellen","Traumasymptome und Vermeidung reduzieren","Affektregulation stärken","Alltagsfunktion und Beziehungen stabilisieren"],
+               ["Traumafokussierte KVT: Psychoedukation, Stabilisierung nach Bedarf, qualifizierte traumafokussierte Bearbeitung, Trigger- und Vermeidungsarbeit.",
+                "TP/psychodynamisch: Affektregulation, Beziehungssicherheit, traumabezogene Konflikte und Selbst-/Beziehungsrepräsentationen bearbeiten.",
+                "Systemisch: Ressourcen, sichere Beziehungen, Kontext und Auswirkungen auf Partnerschaft/Familie einbeziehen."],
+               ["Trigger/Belastungsniveau beobachten","Grounding-/Stabilisierungsübung","Ressourcen und sichere Situationen dokumentieren"]),
+              (("F43.2",),"Anpassungsstörung / Belastungsreaktion",
+               ["aktuelle Belastung bewältigen","Ressourcen mobilisieren","Problemlösefähigkeit stärken","neue Perspektiven und Handlungsschritte entwickeln"],
+               ["KVT/VT: Stressmodell, Problemlösen, Aktivierung, kognitive Neubewertung und Coping.",
+                "TP/psychodynamisch: Bedeutung des Auslösers, Verluste, Konflikte und Beziehungsmuster bearbeiten.",
+                "Systemisch: Kontext, Rollen, Ressourcen, Netzwerk und lösungsorientierte nächste Schritte bearbeiten."],
+               ["Belastungssituationen protokollieren","konkreten nächsten Schritt planen","Unterstützungsnetz aktivieren"]),
+              (("F50",),"Essstörung / problematisches Essverhalten",
+               ["Essverhalten stabilisieren","körperliche Risiken reduzieren","Körperbild und Selbstwert bearbeiten","aufrechterhaltende Muster verändern"],
+               ["Störungsspezifische KVT: Essstruktur, Selbstbeobachtung, Körperbild, dysfunktionale Regeln und aufrechterhaltende Verhaltensmuster.",
+                "TP/psychodynamisch: Selbstwert, Affekte, Autonomie/Abhängigkeit und Beziehungskonflikte bearbeiten.",
+                "Systemisch: familiäre/partnerschaftliche Muster und Ressourcen einbeziehen; medizinische und ernährungstherapeutische Kooperation prüfen."],
+               ["Ess-/Situationsprotokoll nach therapeutischer Vereinbarung","Auslöser und Bewertungen beobachten","ressourcenorientierte Aufgabe"]),
+              (("F51","G47"),"Schlafprobleme",
+               ["Schlafdruck und Rhythmus stabilisieren","schlafstörende Gewohnheiten reduzieren","Grübeln/Aktivierung senken"],
+               ["KVT/VT: Schlafprotokoll, Psychoedukation, Stimulus-Kontrolle, Schlafrhythmus und kognitive Arbeit an schlafbezogenen Sorgen.",
+                "TP/psychodynamisch: Belastungen, Affekte und Konflikte mit Bezug zu nächtlicher Aktivierung explorieren."],
+               ["Schlafprotokoll","konstante Aufstehzeit erproben","abendliche Aktivierung/Grübeln beobachten"]),
+              (("F90",),"ADHS / Aufmerksamkeitsprobleme",
+               ["Alltagsorganisation verbessern","Aufgabensteuerung stärken","Impulsivität und Überforderung reduzieren","Selbstwert stabilisieren"],
+               ["KVT/VT: Psychoedukation, Strukturierung, Aufgabenzerlegung, Reizkontrolle, Zeitmanagement und Problemlösen.",
+                "TP/psychodynamisch: Selbstwert, Beziehungserfahrungen und emotionale Regulation bearbeiten.",
+                "Systemisch: Umweltanpassung, Rollen, Kommunikations- und Unterstützungsstrukturen einbeziehen."],
+               ["Aufgabe in kleine Schritte zerlegen","sichtbare Checkliste nutzen","Ablenkungen und Konzentrationsphasen protokollieren"]),
+            ]
+            label="Allgemeiner Behandlungsplan"
+            goals=["Anliegen und Auftrag präzisieren","Ressourcen und Belastungsfaktoren erfassen","konkrete und überprüfbare Therapieziele vereinbaren","Verlauf regelmäßig evaluieren"]
+            methods=["KVT/VT: Problem- und Bedingungsanalyse, konkrete Ziele, aufrechterhaltende Gedanken/Verhaltensmuster und alltagsnahe Übungen.",
+                     "TP/psychodynamisch: biografische und aktuelle Konflikte, Beziehungsmuster, Affekte, Abwehr und interpersonelle Themen explorieren.",
+                     "Systemisch: Kontext, Beziehungen, Ressourcen, Ausnahmen, zirkuläre Muster und Veränderungsaufträge einbeziehen."]
+            homework=["Beobachtungsaufgabe passend zum Therapieziel","Auslöser, Gedanken, Gefühle und Verhalten protokollieren"]
+            for prefixes,name,g,m,h in catalog:
+                if d.startswith(prefixes): label,goals,methods,homework=name,g,m,h; break
+
+            lines=[f"ARBEITSHYPOTHESE / SCHWERPUNKT: {label}"]
+            if d: lines.append(f"Verdachtsdiagnose / Code: {d}")
+            lines+=["\nTHERAPIEZIELE"]+["• "+x for x in goals]
+            lines+=["\nMETHODEN / INTERVENTIONEN"]+["• "+x for x in methods]
 
             if hasattr(self,"couple_mode") and self.couple_mode.isChecked():
-                pair=["Paartherapie / systemisch: gemeinsamen Auftrag und individuelle Ziele beider Partner klären; Eskalationskreislauf externalisieren und typische Trigger/Positionen sichtbar machen.",
-                      "Kommunikation: Zuhören/Validierung, Ich-Botschaften, Bedürfnis- und Grenzklärung, Deeskalations- und Reparaturstrategien praktisch üben.",
-                      "Bindungs-/emotionsfokussiert: verletzliche Primäremotionen, Bindungsbedürfnisse, Nähe-Distanz-Muster und sichere wechselseitige Responsivität bearbeiten.",
-                      "Verhaltensorientiert: positive Interaktionen gezielt erhöhen, konkrete Vereinbarungen, Problemlösetraining und Transferaufgaben zwischen Sitzungen.",
-                      "Vertrauen/Verletzungen: bei Affären oder Vertrauensbruch Stabilisierung, Transparenz, Verantwortungsübernahme und schrittweise Wiederannäherung; Ergebnisoffenheit wahren.",
-                      "Elternebene: Paar- und Elternebene trennen, Kooperation und kindzentrierte Absprachen stärken, sofern Kinder betroffen sind."]
+                pair=[
+                  "Auftrag klären: gemeinsame und individuelle Ziele beider Partner sowie Ergebnisoffenheit festhalten.",
+                  "Systemisch: Eskalationskreislauf externalisieren; Trigger, Positionen, wechselseitige Verstärkung, Ressourcen und positive Ausnahmen sichtbar machen.",
+                  "Kommunikationsorientiert: aktives Zuhören, Validierung, Ich-Botschaften, Bedürfnis-/Grenzklärung, Time-out und Reparaturgespräche üben.",
+                  "Emotions-/bindungsfokussiert: Primäremotionen und Bindungsbedürfnisse hinter Angriff/Rückzug herausarbeiten; sichere Responsivität fördern.",
+                  "Verhaltensorientiert: positive Interaktionen erhöhen, Problemlösetraining, konkrete Vereinbarungen und Transferaufgaben.",
+                  "Vertrauen/Verletzungen: Stabilisierung, Verantwortungsübernahme, Transparenz, Bedeutung der Verletzung und schrittweise Wiederannäherung bearbeiten.",
+                  "Intimität/Sexualität: Bedürfnisse, Grenzen, Druck/Vermeidung und Kommunikation behutsam explorieren; somatische Faktoren bei Bedarf abklären.",
+                  "Elternebene: Paar- und Elternebene differenzieren, kindzentrierte Kooperation und verlässliche Absprachen fördern.",
+                  "Trennungs-/Klärungsarbeit: bei ambivalentem Auftrag Entscheidung nicht vorwegnehmen; Bedürfnisse, Optionen und Folgen strukturiert klären."
+                ]
+                lines+=["\nPAARTHERAPIE – MÖGLICHE INTERVENTIONEN"]+["• "+x for x in pair]
                 if getattr(self,"couple_violence",None) and self.couple_violence.isChecked():
-                    pair.insert(0,"SICHERHEIT VOR PAARINTERVENTION: Bei Gewalt, Drohung, Zwang oder Kontrolle zunächst getrennte Risiko- und Sicherheitsklärung; gemeinsame Paararbeit nur bei geeigneter Sicherheitslage.")
-                sections=["PAARTHERAPIE"]+pair+["EINZEL-/STÖRUNGSSPEZIFISCHE ERGÄNZUNG"]+sections
+                    lines+=["\nSICHERHEIT / KONTRAINDIKATION","• Bei Gewalt, Drohung, Zwang oder Kontrolle zunächst getrennte Risiko- und Sicherheitsklärung; übliche gemeinsame Paarinterventionen nicht automatisch fortführen."]
 
-            self.therapy_plan.setPlainText("\n\n".join("• "+x for x in sections))
+            lines+=["\nMÖGLICHE TRANSFERAUFGABEN"]+["• "+x for x in homework]
+            lines+=["\nVERLAUFSPLAN",
+                    "• Startphase: Diagnostik/Exploration, Auftrag, Ziele, Ressourcen, Risiko- und Kontextklärung.",
+                    "• Arbeitsphase: ausgewählte Interventionen schrittweise durchführen und Wirkung/Belastung regelmäßig evaluieren.",
+                    "• Transferphase: Veränderungen in Alltag und Beziehungen erproben, Hindernisse bearbeiten.",
+                    "• Abschluss/Rückfallprophylaxe: Fortschritte bilanzieren, Warnzeichen und hilfreiche Strategien festhalten."]
+            self.therapy_plan.setPlainText("\n".join(lines))
         planbtn.clicked.connect(suggest_therapy_plan)
 
         screening_catalog={
