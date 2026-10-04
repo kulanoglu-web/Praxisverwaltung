@@ -1907,7 +1907,7 @@ Write-Output $result.Text
         except Exception: pass
     def autosave_session(self):
         if not self.running and not self.notes.toPlainText().strip() and not self.s_last.text().strip() and not self.s_first.text().strip(): return
-        draft={"last":self.s_last.text(),"first":self.s_first.text(),"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"seconds":self.elapsed(),"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"homework":self.session_homework.toPlainText().strip(),"running":self.running}
+        draft={"last":self.s_last.text(),"first":self.s_first.text(),"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"note_date":self.s_date.date().toString("yyyy-MM-dd"),"autosaved_at":datetime.now().isoformat(timespec="seconds"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"seconds":self.elapsed(),"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"homework":self.session_homework.toPlainText().strip(),"running":self.running}
         inkdraft=ROOT/"Sitzung_Autosave_Handschrift.png"; self.ink.save_png(inkdraft); encrypted_ink=encrypt_file(inkdraft); draft["ink_file"]=encrypted_ink
         (ROOT/"Sitzung_Autosave.json.enc").write_text(encrypt_text(json.dumps(draft,ensure_ascii=False)),encoding="utf-8")
     def fill_session_client(self):
@@ -1979,7 +1979,9 @@ Write-Output $result.Text
         start_t=self.s_start.time(); end_t=self.s_end.time()
         mins=start_t.secsTo(end_t)//60 if start_t.isValid() and end_t.isValid() else 0
         if mins <= 0: mins=max(1,round(self.elapsed()/60))
-        rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"suspected_diagnosis":self.session_diag.text().strip(),"notes":self.notes.toPlainText(),"homework":self.session_homework.toPlainText().strip(),"billed":False}
+        note_date=self.s_date.date().toString("yyyy-MM-dd")
+        note_timestamp=datetime.now().isoformat(timespec="seconds")
+        rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":note_date,"note_date":note_date,"saved_at":note_timestamp,"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"suspected_diagnosis":self.session_diag.text().strip(),"notes":self.notes.toPlainText(),"homework":self.session_homework.toPlainText().strip(),"billed":False}
         if partner: rec["partner"]={"last":partner.get("last",""),"first":partner.get("first",""),"dob":partner.get("dob","")}
         d=client_dir(c)/"Sitzungen"; inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=encrypt_file(inkfile)
         rec["ocr_text"]=self.current_ocr_text.strip()
@@ -1989,8 +1991,12 @@ Write-Output $result.Text
             rec["ocr_file"]=str(ocrfile)
         DB["sessions"].append(rec)
         save_data()
-        session_json=d/(rec["date"]+"_Sitzung.json.enc")
+        # Jede Sitzungsnotiz wird datiert und eindeutig im Ordner des Klienten abgelegt.
+        # Die ID verhindert, dass mehrere Sitzungen am selben Tag einander überschreiben.
+        session_json=d/(rec["date"]+"_"+rec["id"]+"_Sitzungsnotiz.json.enc")
         session_json.write_text(encrypt_text(json.dumps(rec,ensure_ascii=False,indent=2)),encoding="utf-8")
+        rec["note_file"]=str(session_json)
+        save_data()
         self.current_ocr_text=""
         for auto in (ROOT/"Sitzung_Autosave.json.enc",ROOT/"Sitzung_Autosave.json",ROOT/"Sitzung_Autosave_Handschrift.png",ROOT/"Sitzung_Autosave_Handschrift.png.enc"):
             if auto.exists():
