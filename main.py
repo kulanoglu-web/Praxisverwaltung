@@ -5,7 +5,7 @@ from datetime import datetime, date
 from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QListWidgetItem,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider,QSizePolicy,QCalendarWidget,QCompleter)
 from PySide6.QtCore import QDate,QTime
-from PySide6.QtGui import QKeySequence, QShortcut, QTextCharFormat, QImage, QPainter, QPen, QPixmap, QDesktopServices, QFont, QColor
+from PySide6.QtGui import QKeySequence, QShortcut, QTextCharFormat, QImage, QPainter, QPen, QPixmap, QDesktopServices, QFont, QColor, QIcon
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
@@ -3230,7 +3230,11 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         actions=QHBoxLayout(); new_session=QPushButton("＋  Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("▤  Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(5)); clients=QPushButton("♙  Klienten verwalten"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
         info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch(); return w
 if __name__ == "__main__":
-    app=QApplication(sys.argv); app.setStyleSheet("QPushButton{font-size:16px;padding:8px} QLineEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox{font-size:16px;padding:7px}")
+    app=QApplication(sys.argv)
+    app_logo=effective_practice_logo()
+    if app_logo:
+        app.setWindowIcon(QIcon(str(app_logo)))
+    app.setStyleSheet("QPushButton{font-size:16px;padding:8px} QLineEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox{font-size:16px;padding:7px}")
     if not ensure_first_user(): sys.exit(0)
     login=LoginDialog()
     if login.exec()!=QDialog.Accepted: sys.exit(0)
