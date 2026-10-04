@@ -1126,8 +1126,8 @@ class Main(QMainWindow):
 
         self.ink=InkCanvas(); self.current_ink_file=""; self.current_ocr_text=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch(); self.ink_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.ink_clock.setStyleSheet("font-size:18px;font-weight:800"); inkhead.addWidget(self.ink_clock); self.ink_clock_timer=QTimer(self); self.ink_clock_timer.timeout.connect(lambda: (self.ink_clock.setText(QTime.currentTime().toString("HH:mm:ss")), self.ink.update())); self.ink_clock_timer.start(1000)
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
-        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); ocrink=QPushButton("⌨ Handschrift → Text"); ocrink.setToolTip("Lokale Windows-Handschrifterkennung; erkannter Text wird vor Übernahme angezeigt."); ocrink.clicked.connect(self.ink_to_text); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
-        for x in (QLabel("Stärke:"),width,eraser,undo,saveink,ocrink,clearink,fullscreen):
+        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); ocrink=QPushButton("⌨ Handschrift → Text"); ocrink.setToolTip("Lokale Windows-Handschrifterkennung; erkannter Text wird vor Übernahme angezeigt."); ocrink.clicked.connect(self.ink_to_text); ocrtest=QPushButton("OCR-Test"); ocrtest.setToolTip("Prüft Windows-OCR und installierte Erkennungssprachen."); ocrtest.clicked.connect(self.ocr_system_test); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
+        for x in (QLabel("Stärke:"),width,eraser,undo,saveink,ocrink,ocrtest,clearink,fullscreen):
             if hasattr(x,"setMinimumHeight"): x.setMinimumHeight(40)
             inkhead.addWidget(x)
         self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(235); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
@@ -1177,6 +1177,36 @@ class Main(QMainWindow):
         if not self.ink.save_png(tmp): return QMessageBox.warning(self,"Freihand-Notiz","Die Notiz konnte nicht gespeichert werden.")
         enc=encrypt_file(tmp); self.current_ink_file=enc; audit("INK_NOTE_SAVED",f"Freihand-Notiz gespeichert: {last}, {first}",self.current_user.get("username","") if self.current_user else "")
         QMessageBox.information(self,"Freihand-Notiz","Die Freihand-Notiz wurde verschlüsselt beim Klienten gespeichert.\n\n"+str(Path(enc).name))
+
+    def ocr_system_test(self):
+        """Prüft lokal, ob Windows OCR und passende Sprachpakete verfügbar sind."""
+        ps=r'''$ErrorActionPreference="Stop"
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+$langs=@([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages)
+if($langs.Count -eq 0){throw 'Keine Windows-OCR-Sprache installiert.'}
+Write-Output ('Windows OCR: bereit')
+Write-Output ('Sprachen: '+(($langs | ForEach-Object {$_.LanguageTag}) -join ', '))
+$de=$langs | Where-Object {$_.LanguageTag -match '^de(-|$)'} | Select-Object -First 1
+$tr=$langs | Where-Object {$_.LanguageTag -match '^tr(-|$)'} | Select-Object -First 1
+if($null -ne $de){Write-Output ('Deutsch: '+$de.LanguageTag)}else{Write-Output 'Deutsch: NICHT installiert'}
+if($null -ne $tr){Write-Output ('Türkisch: '+$tr.LanguageTag)}else{Write-Output 'Türkisch: NICHT installiert'}
+'''
+        try:
+            run=subprocess.run(["powershell.exe","-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",ps],
+                               capture_output=True,text=True,encoding="utf-8-sig",errors="replace",timeout=20,
+                               creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+            out=(run.stdout or "").strip(); err=(run.stderr or "").strip()
+            if run.returncode:
+                detail=(err or out or "Windows OCR konnte nicht initialisiert werden.")[:1500]
+                audit("INK_OCR_SYSTEMTEST_ERROR",detail,self.current_user.get("username","") if self.current_user else "")
+                return QMessageBox.warning(self,"OCR-Systemtest","OCR ist nicht einsatzbereit.\n\n"+detail)
+            audit("INK_OCR_SYSTEMTEST_OK",out[:1500],self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.information(self,"OCR-Systemtest",out+"\n\nFür die beste Erkennung Deutsch und Türkisch als Windows-Sprachfunktionen installieren.")
+        except Exception as e:
+            audit("INK_OCR_SYSTEMTEST_EXCEPTION",str(e)[:1200],self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.warning(self,"OCR-Systemtest","OCR-Systemtest fehlgeschlagen:\n\n"+str(e)[:1200])
 
     def ink_to_text(self):
         """Handschrift lokal über Windows OCR erkennen – mit robustem WinRT-Async-Bridge."""
@@ -1272,12 +1302,12 @@ Write-Output $result.Text
 
     def open_ink_fullscreen(self):
         dlg=QDialog(self); dlg.setWindowTitle("Freihand-Notizbuch"); dlg.resize(1280,800); dlg.setMinimumSize(760,520); dlg.setWindowFlag(Qt.WindowMaximizeButtonHint,True)
-        v=QVBoxLayout(dlg); bar=QHBoxLayout(); title=QLabel("Handschrift / Stift"); title.setStyleSheet("font-size:22px;font-weight:700"); bar.addWidget(title); bar.addStretch()
+        v=QVBoxLayout(dlg); bar=QHBoxLayout(); title=QLabel("Handschrift / Stift"); title.setStyleSheet("font-size:22px;font-weight:700"); bar.addWidget(title); bar.addStretch(); clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); clock.setStyleSheet("font-size:20px;font-weight:800"); bar.addWidget(clock); clocktimer=QTimer(dlg); clocktimer.timeout.connect(lambda: clock.setText(QTime.currentTime().toString("HH:mm:ss"))); clocktimer.start(1000)
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); erase=QCheckBox("Radierer"); erase.setChecked(self.ink.eraser); erase.toggled.connect(self.ink.set_eraser)
         width=QSpinBox(); width.setRange(1,10); width.setValue(self.ink.pen_width); width.valueChanged.connect(self.ink.set_width)
         zoom=QSlider(Qt.Horizontal); zoom.setRange(60,180); zoom.setValue(100); zoom.setFixedWidth(170); zoomlabel=QLabel("100 %")
-        save=QPushButton("💾 Notiz speichern"); save.clicked.connect(self.save_ink_note); ocr=QPushButton("⌨ Handschrift → Text"); ocr.clicked.connect(self.ink_to_text); clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); full=QPushButton("⛶ Vollbild"); full.setCheckable(True); full.toggled.connect(lambda on: dlg.showFullScreen() if on else dlg.showNormal()); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
-        for x in (undo,erase,QLabel("Stärke"),width,QLabel("Ansicht"),zoom,zoomlabel,save,ocr,clear,full,close): bar.addWidget(x)
+        save=QPushButton("💾 Notiz speichern"); save.clicked.connect(self.save_ink_note); ocr=QPushButton("⌨ Handschrift → Text"); ocr.clicked.connect(self.ink_to_text); ocrtest=QPushButton("OCR-Test"); ocrtest.clicked.connect(self.ocr_system_test); clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); full=QPushButton("⛶ Vollbild"); full.setCheckable(True); full.toggled.connect(lambda on: dlg.showFullScreen() if on else dlg.showNormal()); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
+        for x in (undo,erase,QLabel("Stärke"),width,QLabel("Ansicht"),zoom,zoomlabel,save,ocr,ocrtest,clear,full,close): bar.addWidget(x)
         v.addLayout(bar); holder=QScrollArea(); holder.setWidgetResizable(True); holder.setAlignment(Qt.AlignCenter); self.ink.setMinimumSize(360,240); self.ink.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding); self.ink.setParent(holder); holder.setWidget(self.ink)
         basew,baseh=max(360,holder.viewport().width()),max(240,holder.viewport().height())
         def scale_ink(value):
