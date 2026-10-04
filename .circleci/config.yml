@@ -26,20 +26,25 @@ jobs:
             python -m pip install -r requirements.txt
             python -m pip install pymupdf
             python -m py_compile main.py ui_screenshot_test.py generate_icon.py
+            if ($LASTEXITCODE -ne 0) { throw "Python syntax check failed" }
             python generate_icon.py
+            if ($LASTEXITCODE -ne 0) { throw "PraxisPro icon generation failed" }
             if (!(Test-Path "assets\\PraxisPro.ico")) { throw "PraxisPro.ico missing after generation" }
             $icon = Get-Item "assets\\PraxisPro.ico"
+            if ($icon.Length -lt 1000) { throw "PraxisPro.ico invalid/suspiciously small: $($icon.Length) bytes" }
             Write-Host "PraxisPro.ico generated: $($icon.Length) bytes"
 
       - run:
           name: UI smoke test (keine Laufzeit-Mutation)
           command: |
             python ui_screenshot_test.py
+            if ($LASTEXITCODE -ne 0) { throw "UI smoke test failed" }
 
       - run:
           name: Build onedir bundle from spec
           command: |
             python -m PyInstaller --noconfirm --clean PraxisPro.spec
+            if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
             if (!(Test-Path "dist\Praxisverwaltung\Praxisverwaltung.exe")) {
               throw "Praxisverwaltung.exe missing"
             }
