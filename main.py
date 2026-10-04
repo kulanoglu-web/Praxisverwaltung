@@ -1183,7 +1183,7 @@ class Main(QMainWindow):
         ps=r'''$ErrorActionPreference="Stop"
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
-[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false)
 $langs=@([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages)
 if($langs.Count -eq 0){throw 'Keine Windows-OCR-Sprache installiert.'}
 Write-Output ('Windows OCR: bereit')
