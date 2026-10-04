@@ -1124,7 +1124,7 @@ class Main(QMainWindow):
         hwgen.clicked.connect(suggest_homework)
         hv.addWidget(self.session_homework); v.addWidget(homeworkbox)
 
-        self.ink=InkCanvas(); self.current_ink_file=""; self.current_ocr_text=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch()
+        self.ink=InkCanvas(); self.current_ink_file=""; self.current_ocr_text=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch(); self.ink_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.ink_clock.setStyleSheet("font-size:18px;font-weight:800"); inkhead.addWidget(self.ink_clock); self.ink_clock_timer=QTimer(self); self.ink_clock_timer.timeout.connect(lambda: (self.ink_clock.setText(QTime.currentTime().toString("HH:mm:ss")), self.ink.update())); self.ink_clock_timer.start(1000)
         width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); ocrink=QPushButton("⌨ Handschrift → Text"); ocrink.setToolTip("Lokale Windows-Handschrifterkennung; erkannter Text wird vor Übernahme angezeigt."); ocrink.clicked.connect(self.ink_to_text); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
         for x in (QLabel("Stärke:"),width,eraser,undo,saveink,ocrink,clearink,fullscreen):
@@ -2013,7 +2013,7 @@ Write-Output $result.Text
             if secs>0:self.i_min.setValue(max(1,secs//60))
         self.i_start.timeChanged.connect(invoice_times); self.i_end.timeChanged.connect(invoice_times)
         self.i_last.editingFinished.connect(self.fill_invoice_client); self.i_first.editingFinished.connect(self.fill_invoice_client)
-        f.addRow("",self.i_red); v.addWidget(card)
+        f.addRow("",self.i_red); self.i_paid=QCheckBox("✓ Zahlung bereits erhalten"); self.i_paid.setToolTip("Aktivieren, wenn der Rechnungsbetrag bereits bezahlt wurde. Die PDF wird dann als Zahlungsbestätigung formuliert."); f.addRow("Zahlungsstatus",self.i_paid); v.addWidget(card)
         itemrow=QHBoxLayout(); additem=QPushButton("＋ Leistung zur Rechnung hinzufügen"); additem.setMinimumHeight(46)
         self.iteminfo=QLabel("Noch keine zusätzlichen Leistungen"); self.iteminfo.setObjectName("pageSub")
         def add_manual_item():
@@ -2272,7 +2272,7 @@ Write-Output $result.Text
         DB["invoices"].append({
             "number": no, "date": datetime.now().strftime("%Y-%m-%d"), "client": f"{last}, {first}",
             "address": self.i_addr.text().strip(), "diagnosis": self.i_diag.text().strip(),
-            "amount": amt, "status": "offen", "paid_date": "", "pdf": str(pdf), "items": items
+            "amount": amt, "status": "bezahlt" if (hasattr(self,"i_paid") and self.i_paid.isChecked()) else "offen", "paid_date": datetime.now().strftime("%Y-%m-%d") if (hasattr(self,"i_paid") and self.i_paid.isChecked()) else "", "pdf": str(pdf), "items": items
         })
         if rows:
             ids = {x.get("id") for x in rows}
@@ -2487,7 +2487,7 @@ Write-Output $result.Text
         except Exception as e: audit("INVOICE_QR_ERROR",str(e)[:300],self.current_user.get("username","") if self.current_user else "")
         # Abschluss
         can.setFillColor(NAVY); can.setFont(regular,8.5); yy=by-8*mm
-        can.drawString(18*mm,yy,"Vielen Dank für Ihr Vertrauen."); can.drawString(18*mm,yy-6*mm,"Mit freundlichen Grüßen")
+        paid_now=hasattr(self,"i_paid") and self.i_paid.isChecked()\n        if paid_now:\n            can.setFont(bold,8.5); can.drawString(18*mm,yy,"Vielen Dank. Den Rechnungsbetrag haben wir dankend erhalten.")\n            can.setFont(regular,8.5); can.drawString(18*mm,yy-6*mm,"Diese Rechnung gilt zugleich als Zahlungsbestätigung.")\n        else:\n            can.drawString(18*mm,yy,"Vielen Dank für Ihr Vertrauen. Bitte überweisen Sie den Rechnungsbetrag.")\n            can.drawString(18*mm,yy-6*mm,"Mit freundlichen Grüßen")
         can.setFillColor(TEAL); can.setFont(bold,9.5); can.drawString(18*mm,yy-18*mm,owner)
         can.setFillColor(NAVY); can.setFont(regular,7.2); can.drawString(18*mm,yy-23*mm,qualifications)
         can.setFont(regular,6.7)
@@ -2512,7 +2512,7 @@ Write-Output $result.Text
                 invoice_items.append({"id":s.get("id"),"date":s.get("date",""),"start":s.get("start",""),"end":s.get("end",""),"minutes":int(s.get("minutes",0)),"type":s.get("type",""),"reduced":bool(s.get("reduced",False)),"amount":round(float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))),2)})
         else:
             invoice_items=[{"id":None,"date":self.i_date.date().toString("yyyy-MM-dd"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amt}]
-        DB["invoices"].append({"number":no,"date":datetime.now().strftime("%Y-%m-%d"),"client":f"{last}, {first}","address":self.i_addr.text().strip(),"diagnosis":self.i_diag.text().strip(),"amount":amt,"status":"offen","paid_date":"","pdf":str(pdf),"items":invoice_items})
+        DB["invoices"].append({"number":no,"date":datetime.now().strftime("%Y-%m-%d"),"client":f"{last}, {first}","address":self.i_addr.text().strip(),"diagnosis":self.i_diag.text().strip(),"amount":amt,"status":"bezahlt" if paid_now else "offen","paid_date":datetime.now().strftime("%Y-%m-%d") if paid_now else "","pdf":str(pdf),"items":invoice_items})
         if rows:
             ids={s.get("id") for s in rows}
             for s in DB["sessions"]:
