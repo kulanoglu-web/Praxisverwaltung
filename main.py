@@ -650,7 +650,7 @@ class Main(QMainWindow):
         """)
         self.apply_appearance()
         QShortcut(QKeySequence("Ctrl+L"),self,activated=self.lock_screen)
-        self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(15000)
+        self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(10000)
         QTimer.singleShot(500,self.restore_draft)
     def apply_appearance(self):
         theme=get_setting("ui_theme","PraxisPro Blau")
@@ -1132,7 +1132,7 @@ class Main(QMainWindow):
             inkhead.addWidget(x)
         self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(235); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
         h=QHBoxLayout()
-        buttons=[("▶ Sitzung starten",self.start_session,"background:#16a34a"),("⏸ Pause/Fortsetzen",self.pause,"background:#1683d8"),("■ Sitzung beenden",self.end_session,"background:#e11d48"),("💾 Speichern",self.save_session,"background:#f8fafc;color:#1261a0;border:1px solid #9bb7cf")]
+        buttons=[("▶ Sitzung starten",self.start_session,"background:#16a34a"),("⏸ Pause/Fortsetzen",self.pause,"background:#1683d8"),("■ Sitzung beenden",self.end_session,"background:#e11d48"),("💾 Als Sitzungsnotiz speichern",self.save_session,"background:#f8fafc;color:#1261a0;border:1px solid #9bb7cf")]
         for text_,fn,style in buttons:
             b=QPushButton(text_); b.setMinimumHeight(48); b.setStyleSheet(style+";font-weight:800;font-size:13px"); b.clicked.connect(fn); h.addWidget(b)
         v.addLayout(h)
@@ -1946,6 +1946,17 @@ Write-Output $result.Text
         self.running=False
         # Endzeit wird beim Beenden mit der realen Uhrzeit vorbelegt, bleibt aber editierbar.
         self.s_end.setTime(QTime.currentTime()); self.update_wallclock()
+        # Den aktuellen Stand sofort zusätzlich als verschlüsselten Entwurf sichern.
+        self.autosave_session()
+        choice=QMessageBox.question(
+            self,"Sitzung beenden",
+            "Die Sitzung wurde beendet.\n\nSoll sie jetzt als Sitzungsnotiz dauerhaft gespeichert werden?",
+            QMessageBox.Yes|QMessageBox.No,QMessageBox.Yes)
+        if choice==QMessageBox.Yes:
+            self.save_session()
+        else:
+            QMessageBox.information(self,"Sitzung zwischengespeichert",
+                "Die Sitzung bleibt automatisch verschlüsselt zwischengespeichert und kann später weiterbearbeitet werden.")
     def save_session(self):
         if not self.require_edit(): return
         last=self.s_last.text().strip(); first=self.s_first.text().strip()
