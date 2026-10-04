@@ -26,22 +26,20 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt pyinstaller pymupdf
       - name: Python syntax check
-        run: python -m py_compile main.py ui_screenshot_test.py
+        run: python -m py_compile main.py ui_screenshot_test.py generate_icon.py
       - name: UI screenshot test (1600x900)
         run: python ui_screenshot_test.py
       - name: Prepare application icon
         shell: pwsh
         run: |
-          if (Test-Path "assets/PraxisPro.ico") {
-            Write-Host "Using repository application icon."
-          } else {
-            Write-Host "No valid ICO supplied; build will continue without generated icon."
-          }
+          python generate_icon.py
+          if (!(Test-Path "assets/PraxisPro.ico")) { throw "PraxisPro.ico was not generated" }
+          Write-Host "Using practice logo for EXE, installer and shortcuts."
       
       - name: Build Windows executable
         shell: pwsh
         run: |
-          $args = @("--noconfirm","--clean","--onefile","--windowed","--collect-submodules","reportlab.graphics.barcode","--collect-submodules","reportlab.graphics","--add-data","assets/logo.png;assets")
+          $args = @("--noconfirm","--clean","--onefile","--windowed","--icon","assets/PraxisPro.ico","--collect-submodules","reportlab.graphics.barcode","--collect-submodules","reportlab.graphics","--add-data","assets/logo.png;assets")
           if (Test-Path "assets/paypal.png") {
             $args += @("--add-data","assets/paypal.png;assets")
             Write-Host "Bundling official PayPal logo asset."
