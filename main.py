@@ -1208,6 +1208,64 @@ if($null -ne $tr){Write-Output ('Türkisch: '+$tr.LanguageTag)}else{Write-Output
             audit("INK_OCR_SYSTEMTEST_EXCEPTION",str(e)[:1200],self.current_user.get("username","") if self.current_user else "")
             QMessageBox.warning(self,"OCR-Systemtest","OCR-Systemtest fehlgeschlagen:\n\n"+str(e)[:1200])
 
+    def ocr_end_to_end_test(self):
+        """Testet denselben OCR-Pfad mit einem lokal erzeugten, klaren Testbild."""
+        tmp=Path(tempfile.gettempdir())/f"PraxisPro_OCR_Selbsttest_{os.getpid()}_{int(time.time()*1000)}.png"
+        img=QImage(1400,320,QImage.Format_ARGB32); img.fill(Qt.white)
+        p=QPainter(img); p.setPen(Qt.black); font=QFont("Arial",48); font.setBold(True); p.setFont(font)
+        p.drawText(img.rect().adjusted(40,20,-40,-20),Qt.AlignCenter,"PraxisPro Test 123"); p.end()
+        if not img.save(str(tmp),"PNG"):
+            return QMessageBox.warning(self,"OCR-Selbsttest","Testbild konnte nicht erzeugt werden.")
+        ps=r'''$ErrorActionPreference="Stop"
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
+$null=[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
+$null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
+function Await-WinRT($Operation,[Type]$ResultType){
+  $methods=[System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {$_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetGenericArguments().Count -eq 1 -and $_.GetParameters().Count -eq 1}
+  foreach($m in $methods){try{$task=$m.MakeGenericMethod($ResultType).Invoke($null,@($Operation));if($null -ne $task){$task.GetAwaiter().GetResult();return $task.Result}}catch{}}
+  throw ('WinRT-Operation fehlgeschlagen: '+$ResultType.FullName)
+}
+$file=Await-WinRT ([Windows.Storage.StorageFile]::GetFileFromPathAsync($env:PRAXISPRO_OCR_PATH)) ([Windows.Storage.StorageFile])
+$stream=Await-WinRT ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+$decoder=Await-WinRT ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$bitmap=Await-WinRT ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$langs=@([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages)
+$lang=$langs | Where-Object {$_.LanguageTag -match '^de(-|$)'} | Select-Object -First 1
+if($null -eq $lang){$lang=$langs | Where-Object {$_.LanguageTag -match '^en(-|$)'} | Select-Object -First 1}
+if($null -eq $lang){$lang=$langs | Select-Object -First 1}
+if($null -eq $lang){throw 'Keine Windows-OCR-Sprache installiert.'}
+$engine=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)
+if($null -eq $engine){throw 'Windows OCR Engine konnte nicht gestartet werden.'}
+$result=Await-WinRT ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false)
+Write-Output ('__LANG__='+$lang.LanguageTag)
+Write-Output $result.Text
+'''
+        try:
+            env=os.environ.copy(); env["PRAXISPRO_OCR_PATH"]=str(tmp.resolve())
+            run=subprocess.run(["powershell.exe","-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",ps],
+                env=env,capture_output=True,text=True,encoding="utf-8-sig",errors="replace",timeout=30,
+                creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+            out=(run.stdout or "").strip(); err=(run.stderr or "").strip()
+            if run.returncode:
+                detail=(err or out or "Unbekannter OCR-Fehler")[:1500]
+                audit("INK_OCR_E2E_ERROR",detail,self.current_user.get("username","") if self.current_user else "")
+                return QMessageBox.warning(self,"OCR-Selbsttest","Windows OCR ist vorhanden, aber die Texterkennung ist fehlgeschlagen.\n\n"+detail)
+            recognized="\n".join(x for x in out.splitlines() if not x.startswith("__LANG__=")).strip()
+            ok=("praxispro" in recognized.lower() and "123" in recognized)
+            audit("INK_OCR_E2E_OK" if ok else "INK_OCR_E2E_BAD",recognized[:1000],self.current_user.get("username","") if self.current_user else "")
+            if ok:
+                QMessageBox.information(self,"OCR-Selbsttest","OCR funktioniert technisch.\n\nErkannt: "+recognized+"\n\nWenn Handschrift trotzdem nicht erkannt wird, liegt es an der Handschrifterkennung – nicht an der OCR-Installation.")
+            else:
+                QMessageBox.warning(self,"OCR-Selbsttest","OCR wurde ausgeführt, hat das klare Testbild aber nicht zuverlässig erkannt.\n\nErkannt: "+(recognized or "(leer)"))
+        except Exception as e:
+            audit("INK_OCR_E2E_EXCEPTION",str(e)[:1200],self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.warning(self,"OCR-Selbsttest","OCR-Selbsttest fehlgeschlagen:\n\n"+str(e)[:1200])
+        finally:
+            try: tmp.unlink(missing_ok=True)
+            except Exception: pass
+
     def ink_to_text(self):
         """Handschrift lokal über Windows OCR erkennen – mit robustem WinRT-Async-Bridge."""
         if not hasattr(self,"ink") or self.ink.image.isNull():
@@ -1253,7 +1311,7 @@ if($null -eq $preferred){throw 'Keine Windows-OCR-Sprache installiert. Bitte Deu
 $engine=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($preferred)
 if($null -eq $engine){throw ('OCR-Engine konnte für '+$preferred.LanguageTag+' nicht gestartet werden.')}
 $result=Await-WinRT ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false)
 Write-Output ('__LANG__='+$preferred.LanguageTag)
 Write-Output $result.Text
 '''
@@ -1306,7 +1364,7 @@ Write-Output $result.Text
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); erase=QCheckBox("Radierer"); erase.setChecked(self.ink.eraser); erase.toggled.connect(self.ink.set_eraser)
         width=QSpinBox(); width.setRange(1,10); width.setValue(self.ink.pen_width); width.valueChanged.connect(self.ink.set_width)
         zoom=QSlider(Qt.Horizontal); zoom.setRange(60,180); zoom.setValue(100); zoom.setFixedWidth(170); zoomlabel=QLabel("100 %")
-        save=QPushButton("💾 Notiz speichern"); save.clicked.connect(self.save_ink_note); ocr=QPushButton("⌨ Handschrift → Text"); ocr.clicked.connect(self.ink_to_text); ocrtest=QPushButton("OCR-Test"); ocrtest.clicked.connect(self.ocr_system_test); clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); full=QPushButton("⛶ Vollbild"); full.setCheckable(True); full.toggled.connect(lambda on: dlg.showFullScreen() if on else dlg.showNormal()); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
+        save=QPushButton("💾 Notiz speichern"); save.clicked.connect(self.save_ink_note); ocr=QPushButton("⌨ Handschrift → Text"); ocr.clicked.connect(self.ink_to_text); ocrtest=QPushButton("OCR-Selbsttest"); ocrtest.clicked.connect(self.ocr_end_to_end_test); clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); full=QPushButton("⛶ Vollbild"); full.setCheckable(True); full.toggled.connect(lambda on: dlg.showFullScreen() if on else dlg.showNormal()); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
         for x in (undo,erase,QLabel("Stärke"),width,QLabel("Ansicht"),zoom,zoomlabel,save,ocr,ocrtest,clear,full,close): bar.addWidget(x)
         v.addLayout(bar); holder=QScrollArea(); holder.setWidgetResizable(True); holder.setAlignment(Qt.AlignCenter); self.ink.setMinimumSize(360,240); self.ink.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding); self.ink.setParent(holder); holder.setWidget(self.ink)
         basew,baseh=max(360,holder.viewport().width()),max(240,holder.viewport().height())
