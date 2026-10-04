@@ -27,6 +27,9 @@ jobs:
             python -m pip install pymupdf
             python -m py_compile main.py ui_screenshot_test.py generate_icon.py
             python generate_icon.py
+            if (!(Test-Path "assets\\PraxisPro.ico")) { throw "PraxisPro.ico missing after generation" }
+            $icon = Get-Item "assets\\PraxisPro.ico"
+            Write-Host "PraxisPro.ico generated: $($icon.Length) bytes"
 
       - run:
           name: UI smoke test (keine Laufzeit-Mutation)
