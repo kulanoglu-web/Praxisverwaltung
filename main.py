@@ -2829,8 +2829,11 @@ Write-Output $result.Text
                 except Exception: pass
         open_total=sum(float(x.get("amount",0)) for x in DB["invoices"] if x.get("status","offen")=="offen")
         paid_total=sum(float(x.get("amount",0)) for x in DB["invoices"] if x.get("status")=="bezahlt")
-        for txt in (f"Offen: {open_total:.2f} €",f"Bezahlt: {paid_total:.2f} €",f"Überfällig >14 Tage: {overdue_count}",f"Rechnungen: {len(DB['invoices'])}"):
-            lab=QLabel(txt); lab.setObjectName("clientBadge"); lab.setAlignment(Qt.AlignCenter); lab.setMinimumHeight(40); summary.addWidget(lab)
+        summary_buttons=[]
+        for txt,status_value in ((f"Offen: {open_total:.2f} €","offen"),(f"Bezahlt: {paid_total:.2f} €","bezahlt"),(f"Überfällig >14 Tage: {overdue_count}","überfällig"),(f"Rechnungen: {len(DB['invoices'])}","Alle Status")):
+            lab=QPushButton(txt); lab.setObjectName("clientBadge"); lab.setCursor(Qt.PointingHandCursor); lab.setMinimumHeight(40); lab.setToolTip("Klicken, um diese Rechnungen in der Liste anzuzeigen.")
+            lab.clicked.connect(lambda _=False,s=status_value: statusfilter.setCurrentText(s))
+            summary.addWidget(lab); summary_buttons.append(lab)
         v.addLayout(summary)
         h=QHBoxLayout()
         paid=QPushButton("✓ Als bezahlt markieren"); paid.setMinimumHeight(50)
@@ -2999,11 +3002,11 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         tabs=QTabWidget(); tabs.setDocumentMode(True); tabs.setMinimumHeight(440)
         tabs.setStyleSheet("QTabBar::tab { min-width: 105px; padding-left: 10px; padding-right: 10px; }")
         v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
-        general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(16,14,16,20); gv.setSpacing(10)
+        general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(16,14,16,20); gv.setSpacing(10); general.setMinimumWidth(760)
         form=QFormLayout(); form.setHorizontalSpacing(18); form.setVerticalSpacing(10); form.setLabelAlignment(Qt.AlignLeft|Qt.AlignTop)
         # Praxisdaten bewusst kompakt halten: jede Zeile bekommt feste Höhe und Abstand.
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        form.setRowWrapPolicy(QFormLayout.DontWrapRows)
+        form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         form.setFormAlignment(Qt.AlignTop)
         fields={}
         labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("practice_subtitle","Zusatz / Spezialisierung"),("address","Anschrift"),("phone","Mobil / Telefon"),("landline","Festnetz"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
@@ -3067,7 +3070,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         header_right=QComboBox(); header_right.addItems(["Leer"]); header_right.setCurrentText("Leer"); header_right.setVisible(False)
         refresh_logo_preview()
         gv.addLayout(form)
-        appearance=QFrame(); appearance.setObjectName("formCard"); appearance.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
+        appearance=QFrame(); appearance.setObjectName("formCard"); appearance.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); appearance.setMinimumWidth(0)
         # Darstellungsoptionen kompakt in einer Zeile: sie dürfen die Praxisdaten nicht überdecken.
         ar=QHBoxLayout(appearance); ar.setContentsMargins(14,10,14,10); ar.setSpacing(10)
         theme=QComboBox(); theme.addItems(["PraxisPro Blau","Petrol","Grün","Gold","Violett"]); theme.setCurrentText(get_setting("ui_theme","PraxisPro Blau")); theme.setMinimumWidth(180); theme.setMaximumWidth(260)
