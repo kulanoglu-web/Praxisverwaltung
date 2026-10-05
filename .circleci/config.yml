@@ -1,5 +1,5 @@
 version: 2.1
-# ci-trigger: 2026-10-04-build-stage-diagnostics
+# ci-trigger: 2026-10-05-ui-failure-recheck
 
 orbs:
   win: circleci/windows@5.0.0
