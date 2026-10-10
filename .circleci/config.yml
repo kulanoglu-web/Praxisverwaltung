@@ -94,7 +94,6 @@ jobs:
       - store_artifacts:
           path: installer
           destination: PraxisPro-Installer
-          when: always
 
       - store_artifacts:
           path: ui_test_output
