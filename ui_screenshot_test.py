@@ -92,7 +92,10 @@ for width,height in resolutions:
 expected=len(resolutions)*len(pages)
 if saved < expected:
     raise SystemExit(f"Zu wenige Seiten-/Auflösungs-Screenshots erstellt: {saved}/{expected}")
-# Screenshots sind bereits über processEvents() verarbeitet. Hier keinen weiteren\n# Qt-Eventloop starten, damit die folgenden Funktionstests direkt weiterlaufen.\n\n\n# Sitzungsassistent funktional prüfen: ICD-Auswahl -> Thema/Symptome -> Notizübernahme.
+# Screenshots sind bereits über processEvents() verarbeitet.
+# Hier keinen weiteren Qt-Eventloop starten, damit die Funktionstests weiterlaufen.
+
+# Sitzungsassistent funktional prüfen: ICD-Auswahl -> Thema/Symptome -> Notizübernahme.
 # Die vorhandene Assistentenseite verwenden. helper_ui() schreibt seine Widgets nach
 # self.*; ein zweiter Aufruf würde diese Referenzen überschreiben und die Signal-Closures
 # der bereits eingebauten Seite von den aktuell referenzierten Widgets trennen.
