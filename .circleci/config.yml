@@ -87,9 +87,15 @@ jobs:
             if ($installedHash -ne $expected) { throw "Installed logo hash mismatch: $installedHash" }
             Write-Host "Installed logo OK: $installedHash"
             $proc = Start-Process $exe -PassThru
-            Start-Sleep -Seconds 12
-            if ($proc.HasExited) { throw "PraxisPro exited during startup smoke test" }
-            Stop-Process -Id $proc.Id -Force
+            try {
+              Start-Sleep -Seconds 12
+              $proc.Refresh()
+              if ($proc.HasExited) { throw "PraxisPro exited during startup smoke test (exit code $($proc.ExitCode))" }
+              Write-Host "PraxisPro startup smoke test OK (PID $($proc.Id))"
+            } finally {
+              $proc.Refresh()
+              if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+            }
 
       - store_artifacts:
           path: installer
