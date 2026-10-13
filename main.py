@@ -853,12 +853,12 @@ class Main(QMainWindow):
         super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle(f"PraxisPro v{APP_VERSION} – Erdoğan Kulanoğlu"); self.resize(1280,820); self.setMinimumSize(1050,700)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
-        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(195); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
+        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(235); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
         brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
         self.nav=QListWidget(); self.nav.setObjectName("nav")
         for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","♥  Paarakte","▦  Terminkalender","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Hilfe · FAQ · Info"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
-        foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); sv.addWidget(foot)
+        foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); foot.setWordWrap(True); sv.addWidget(foot)
         content=QWidget(); contentv=QVBoxLayout(content); contentv.setContentsMargins(0,0,0,0); contentv.setSpacing(0)
         topbar=QFrame(); topbar.setObjectName("topBrandBar"); topbar.setFixedHeight(62); tb=QHBoxLayout(topbar); tb.setContentsMargins(16,5,18,5); tb.addStretch()
         self.top_logo=QLabel(); self.top_logo.setAlignment(Qt.AlignRight|Qt.AlignVCenter); self.top_logo.setMinimumWidth(220)
@@ -948,7 +948,7 @@ class Main(QMainWindow):
             "Violett":("#34234d","#7048a3","#8b5fc1","#513373","#f7f4fa")}
         side,button,selected,dark,bg=palettes.get(theme,palettes["PraxisPro Blau"])
         if density=="Groß": pad,minh,navpad=8,26,9
-        elif density=="Normal": pad,minh,navpad=6,22,7
+        elif density=="Normal": pad,minh,navpad=6,20,5
         else: pad,minh,navpad=4,18,5
         self.setStyleSheet(f"""
         QMainWindow {{ background:{bg}; }}
@@ -964,6 +964,9 @@ class Main(QMainWindow):
         #pageTitle {{ font-size:{font_size+11}px; font-weight:800; color:{dark}; }}
         #pageSub {{ font-size:{font_size}px; color:#607080; padding-bottom:8px; }}
         #statCard,#formCard,#clientHeader {{ background:white; border:1px solid #d4e0ea; border-radius:10px; padding:{pad+2}px; }}
+        #cardCaption {{ color:#5b6b78; font-size:{max(11,font_size-1)}px; font-weight:700; }}
+        #cardValue {{ color:#17324d; font-size:{font_size+12}px; font-weight:800; }}
+        #infoBox {{ background:white; border:1px solid #d4e0ea; border-radius:10px; padding:12px; color:#607080; font-size:{max(11,font_size-1)}px; }}
         #sectionTitle {{ color:{dark}; font-size:{font_size+2}px; font-weight:800; }}
         QLabel,QCheckBox {{ color:#1f2933; font-size:{font_size}px; }}
         QLineEdit,QTextEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox {{
@@ -3455,7 +3458,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         title=QLabel("Herzlich willkommen!"); title.setObjectName("pageTitle"); sub=QLabel(f"Psychologische Privatpraxis · Überblick {y}"); sub.setObjectName("pageSub"); v.addWidget(title); v.addWidget(sub)
         cards=QGridLayout(); cards.setSpacing(14)
         def card(caption,value):
-            box=QFrame(); box.setObjectName("statCard"); q=QVBoxLayout(box); a=QLabel(caption); a.setObjectName("cardCaption"); b=QLabel(value); b.setObjectName("cardValue"); q.addWidget(a);q.addWidget(b);return box
+            box=QFrame(); box.setObjectName("statCard"); box.setMinimumHeight(104); q=QVBoxLayout(box); a=QLabel(caption); a.setObjectName("cardCaption"); b=QLabel(value); b.setObjectName("cardValue"); q.addWidget(a);q.addWidget(b);return box
         cards.addWidget(card("ABGERECHNET",f"{billed:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,0)
         cards.addWidget(card("BEZAHLT",f"{paid:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,1)
         cards.addWidget(card("OFFEN",f"{open_amt:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,2)
@@ -3482,7 +3485,9 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             ap=QLabel("\n".join(preview)); ap.setObjectName("pageSub"); ap.setWordWrap(True); av.addWidget(ap); v.addWidget(alert)
         quick=QLabel("Schnellzugriff"); quick.setObjectName("sectionTitle"); v.addWidget(quick)
         actions=QHBoxLayout(); new_session=QPushButton("＋  Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("▤  Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(5)); clients=QPushButton("♙  Klienten verwalten"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
-        info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch(); return w
+        info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch()
+        # Scrollfläche: bei niedrigen Fenstern/hoher Windows-Skalierung wird nichts mehr zusammengedrückt.
+        sa=QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QFrame.NoFrame); sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); sa.setWidget(w); return sa
 if __name__ == "__main__":
     app=QApplication(sys.argv)
     _ico=bundled_asset("PraxisPro.ico")
