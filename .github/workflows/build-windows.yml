@@ -139,12 +139,21 @@ jobs:
           }
 
           $files = @()
-          $files += Get-ChildItem "test-artifacts/*.png" | ForEach-Object { $_.FullName }
-          $files += Get-ChildItem "test-artifacts/*.pdf" | ForEach-Object { $_.FullName }
-
-          # Zusätzlich eine ZIP-Datei mit allen echten Windows-Testbildern bereitstellen.
-          Compress-Archive -Path "test-artifacts/*.png" -DestinationPath "PraxisPro_UI_Screenshots_v$env:APP_VERSION.zip" -Force
-          $files += (Resolve-Path "PraxisPro_UI_Screenshots_v$env:APP_VERSION.zip").Path
+          # Testbilder/-PDFs aus den vorhandenen Ordnern einsammeln (fehlende Ordner sind kein Fehler).
+          $shots = @()
+          foreach ($dir in @("test-artifacts","ui_test_output")) {
+            if (Test-Path $dir) {
+              $shots += @(Get-ChildItem $dir -Filter *.png -File -ErrorAction SilentlyContinue)
+              $files += @(Get-ChildItem $dir -Filter *.pdf -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+            }
+          }
+          if ($shots.Count -gt 0) {
+            $zip = "PraxisPro_UI_Screenshots_v$env:APP_VERSION.zip"
+            Compress-Archive -Path ($shots | ForEach-Object { $_.FullName }) -DestinationPath $zip -Force
+            $files += (Resolve-Path $zip).Path
+          } else {
+            Write-Warning "Keine UI-Testbilder gefunden - es werden nur EXE und Setup veröffentlicht."
+          }
           $files += (Resolve-Path "dist/Praxisverwaltung.exe").Path
           $files += (Resolve-Path "installer/PraxisPro_Setup_v$env:APP_VERSION.exe").Path
 
