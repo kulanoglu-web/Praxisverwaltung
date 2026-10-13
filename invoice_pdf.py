@@ -218,7 +218,7 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
         due_text = d.get("due_text") or ("Zahlungsziel: 14 Tage nach Rechnungsdatum." if mode == "invoice" else "Bitte begleichen Sie den Betrag innerhalb von 7 Tagen.")
         can.drawRightString(R, cursor, due_text)
         can.setFont(regular, 8.2); can.drawRightString(R, cursor - 5 * mm, "Bitte Rechnungsnummer als Verwendungszweck angeben.")
-        by = cursor - 5 * mm - 8 * mm - 42 * mm; bh = 42 * mm; gap = 4 * mm; bw = (R - L - gap) / 2
+        by = cursor - 5 * mm - 8 * mm - 48 * mm; bh = 48 * mm; gap = 4 * mm; bw = (R - L - gap) / 2
 
         def paybox(xb, title):
             can.setStrokeColor(BORDER); can.setFillColor(WHITE); can.roundRect(xb, by, bw, bh, 2 * mm, stroke=1, fill=1)
@@ -234,9 +234,17 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
         if paypal_logo_path:
             try:
                 from reportlab.lib.utils import ImageReader
-                pim = ImageReader(str(paypal_logo_path)); piw, pih = pim.getSize(); pim.getRGBData()
+                try:
+                    from PIL import Image
+                    import io
+                    im = Image.open(str(paypal_logo_path)).convert("RGBA")
+                    px_ = [(r, g, b, 0 if (r > 244 and g > 244 and b > 244) else a) for r, g, b, a in im.getdata()]
+                    im.putdata(px_); buf = io.BytesIO(); im.save(buf, "PNG"); buf.seek(0); pim = ImageReader(buf)
+                except Exception:
+                    pim = ImageReader(str(paypal_logo_path))
+                piw, pih = pim.getSize(); pim.getRGBData()
                 psc = min(24 * mm / piw, 5.6 * mm / pih); pw_, ph_ = piw * psc, pih * psc
-                can.drawImage(pim, L + bw + gap + bw - 2.5 * mm - pw_, by + bh - 4 * mm - ph_ / 2, width=pw_, height=ph_, preserveAspectRatio=True, mask="auto")
+                can.drawImage(pim, L + bw + gap + bw - 3 * mm - pw_, by + bh - 4 * mm - ph_ / 2, width=pw_, height=ph_, preserveAspectRatio=True, mask="auto")
             except Exception as e:
                 log("PAYPAL_LOGO_ERROR", str(e)[:300])
         else:
@@ -249,17 +257,18 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
             from reportlab.graphics.shapes import Drawing
             from reportlab.graphics import renderPDF
 
-            def qr(data, xq, yq, size=21 * mm, level="M"):
+            def qr(data, xq, yq, size=25 * mm, level="M"):
                 q = QrCodeWidget(data, barLevel=level); b = q.getBounds()
                 dr = Drawing(size, size, transform=[size / (b[2] - b[0]), 0, 0, size / (b[3] - b[1]), 0, 0]); dr.add(q); renderPDF.draw(dr, can, xq, yq)
 
             epc = "\n".join(["BCD", "002", "1", "SCT", bic, owner, iban.replace(" ", ""), "EUR" + f"{amt:.2f}", "", "", no])
-            qr(epc, L + bw - 24 * mm, by + 4 * mm)
+            qr(epc, L + bw - 28 * mm, by + 4 * mm)
             link = paypal_link(s.get("paypal_me", ""), paypal, amt)
             if link:
-                qr(link, L + bw + gap + bw - 24 * mm, by + 4 * mm)
-                can.setFont(regular, 5.6); can.setFillColor(NAVY)
-                can.drawCentredString(L + bw + gap + bw - 13.5 * mm, by + 1.8 * mm, "QR scannen: PayPal mit Betrag öffnen")
+                qr(link, L + bw + gap + bw - 28 * mm, by + 4 * mm)
+                can.setFont(regular, 7); can.setFillColor(NAVY)
+                can.drawString(px, py - 20 * mm, "QR-Code mit dem Handy scannen:")
+                can.drawString(px, py - 24 * mm, "PayPal öffnet mit Betrag und Empfänger.")
         except Exception as e:
             log("INVOICE_QR_ERROR", str(e)[:300])
         yy = by - 9 * mm
@@ -291,17 +300,18 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
     can.drawRightString(R, yy - 18 * mm, "Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift gültig.")
 
     # ---------------------------------------------------------------- Fußzeile
-    fy = 15 * mm
-    can.setStrokeColor(GOLD); can.setLineWidth(.8); can.line(L, fy + 10 * mm, R, fy + 10 * mm)
-    can.setFillColor(TEAL); can.setFont(bold, 6.8)
-    for xx, title in ((L, "Praxis"), (75 * mm, "Kontakt"), (132 * mm, "Zahlung")):
+    fy = 20 * mm
+    can.setStrokeColor(GOLD); can.setLineWidth(.8); can.line(L, fy + 11 * mm, R, fy + 11 * mm)
+    cols = (L, L + (R - L) * 0.30, L + (R - L) * 0.60)
+    can.setFillColor(TEAL); can.setFont(bold, 8.5)
+    for xx, title in zip(cols, ("Praxis", "Kontakt", "Zahlung")):
         can.drawString(xx, fy + 5.5 * mm, title)
-    can.setFillColor(NAVY); can.setFont(regular, 6)
-    can.drawString(L, fy + 1 * mm, address); can.drawString(L, fy - 2.5 * mm, website)
-    can.drawString(75 * mm, fy + 1 * mm, " · ".join(x for x in (phone, landline) if x))
-    if fax: can.drawString(75 * mm, fy - 2.5 * mm, "Fax " + fax)
-    can.drawString(75 * mm, fy - 6 * mm, email)
-    can.drawString(132 * mm, fy + 1 * mm, "IBAN " + iban); can.drawString(132 * mm, fy - 2.5 * mm, "BIC " + bic)
-    if tax: can.drawString(132 * mm, fy - 6 * mm, "Steuernummer " + tax)
+    can.setFillColor(NAVY); can.setFont(regular, 8)
+    ln = 4.2 * mm
+    for xx, lines in ((cols[0], [address, website]),
+                      (cols[1], [" · ".join(x for x in (phone, landline) if x), ("Fax " + fax) if fax else "", email]),
+                      (cols[2], ["IBAN " + iban, "BIC " + bic, ("Steuernummer " + tax) if tax else ""])):
+        for i, t_ in enumerate([x for x in lines if x]):
+            can.drawString(xx, fy + 0.5 * mm - i * ln, t_)
     can.save()
     return str(pdf_path)

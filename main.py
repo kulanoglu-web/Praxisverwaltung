@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.2"
+APP_VERSION = "0.13.3"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1136,7 +1136,7 @@ class Main(QMainWindow):
         self.appt_time=FlexTimeEdit(QTime.currentTime()); self.appt_time.setDisplayFormat("HH:mm")
         self.appt_minutes=QSpinBox(); self.appt_minutes.setRange(5,300); self.appt_minutes.setValue(45); self.appt_minutes.setSuffix(" Min.")
         self.appt_type=QComboBox(); self.appt_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstiger Termin"])
-        form=QFormLayout(); form.addRow("Datum",self.appt_date); form.addRow("Beginn",self.appt_time); form.addRow("Dauer",self.appt_minutes); form.addRow("Terminart",self.appt_type)
+        rv.addWidget(QLabel("<b style='font-size:17px'>Termin anlegen / ändern</b>")); form=QFormLayout(); form.setVerticalSpacing(10); form.addRow("Datum",self.appt_date); form.addRow("Beginn",self.appt_time); form.addRow("Dauer",self.appt_minutes); form.addRow("Terminart",self.appt_type)
         self.appt_client=QComboBox(); self.appt_client.setEditable(True); self.appt_client.setInsertPolicy(QComboBox.NoInsert); self.appt_client.setMaxVisibleItems(18)
         self.appt_client.lineEdit().setPlaceholderText("Klient suchen – Name eingeben …")
         self.appt_client.completer().setCompletionMode(QCompleter.PopupCompletion); self.appt_client.completer().setCaseSensitivity(Qt.CaseInsensitive); self.appt_client.completer().setFilterMode(Qt.MatchContains)
@@ -1158,8 +1158,8 @@ class Main(QMainWindow):
         form.addRow("Klient",self.appt_client); form.addRow("Paarakte",self.appt_couple)
         self.appt_status=QComboBox(); self.appt_status.addItems(["geplant","erschienen","abgesagt","ausgefallen"]); form.addRow("Status",self.appt_status)
         self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Interne Terminnotiz – verschlüsselt"); form.addRow("Notiz",self.appt_note); rv.addLayout(form)
-        actions=QHBoxLayout(); save=QPushButton("Termin speichern"); edit=QPushButton("Termin bearbeiten"); delete=QPushButton("Termin löschen"); start=QPushButton("▶ Sitzung starten"); actions.addWidget(save); actions.addWidget(edit); actions.addWidget(delete); actions.addWidget(start); rv.addLayout(actions)
-        split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); split.setMaximumHeight(455); v.addWidget(split,0)
+        actions=FlowLayout(hspacing=8,vspacing=8); save=QPushButton("＋ Neuen Termin anlegen"); edit=QPushButton("✎ Termin ändern"); delete=QPushButton("Termin löschen"); start=QPushButton("▶ Sitzung starten"); save.setToolTip("Legt mit den Angaben oben einen neuen Termin an."); edit.setToolTip("Erst einen Termin in der Liste unten markieren, dann hier klicken. Danach Angaben ändern und erneut klicken."); actions.addWidget(save); actions.addWidget(edit); actions.addWidget(delete); actions.addWidget(start); rv.addLayout(actions)
+        split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); split.setChildrenCollapsible(False); left.setMinimumWidth(380); right.setMinimumWidth(430); v.addWidget(split,0)
         viewrow=QHBoxLayout(); self.appt_view=QComboBox(); self.appt_view.addItems(["Tag","Woche"]); viewrow.addWidget(QLabel("Ansicht")); viewrow.addWidget(self.appt_view); viewrow.addStretch(); v.addLayout(viewrow)
         self.appt_day_title=QLabel(); self.appt_day_title.setProperty("class","sectionTitle"); v.addWidget(self.appt_day_title)
         self.appt_list=QTableWidget(0,6); self.appt_list.setHorizontalHeaderLabels(["Zeit","Dauer","Art","Klient / Paar","Status","Notiz"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.appt_list.setSelectionBehavior(QTableWidget.SelectRows); self.appt_list.setAlternatingRowColors(True); self.appt_list.setMinimumHeight(190); v.addWidget(self.appt_list,1)
@@ -1229,8 +1229,8 @@ class Main(QMainWindow):
             self.appt_date.setDate(QDate.fromString(d,"yyyy-MM-dd")); self.appt_time.setTime(QTime.fromString(t,"HH:mm")); self.appt_minutes.setValue(m); self.appt_type.setCurrentText(typ or "Einzeltherapie"); self.appt_status.setCurrentText(status or "geplant"); self.appt_note.setText(decrypt_text(note))
             for box,val in ((self.appt_client,cid),(self.appt_couple,couple)):
                 idx=box.findData(val); box.setCurrentIndex(idx if idx>=0 else 0)
-            QMessageBox.information(self,"Termin bearbeiten","Der Termin wurde in die Eingabefelder geladen.\n\nKlient oder Paarakte sowie Datum, Uhrzeit, Dauer, Terminart, Status und Notiz können jetzt geändert werden. Anschließend erneut „Termin bearbeiten“ klicken, um die Änderungen zu speichern.")
-            edit.setText("Änderungen speichern")
+            QMessageBox.information(self,"Termin bearbeiten","Der Termin wurde in die Eingabefelder geladen.\n\nKlient oder Paarakte sowie Datum, Uhrzeit, Dauer, Terminart, Status und Notiz können jetzt geändert werden. Anschließend auf „Änderungen speichern“ klicken, um die Änderungen zu speichern.")
+            edit.setText("✔ Änderungen speichern")
             edit.setProperty("editingAppointmentId",aid)
             return
         def save_edit_if_active():
@@ -1242,7 +1242,7 @@ class Main(QMainWindow):
             con=sqlite3.connect(DBFILE)
             con.execute("UPDATE appointments SET appointment_date=?,start_time=?,minutes=?,client_id=?,couple_id=?,appointment_type=?,status=?,note=? WHERE id=?",(self.appt_date.date().toString("yyyy-MM-dd"),self.appt_time.time().toString("HH:mm"),self.appt_minutes.value(),cid,couple,self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),aid))
             con.commit(); con.close(); audit("APPOINTMENT_UPDATE",str(aid),self.current_user.get("username",""))
-            edit.setProperty("editingAppointmentId",None); edit.setText("Termin bearbeiten"); refresh(); return True
+            edit.setProperty("editingAppointmentId",None); edit.setText("✎ Termin ändern"); refresh(); return True
         original_edit_selected=edit_selected
         def edit_selected():
             if save_edit_if_active(): return
@@ -1268,7 +1268,9 @@ class Main(QMainWindow):
             con=sqlite3.connect(DBFILE); con.execute("DELETE FROM appointments WHERE id=?",(aid,)); con.commit(); con.close(); audit("APPOINTMENT_DELETE",str(aid),self.current_user.get("username","")); refresh()
         save.clicked.connect(store); edit.clicked.connect(edit_selected); delete.clicked.connect(remove); start.clicked.connect(start_session); self.appt_calendar.selectionChanged.connect(refresh); self.appt_view.currentTextChanged.connect(lambda *_: refresh())
         today.clicked.connect(lambda: self.appt_calendar.setSelectedDate(QDate.currentDate())); prev.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(-1))); nxt.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(1)))
-        refresh(); return page
+        refresh()
+        for _w in (self.appt_date,self.appt_time,self.appt_minutes,self.appt_type,self.appt_client,self.appt_couple,self.appt_status,self.appt_note): _w.setMinimumHeight(38)
+        sa=QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QFrame.NoFrame); sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); sa.setWidget(page); return sa
 
     def couples_ui(self):
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
