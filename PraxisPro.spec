@@ -2,12 +2,10 @@
 from pathlib import Path
 
 datas = []
-if Path("assets/logo.jpg").is_file():
-    datas.append(("assets/logo.jpg", "assets"))
-if Path("assets/logo.png").is_file():
-    datas.append(("assets/logo.png", "assets"))
-if Path("assets/paypal.png").is_file():
-    datas.append(("assets/paypal.png", "assets"))
+for _f in ("assets/logo.png", "assets/paypal.png", "assets/PraxisPro.ico"):
+    if not Path(_f).is_file():
+        raise SystemExit(f"FEHLT: {_f} - Build abgebrochen (sonst fehlt das Bild in der Rechnung)")
+    datas.append((_f, "assets"))
 if Path("templates").is_dir():
     datas.append(("templates", "templates"))
 

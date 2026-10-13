@@ -1,11 +1,11 @@
 import sys
 import subprocess, json, os, re, math, shutil, sqlite3, base64, hashlib, tempfile, time
 from pathlib import Path
-from datetime import datetime, date
-from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent
+from datetime import datetime, date, timedelta
+from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent, Signal, QThread
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QListWidgetItem,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider,QSizePolicy,QCalendarWidget,QCompleter)
 from PySide6.QtCore import QDate,QTime
-from PySide6.QtGui import QKeySequence, QShortcut, QTextCharFormat, QImage, QPainter, QPen, QPixmap, QDesktopServices, QFont, QColor, QIcon
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QTextCharFormat, QImage, QPainter, QPen, QPixmap, QDesktopServices, QFont, QColor
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
@@ -14,18 +14,61 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION="0.12.18"
+APP_VERSION = "0.13.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
 
+KEYFILE_PROT=DBDIR/"praxis.key.dpapi"
+_KEY_CACHE=None
+
+def _dpapi(data,protect):
+    """Windows-DPAPI: bindet Daten an das angemeldete Windows-Benutzerkonto."""
+    if os.name!="nt": raise OSError("DPAPI ist nur unter Windows verfügbar")
+    import ctypes
+    from ctypes import wintypes
+    class BLOB(ctypes.Structure): _fields_=[("cbData",wintypes.DWORD),("pbData",ctypes.POINTER(ctypes.c_char))]
+    buf=ctypes.create_string_buffer(data,len(data)); inb=BLOB(len(data),ctypes.cast(buf,ctypes.POINTER(ctypes.c_char))); out=BLOB()
+    crypt32=ctypes.windll.crypt32; kernel32=ctypes.windll.kernel32; kernel32.LocalFree.argtypes=[ctypes.c_void_p]
+    fn=crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
+    if not fn(ctypes.byref(inb),None,None,None,None,0,ctypes.byref(out)): raise OSError("Windows-Schlüsselschutz meldet einen Fehler")
+    try: return ctypes.string_at(out.pbData,out.cbData)
+    finally: kernel32.LocalFree(out.pbData)
+
+def key_is_protected(): return KEYFILE_PROT.exists()
+
 def encryption_key():
+    global _KEY_CACHE
+    if _KEY_CACHE is not None: return _KEY_CACHE
     DBDIR.mkdir(parents=True,exist_ok=True)
-    if KEYFILE.exists(): return KEYFILE.read_bytes()
+    if KEYFILE_PROT.exists():
+        try: _KEY_CACHE=_dpapi(KEYFILE_PROT.read_bytes(),False); return _KEY_CACHE
+        except Exception as e:
+            raise RuntimeError("Der Datenschlüssel konnte nicht entschlüsselt werden. Er ist an ein anderes Windows-Konto oder einen anderen PC gebunden. Bitte den Wiederherstellungsschlüssel (.key) über 'Datensicherung wiederherstellen' einspielen.") from e
+    if KEYFILE.exists(): _KEY_CACHE=KEYFILE.read_bytes(); return _KEY_CACHE
     key=Fernet.generate_key(); KEYFILE.write_bytes(key)
     try: os.chmod(KEYFILE,0o600)
     except Exception: pass
-    return key
+    _KEY_CACHE=key; return key
+
+def protect_key_file():
+    """Klartext-Schlüsseldatei durch eine an das Windows-Konto gebundene Datei ersetzen. Gibt (ok, Meldung) zurück.
+    Der Klartextschlüssel wird erst gelöscht, nachdem die geschützte Datei nachweislich wieder entschlüsselt werden kann."""
+    try:
+        if os.name!="nt": return False,"Der Schlüsselschutz ist nur unter Windows verfügbar."
+        if KEYFILE_PROT.exists(): return True,"Der Schlüssel ist bereits geschützt."
+        if not KEYFILE.exists(): return False,"Es wurde keine Schlüsseldatei gefunden."
+        raw=KEYFILE.read_bytes(); blob=_dpapi(raw,True); tmp=KEYFILE_PROT.with_suffix(".tmp"); tmp.write_bytes(blob)
+        if _dpapi(tmp.read_bytes(),False)!=raw:
+            tmp.unlink(missing_ok=True); return False,"Die Prüfung des geschützten Schlüssels ist fehlgeschlagen. Es wurde nichts verändert."
+        tmp.replace(KEYFILE_PROT)
+        try: KEYFILE.write_bytes(b"0"*len(raw))
+        except Exception: pass
+        KEYFILE.unlink(missing_ok=True)
+        global _KEY_CACHE; _KEY_CACHE=raw
+        return True,"Der Schlüssel ist jetzt an Ihr Windows-Benutzerkonto gebunden."
+    except Exception as e:
+        return False,"Der Schlüssel konnte nicht geschützt werden (unverändert gelassen): "+str(e)[:300]
 
 def encrypt_text(value):
     if value is None or value=="": return value or ""
@@ -56,8 +99,10 @@ def encrypt_file(path):
     return str(out)
 
 class InkCanvas(QWidget):
+    stroke_started=Signal()
+    stroke_finished=Signal()
     def __init__(self):
-        super().__init__(); self.setMinimumHeight(220); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False; self.pen_width=3; self.eraser=False; self.history=[]
+        super().__init__(); self.rev=0; self.setMinimumHeight(220); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False; self.pen_width=3; self.eraser=False; self.history=[]
     def paintEvent(self,e):
         p=QPainter(self); p.drawImage(self.rect(),self.image)
         # Live-Uhr direkt auf der Handschriftfläche; wird nicht in die gespeicherte Notiz eingebrannt.
@@ -68,15 +113,16 @@ class InkCanvas(QWidget):
     def pointer(self,e):
         return QPoint(int(e.position().x()*self.image.width()/max(1,self.width())),int(e.position().y()*self.image.height()/max(1,self.height())))
     def mousePressEvent(self,e):
-        if e.button()==Qt.LeftButton:self.history.append(self.image.copy()); self.history=self.history[-30:]; self.last=self.pointer(e);self.drawing=True
+        if e.button()==Qt.LeftButton:self.history.append(self.image.copy()); self.history=self.history[-30:]; self.last=self.pointer(e);self.drawing=True; self.rev+=1; self.stroke_started.emit()
     def mouseMoveEvent(self,e):
         if self.drawing:
             p=self.pointer(e); q=QPainter(self.image); q.setRenderHint(QPainter.Antialiasing); q.setPen(QPen(Qt.white if self.eraser else Qt.black,self.pen_width if not self.eraser else max(12,self.pen_width*4),Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin)); q.drawLine(self.last,p); q.end(); self.last=p; self.update()
     def mouseReleaseEvent(self,e):
-        if e.button()==Qt.LeftButton:self.drawing=False
-    def clear(self): self.history.append(self.image.copy()); self.image.fill(Qt.white); self.update()
+        if e.button()==Qt.LeftButton:
+            self.drawing=False; self.stroke_finished.emit()
+    def clear(self): self.history.append(self.image.copy()); self.image.fill(Qt.white); self.rev+=1; self.update()
     def undo(self):
-        if self.history: self.image=self.history.pop(); self.update()
+        if self.history: self.image=self.history.pop(); self.rev+=1; self.update()
     def set_eraser(self,on): self.eraser=on
     def set_width(self,w): self.pen_width=w
     def save_png(self,path): return self.image.save(str(path),"PNG")
@@ -87,6 +133,210 @@ class InkCanvas(QWidget):
         else: img=QImage(str(path))
         if not img.isNull(): self.image=img.convertToFormat(QImage.Format_ARGB32).scaled(1200,700,Qt.IgnoreAspectRatio,Qt.SmoothTransformation); self.history=[]; self.update(); return True
         return False
+
+OCR_PS_COMMON = r"""$ErrorActionPreference='Stop'
+try{ [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false) }catch{}
+try{ [Console]::InputEncoding=New-Object System.Text.UTF8Encoding($false) }catch{}
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
+$null=[Windows.Storage.FileAccessMode,Windows.Storage,ContentType=WindowsRuntime]
+$null=[Windows.Storage.Streams.IRandomAccessStreamWithContentType,Windows.Storage.Streams,ContentType=WindowsRuntime]
+$null=[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
+$null=[Windows.Graphics.Imaging.SoftwareBitmap,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
+$null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
+$null=[Windows.Media.Ocr.OcrResult,Windows.Foundation,ContentType=WindowsRuntime]
+$null=[Windows.Globalization.Language,Windows.Globalization,ContentType=WindowsRuntime]
+# Die richtige AsTask-Überladung (IAsyncOperation) gezielt wählen, nicht einfach die erste generische.
+$asTask=([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+function Await($op,$type){ $t=$asTask.MakeGenericMethod($type).Invoke($null,@($op)); [void]$t.Wait(-1); return $t.Result }
+$engines=@{}
+function Get-Engine($pref){
+  $order=@(); if($pref){ $order+=$pref }; $order+=@('de-DE','tr-TR','en-US')
+  foreach($tag in $order){
+    if($engines.ContainsKey($tag)){ if($engines[$tag]){ return $engines[$tag] }; continue }
+    $eng=$null
+    try{ $lang=New-Object Windows.Globalization.Language($tag); if([Windows.Media.Ocr.OcrEngine]::IsLanguageSupported($lang)){ $eng=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang) } }catch{}
+    $engines[$tag]=$eng
+    if($eng){ return $eng }
+  }
+  return [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+}
+function Recognize($path,$pref){
+  $file=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
+  $stream=Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+  try{
+    $decoder=Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+    $bitmap=Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+  } finally { try{ $stream.Dispose() }catch{} }
+  $engine=Get-Engine $pref
+  if(-not $engine){ throw 'KEINE_OCR_SPRACHE' }
+  $result=Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+  $out=@(); foreach($l in $result.Lines){ $out+=$l.Text }
+  return $out
+}
+"""
+
+# Einmaliger Aufruf (Rückfallebene)
+OCR_PS_ONESHOT = OCR_PS_COMMON + r"""
+try{
+  $lines=Recognize $env:PRAXISPRO_OCR_PATH $env:PRAXISPRO_OCR_LANG
+  [Console]::Out.Write(($lines -join "`n"))
+}catch{ [Console]::Error.Write($_.Exception.Message); exit 1 }
+"""
+
+# Dauerhaft laufender Dienst: PowerShell wird nur einmal gestartet, jede Erkennung dauert danach nur Sekundenbruchteile.
+OCR_PS_SERVER = OCR_PS_COMMON + r"""
+[Console]::Out.WriteLine('<<READY>>'); [Console]::Out.Flush()
+while($true){
+  $line=[Console]::In.ReadLine()
+  if($null -eq $line -or $line -eq 'QUIT'){ break }
+  try{
+    $parts=$line.Split('|',2)
+    $path=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($parts[1]))
+    $lines=Recognize $path $parts[0]
+    foreach($l in $lines){ [Console]::Out.WriteLine('L:'+$l) }
+    [Console]::Out.WriteLine('<<END>>')
+  }catch{ [Console]::Out.WriteLine('<<ERR>>'+(($_.Exception.Message) -replace '[\r\n]+',' ')) }
+  [Console]::Out.Flush()
+}
+"""
+
+OCR_LANGS = {"Deutsch":"de-DE","Türkisch":"tr-TR","Englisch":"en-US"}
+
+def prepare_ink_for_ocr(image):
+    """Handschrift für die Windows-Texterkennung aufbereiten: auf die Schrift zuschneiden, Zeilenhöhe auf eine
+    für die Erkennung günstige Größe bringen, schwarz auf weiß mit Rand. Gibt None zurück, wenn nichts geschrieben wurde."""
+    if image is None or image.isNull(): return None
+    q=4
+    small=image.convertToFormat(QImage.Format_Grayscale8).scaled(max(1,image.width()//q),max(1,image.height()//q),Qt.IgnoreAspectRatio,Qt.SmoothTransformation)
+    rows=[0]*small.height(); x0=10**9; x1=-1
+    for y in range(small.height()):
+        for x in range(small.width()):
+            if small.pixelColor(x,y).red()<235:
+                rows[y]+=1
+                if x<x0:x0=x
+                if x>x1:x1=x
+    ys=[y for y,c in enumerate(rows) if c>0]
+    if not ys or x1<0: return None
+    y0,y1=ys[0],ys[-1]
+    # Textzeilen als zusammenhängende Bänder erkennen (Lücken bis 2 Zeilen werden überbrückt)
+    bands=[]; start=ys[0]; prev=ys[0]
+    for y in ys[1:]:
+        if y-prev>3: bands.append((start,prev)); start=y
+        prev=y
+    bands.append((start,prev))
+    heights=sorted((b-a+1)*q for a,b in bands); med=heights[len(heights)//2]
+    m=12
+    cx0=max(0,(x0-m)*q); cy0=max(0,(y0-m)*q); cx1=min(image.width(),(x1+m+1)*q); cy1=min(image.height(),(y1+m+1)*q)
+    crop=image.copy(cx0,cy0,max(8,cx1-cx0),max(8,cy1-cy0)).convertToFormat(QImage.Format_RGB32)
+    scale=max(0.5,min(2.5,64.0/max(8,med)))
+    out=QImage(crop.width()+120,crop.height()+120,QImage.Format_RGB32); out.fill(Qt.white)
+    pt=QPainter(out); pt.drawImage(60,60,crop); pt.end()
+    if abs(scale-1)>0.08: out=out.scaled(max(16,int(out.width()*scale)),max(16,int(out.height()*scale)),Qt.KeepAspectRatio,Qt.SmoothTransformation)
+    # Mindestgröße, damit Windows nicht an sehr kleinen Bildern scheitert
+    if out.width()<260 or out.height()<90:
+        big=QImage(max(260,out.width()),max(90,out.height()),QImage.Format_RGB32); big.fill(Qt.white)
+        pt=QPainter(big); pt.drawImage(0,0,out); pt.end(); out=big
+    return out
+
+import threading, queue
+
+class OcrServer:
+    """Dauerhaft laufender PowerShell-Prozess für die Windows-Texerkennung (startet nur einmal)."""
+    def __init__(self,command=None):
+        self.command=command; self.proc=None; self.q=queue.Queue(); self.lock=threading.Lock(); self.script=None
+    def _start(self):
+        tmpdir=Path(tempfile.gettempdir())
+        if self.command is None:
+            self.script=tmpdir/f"PraxisPro_OCR_server_{os.getpid()}.ps1"; self.script.write_text(OCR_PS_SERVER,encoding="utf-8-sig")
+            cmd=["powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",str(self.script)]
+        else: cmd=list(self.command)
+        flags=0x08000000 if os.name=="nt" else 0
+        self.proc=subprocess.Popen(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,creationflags=flags)
+        self.q=queue.Queue(); proc=self.proc; q=self.q
+        def reader():
+            try:
+                for raw in iter(proc.stdout.readline,b""): q.put(raw.decode("utf-8-sig",errors="replace").rstrip("\r\n"))
+            finally: q.put(None)
+        threading.Thread(target=reader,daemon=True).start()
+        first=self.q.get(timeout=45)
+        if first!="<<READY>>": raise RuntimeError("OCR-Dienst nicht gestartet")
+    def stop(self):
+        try:
+            if self.proc and self.proc.poll() is None: self.proc.kill()
+        except Exception: pass
+        self.proc=None
+    def recognize(self,png_path,lang,timeout=40):
+        """Gibt den erkannten Text zurück oder löst RuntimeError aus (Meldung z. B. 'KEINE_OCR_SPRACHE')."""
+        with self.lock:
+            if self.proc is None or self.proc.poll() is not None: self._start()
+            while not self.q.empty(): self.q.get_nowait()
+            b64=base64.b64encode(str(Path(png_path).resolve()).encode("utf-8")).decode("ascii")
+            try:
+                self.proc.stdin.write((lang+"|"+b64+"\n").encode("ascii")); self.proc.stdin.flush()
+                lines=[]
+                while True:
+                    item=self.q.get(timeout=timeout)
+                    if item is None: raise RuntimeError("OCR-Dienst wurde beendet")
+                    if item=="<<END>>": return "\n".join(lines).strip()
+                    if item.startswith("<<ERR>>"): raise RuntimeError(item[7:] or "Unbekannter Fehler")
+                    if item.startswith("L:"): lines.append(item[2:])
+            except queue.Empty:
+                self.stop(); raise RuntimeError("Zeitüberschreitung der Texterkennung")
+            except (BrokenPipeError,OSError):
+                self.stop(); raise RuntimeError("OCR-Dienst nicht erreichbar")
+
+_OCR_SERVER=None
+
+def run_windows_ocr(image,lang="de-DE"):
+    """Gibt (text, fehlermeldung) zurück. Läuft komplett lokal über die Windows-Texterkennung."""
+    global _OCR_SERVER
+    if os.name!="nt": return "", "Die Handschrift-Erkennung ist nur unter Windows verfügbar."
+    prepared=prepare_ink_for_ocr(image)
+    if prepared is None: return "", "LEER"
+    tmpdir=Path(tempfile.gettempdir()); stamp=f"{os.getpid()}_{int(time.time()*1000)}"
+    png=tmpdir/f"PraxisPro_OCR_{stamp}.png"
+    try:
+        if not prepared.save(str(png),"PNG"): return "", "Die Zeichenfläche konnte nicht vorbereitet werden."
+        def lang_msg(): return "Windows hat keine Texterkennungs-Sprache installiert.\n\nBitte unter Einstellungen → Zeit & Sprache → Sprache & Region die Sprache Deutsch hinzufügen (bei den Sprachoptionen Texterkennung/OCR mit installieren) und PraxisPro neu starten."
+        # 1) schneller Dauerdienst
+        try:
+            if _OCR_SERVER is None: _OCR_SERVER=OcrServer()
+            out=_OCR_SERVER.recognize(png,lang)
+            return (out,"") if out else ("","KEIN_TEXT")
+        except RuntimeError as e:
+            if "KEINE_OCR_SPRACHE" in str(e): return "", lang_msg()
+            server_error=str(e)
+        except Exception as e: server_error=str(e)
+        # 2) Rückfallebene: einmaliger Aufruf
+        ps1=tmpdir/f"PraxisPro_OCR_{stamp}.ps1"
+        try:
+            ps1.write_text(OCR_PS_ONESHOT,encoding="utf-8-sig")
+            env=os.environ.copy(); env["PRAXISPRO_OCR_PATH"]=str(png.resolve()); env["PRAXISPRO_OCR_LANG"]=lang
+            run=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",str(ps1)],env=env,capture_output=True,timeout=60,creationflags=0x08000000)
+            out=run.stdout.decode("utf-8-sig",errors="replace").strip(); err=run.stderr.decode("utf-8",errors="replace").strip()
+            if run.returncode!=0:
+                if "KEINE_OCR_SPRACHE" in err: return "", lang_msg()
+                return "", (err or server_error or "Unbekannter Fehler der Windows-Texterkennung.")[:900]
+            return (out,"") if out else ("","KEIN_TEXT")
+        finally:
+            try: ps1.unlink(missing_ok=True)
+            except Exception: pass
+    except subprocess.TimeoutExpired:
+        return "", "Die Texterkennung hat zu lange gebraucht (Zeitüberschreitung)."
+    except Exception as e:
+        return "", str(e)[:900]
+    finally:
+        try: png.unlink(missing_ok=True)
+        except Exception: pass
+
+class OcrWorker(QThread):
+    done=Signal(str,str,int,bool)
+    def __init__(self,image,rev,manual,lang="de-DE"):
+        super().__init__(); self.image=image; self.rev=rev; self.manual=manual; self.lang=lang
+    def run(self):
+        text,err=run_windows_ocr(self.image,self.lang); self.done.emit(text,err,self.rev,self.manual)
+
 from openpyxl import Workbook, load_workbook
 
 def bundled_asset(name):
@@ -451,6 +701,34 @@ def save_data():
 
 def safe(s): return re.sub(r'[<>:"/\\|?*]','_',s).strip()
 
+import invoice_pdf
+
+INVOICE_SETTING_DEFAULTS={"owner_name":"","practice_name":"","qualifications":"","practice_subtitle":"","address":"","phone":"","landline":"","fax":"",
+    "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254","iban":"DE13 5001 0517 5404 0811 30",
+    "bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com","logo_width_mm":"72","logo_height_mm":"22","logo_x_mm":"18","logo_y_mm":"7","invoice_header_logo_zone":"Links"}
+
+def invoice_settings():
+    return {k:str(get_setting(k,v)) for k,v in INVOICE_SETTING_DEFAULTS.items()}
+
+def _de_date(value):
+    try: return datetime.strptime(str(value),"%Y-%m-%d").strftime("%d.%m.%Y")
+    except Exception: return str(value)
+
+def write_invoice_pdf(inv,mode,out_path,reminder_level=1,paid_date="",due_text="",user=""):
+    """Erzeugt Rechnung (invoice), beglichene Rechnung mit Dank (paid) oder Zahlungserinnerung (reminder) aus einem Rechnungsdatensatz."""
+    last,_,first=str(inv.get("client","")).partition(", ")
+    client=next((x for x in DB["clients"] if x.get("last","").lower()==last.lower() and x.get("first","").lower()==first.lower()),{})
+    items=[]
+    for it in inv.get("items") or []:
+        items.append({"date":_de_date(it.get("date","")),"iso":str(it.get("date","")),"type":it.get("type","") or "Leistung","minutes":int(it.get("minutes",0)),"amount":float(it.get("amount",0))})
+    if not items: items=[{"date":_de_date(inv.get("date","")),"iso":str(inv.get("date","")),"type":"Leistung","minutes":0,"amount":float(inv.get("amount",0))}]
+    isos=sorted(x["iso"] for x in items if x["iso"])
+    period=(_de_date(isos[0]) if len(set(isos))<=1 and isos else (_de_date(isos[0])+" - "+_de_date(isos[-1]) if isos else _de_date(inv.get("date",""))))
+    d={"number":inv.get("number",""),"date":_de_date(inv.get("date","")),"period":period,"first":first,"last":last,"address":inv.get("address",""),
+       "salutation":"Sehr geehrte Frau" if str(client.get("gender","")).lower().startswith("w") else "Sehr geehrter Herr",
+       "amount":float(inv.get("amount",0)),"items":items,"mode":mode,"reminder_level":reminder_level,"paid_date":paid_date,"due_text":due_text}
+    return invoice_pdf.render_invoice_pdf(out_path,d,invoice_settings(),practice_logo_path(),bundled_asset("paypal.png"),lambda code,text: audit(code,text,user))
+
 def client_dir(c):
     p=ROOT/"Klienten"/safe(f"{c.get('last','')}, {c.get('first','')}")
     for x in ["Stammdaten","Sitzungen","Rechnungen","Dokumente"]:(p/x).mkdir(parents=True,exist_ok=True)
@@ -654,8 +932,14 @@ class Main(QMainWindow):
         QTimer.singleShot(500,self.restore_draft)
     def apply_appearance(self):
         theme=get_setting("ui_theme","PraxisPro Blau")
-        font_size=max(9,min(16,int(get_setting("ui_font_size","12") or 12)))
-        density=get_setting("ui_density","Kompakt")
+        if get_setting("ui_migrated_v13","0")!="1":
+            # Einmalig: zu kleine Schrift / zu enge Darstellung aus früheren Versionen anheben.
+            try: set_setting("ui_font_size",max(14,int(get_setting("ui_font_size","14") or 14)))
+            except Exception: set_setting("ui_font_size",14)
+            if get_setting("ui_density","Kompakt")=="Kompakt": set_setting("ui_density","Normal")
+            set_setting("ui_migrated_v13","1")
+        font_size=max(12,min(20,int(get_setting("ui_font_size","14") or 14)))
+        density=get_setting("ui_density","Normal")
         palettes={
             "PraxisPro Blau":("#132f47","#1f6fb2","#2f7de1","#17324d","#f4f6f8"),
             "Petrol":("#123c3d","#177b7d","#22999b","#174b4d","#f2f7f7"),
@@ -1130,7 +1414,17 @@ class Main(QMainWindow):
         for x in (QLabel("Stärke:"),width,eraser,undo,saveink,ocrink,ocrtest,clearink,fullscreen):
             if hasattr(x,"setMinimumHeight"): x.setMinimumHeight(40)
             inkhead.addWidget(x)
-        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(235); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink); v.addWidget(self.inkbox,1)
+        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(235); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink)
+        # Sofort-Texterkennung: nach kurzer Schreibpause wird die Handschrift automatisch in Text umgewandelt.
+        self._ocr_busy=False; self._ocr_timer=QTimer(self); self._ocr_timer.setSingleShot(True); self._ocr_timer.timeout.connect(lambda: self.ink_ocr_start(manual=False))
+        self.ink.stroke_started.connect(self._ocr_timer.stop); self.ink.stroke_finished.connect(self.ink_schedule_ocr)
+        ocrrow=QHBoxLayout(); self.ink_auto=QCheckBox("Sofort in Text umwandeln"); self.ink_auto.setChecked(get_setting("ink_auto_ocr","1")=="1"); self.ink_auto.toggled.connect(lambda on: set_setting("ink_auto_ocr","1" if on else "0"))
+        self.ink_direct=QCheckBox("Direkt in Therapienotiz schreiben"); self.ink_direct.setChecked(get_setting("ink_direct_notes","1")=="1"); self.ink_direct.toggled.connect(lambda on: set_setting("ink_direct_notes","1" if on else "0"))
+        self.ink_lang=QComboBox(); self.ink_lang.addItems(list(OCR_LANGS.keys())); self.ink_lang.setCurrentText(get_setting("ocr_lang","Deutsch")); self.ink_lang.setToolTip("Sprache der Handschrift-Erkennung"); self.ink_lang.currentTextChanged.connect(lambda t: set_setting("ocr_lang",t))
+        self.ink_status=QLabel(""); ocrrow.addWidget(self.ink_auto); ocrrow.addWidget(self.ink_direct); ocrrow.addWidget(QLabel("Sprache:")); ocrrow.addWidget(self.ink_lang); ocrrow.addWidget(self.ink_status,1); self.inkv.addLayout(ocrrow)
+        self.ink_live=QTextEdit(); self.ink_live.setPlaceholderText("Erkannter Text erscheint hier …"); self.ink_live.setFixedHeight(80); self.inkv.addWidget(self.ink_live)
+        takebtn=QPushButton("↳ Erkannten Text in Therapienotiz übernehmen"); takebtn.clicked.connect(lambda: self.ink_commit_text(self.ink_live.toPlainText().strip(),clear_ink=False)); self.inkv.addWidget(takebtn)
+        v.addWidget(self.inkbox,1)
         h=QHBoxLayout()
         buttons=[("▶ Sitzung starten",self.start_session,"background:#16a34a"),("⏸ Pause/Fortsetzen",self.pause,"background:#1683d8"),("■ Sitzung beenden",self.end_session,"background:#e11d48"),("💾 Als Sitzungsnotiz speichern",self.save_session,"background:#f8fafc;color:#1261a0;border:1px solid #9bb7cf")]
         for text_,fn,style in buttons:
@@ -1266,97 +1560,61 @@ Write-Output $result.Text
             try: tmp.unlink(missing_ok=True)
             except Exception: pass
 
-    def ink_to_text(self):
-        """Handschrift lokal über Windows OCR erkennen – mit robustem WinRT-Async-Bridge."""
-        if not hasattr(self,"ink") or self.ink.image.isNull():
-            return QMessageBox.warning(self,"Handschrift erkennen","Keine Handschrift vorhanden.")
-        tmp=Path(tempfile.gettempdir())/f"PraxisPro_OCR_{os.getpid()}_{int(time.time()*1000)}.png"
-        src=self.ink.image.convertToFormat(QImage.Format_Grayscale8)
-        # Windows OCR profitiert bei Stiftstrichen von einer größeren, kontrastreichen Vorlage.
-        work=src.scaled(max(1600,src.width()*2),max(900,src.height()*2),Qt.KeepAspectRatio,Qt.SmoothTransformation)
-        if not work.save(str(tmp),"PNG"):
-            return QMessageBox.warning(self,"Handschrift erkennen","Die Zeichenfläche konnte nicht vorbereitet werden.")
-        ps=r'''$ErrorActionPreference="Stop"
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
-$null=[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
-$null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
+    def ink_schedule_ocr(self):
+        """Nach kurzer Schreibpause automatisch erkennen (wenn 'Sofort in Text umwandeln' aktiv ist)."""
+        if hasattr(self,"ink_auto") and self.ink_auto.isChecked(): self._ocr_timer.start(900)
 
-function Await-WinRT($Operation, [Type]$ResultType) {
-  $methods=[System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
-    $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetGenericArguments().Count -eq 1 -and $_.GetParameters().Count -eq 1
-  }
-  foreach($m in $methods) {
-    try {
-      $gm=$m.MakeGenericMethod($ResultType)
-      $task=$gm.Invoke($null,@($Operation))
-      if($null -ne $task) { $task.GetAwaiter().GetResult(); return $task.Result }
-    } catch {}
-  }
-  throw ('WinRT-Operation konnte nicht ausgewertet werden: '+$ResultType.FullName)
-}
+    def ink_to_text(self,checked=False):
+        """Button 'Handschrift → Text': sofort erkennen und zur Kontrolle anzeigen."""
+        self._ocr_timer.stop(); self.ink_ocr_start(manual=True)
 
-$path=$env:PRAXISPRO_OCR_PATH
-if(-not (Test-Path -LiteralPath $path)){ throw 'OCR-Bilddatei wurde nicht gefunden.' }
-$file=Await-WinRT ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
-$stream=Await-WinRT ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
-$decoder=Await-WinRT ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-$bitmap=Await-WinRT ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-$langs=@([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages)
-$preferred=$langs | Where-Object {$_.LanguageTag -match '^de(-|$)'} | Select-Object -First 1
-if($null -eq $preferred){$preferred=$langs | Where-Object {$_.LanguageTag -match '^tr(-|$)'} | Select-Object -First 1}
-if($null -eq $preferred){$preferred=$langs | Where-Object {$_.LanguageTag -match '^en(-|$)'} | Select-Object -First 1}
-if($null -eq $preferred){$preferred=$langs | Select-Object -First 1}
-if($null -eq $preferred){throw 'Keine Windows-OCR-Sprache installiert. Bitte Deutsch oder Türkisch in Windows als OCR-Sprachfunktion installieren.'}
-$engine=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($preferred)
-if($null -eq $engine){throw ('OCR-Engine konnte für '+$preferred.LanguageTag+' nicht gestartet werden.')}
-$result=Await-WinRT ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false)
-Write-Output ('__LANG__='+$preferred.LanguageTag)
-Write-Output $result.Text
-'''
-        try:
-            env=os.environ.copy(); env["PRAXISPRO_OCR_PATH"]=str(tmp.resolve())
-            QApplication.setOverrideCursor(Qt.WaitCursor); QApplication.processEvents()
-            run=subprocess.run(["powershell.exe","-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",ps],
-                               env=env,capture_output=True,text=True,encoding="utf-8-sig",errors="replace",timeout=60,
-                               creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
-            output=(run.stdout or "").strip(); err=(run.stderr or "").strip()
-            lang=""; lines=output.splitlines()
-            if lines and lines[0].startswith("__LANG__="):
-                lang=lines.pop(0).split("=",1)[1].strip()
-            recognized="\n".join(lines).strip()
-            if run.returncode!=0:
-                detail=(err or output or "Windows OCR wurde mit einem Fehler beendet.")[:1200]
-                audit("INK_OCR_ERROR",f"exit={run.returncode} {detail}",self.current_user.get("username","") if self.current_user else "")
-                return QMessageBox.warning(self,"Handschrift erkennen","OCR konnte nicht gestartet werden.\n\n"+detail)
-            if not recognized:
-                detail="OCR läuft, konnte in der Handschrift aber keinen Text erkennen."
-                if lang: detail+=f"\nVerwendete Sprache: {lang}"
-                audit("INK_OCR_EMPTY",detail,self.current_user.get("username","") if self.current_user else "")
-                return QMessageBox.information(self,"Handschrift erkennen",detail+"\n\nBitte etwas größer und mit deutlichem Kontrast schreiben und erneut versuchen.")
-            audit("INK_OCR_SUCCESS",f"language={lang or 'unknown'} chars={len(recognized)}",self.current_user.get("username","") if self.current_user else "")
+    def ink_ocr_start(self,manual=False):
+        if not hasattr(self,"ink"): return
+        if getattr(self,"_ocr_busy",False):
+            if not manual: self._ocr_timer.start(800)
+            return
+        if prepare_ink_for_ocr(self.ink.image) is None:
+            if manual: QMessageBox.warning(self,"Handschrift erkennen","Keine Handschrift vorhanden.")
+            return
+        self._ocr_busy=True; self.ink_status.setText("⏳ Handschrift wird erkannt …")
+        w=OcrWorker(self.ink.image.copy(),self.ink.rev,manual,OCR_LANGS.get(self.ink_lang.currentText() if hasattr(self,"ink_lang") else "Deutsch","de-DE")); w.done.connect(self.ink_ocr_done); w.finished.connect(w.deleteLater); self._ocr_worker=w; w.start()
+
+    def ink_ocr_done(self,text,err,rev,manual):
+        self._ocr_busy=False
+        user=self.current_user.get("username","") if self.current_user else ""
+        if err in ("LEER","KEIN_TEXT"):
+            self.ink_status.setText("Keine Schrift erkannt – bitte deutlicher/größer schreiben." if err=="KEIN_TEXT" else "")
+            if manual and err=="KEIN_TEXT": QMessageBox.information(self,"Handschrift erkennen","Es wurde keine Schrift erkannt. Bitte etwas größer und in Druckbuchstaben schreiben.")
+            return
+        if err:
+            audit("INK_OCR_ERROR",err[:900],user); self.ink_status.setText("⚠ Erkennung nicht möglich")
+            if manual or not getattr(self,"_ocr_error_shown",False):
+                self._ocr_error_shown=True; QMessageBox.warning(self,"Handschrift erkennen","Die Handschrift konnte nicht erkannt werden.\n\n"+err)
+            return
+        if rev!=self.ink.rev:
+            # Es wurde inzwischen weitergeschrieben: Ergebnis verwerfen und neu erkennen.
+            self.ink_status.setText("⏳ Handschrift wird erkannt …"); self._ocr_timer.start(400); return
+        self.ink_live.setPlainText(text)
+        if manual:
             dlg=QDialog(self); dlg.setWindowTitle("Handschrift → Text prüfen"); dlg.resize(720,500); v=QVBoxLayout(dlg)
-            v.addWidget(QLabel("Erkannten Text prüfen und bei Bedarf korrigieren"+(f" · OCR-Sprache: {lang}" if lang else "")+":"))
-            edit=QTextEdit(); edit.setPlainText(recognized); v.addWidget(edit,1)
+            v.addWidget(QLabel("Erkannten Text prüfen und bei Bedarf korrigieren:"))
+            edit=QTextEdit(); edit.setPlainText(text); v.addWidget(edit,1)
             buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); buttons.button(QDialogButtonBox.Save).setText("In Therapienotiz übernehmen"); v.addWidget(buttons)
             def accept_text():
-                cleaned=edit.toPlainText().strip()
-                if cleaned:
-                    existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+cleaned)
-                    self.current_ocr_text=cleaned
-                dlg.accept()
+                self.ink_commit_text(edit.toPlainText().strip(),clear_ink=False); dlg.accept()
             buttons.accepted.connect(accept_text); buttons.rejected.connect(dlg.reject); dlg.exec()
-        except subprocess.TimeoutExpired:
-            audit("INK_OCR_TIMEOUT","Windows OCR timeout",self.current_user.get("username","") if self.current_user else "")
-            QMessageBox.warning(self,"Handschrift erkennen","OCR hat nach 60 Sekunden nicht geantwortet. Bitte Windows-OCR-Sprachpaket prüfen.")
-        except Exception as e:
-            audit("INK_OCR_EXCEPTION",str(e)[:1200],self.current_user.get("username","") if self.current_user else "")
-            QMessageBox.warning(self,"Handschrift erkennen","OCR-Fehler:\n\n"+str(e)[:1200])
-        finally:
-            if QApplication.overrideCursor() is not None: QApplication.restoreOverrideCursor()
-            try: tmp.unlink(missing_ok=True)
-            except Exception: pass
+        elif hasattr(self,"ink_direct") and self.ink_direct.isChecked():
+            self.ink_commit_text(text.strip(),clear_ink=True)
+        else:
+            self.ink_status.setText("✓ Erkannt – bitte prüfen und übernehmen")
+
+    def ink_commit_text(self,cleaned,clear_ink=False):
+        if not cleaned: return
+        existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+cleaned)
+        self.current_ocr_text=(self.current_ocr_text.rstrip()+"\n" if self.current_ocr_text else "")+cleaned
+        if clear_ink: self.ink.clear()
+        self.ink_status.setText("✓ In Therapienotiz übernommen"+(" (Zeichenfläche geleert – mit ‚Rückgängig‘ zurückholbar)" if clear_ink else ""))
+        self.ink_live.clear()
 
     def open_ink_fullscreen(self):
         dlg=QDialog(self); dlg.setWindowTitle("Freihand-Notizbuch"); dlg.resize(1280,800); dlg.setMinimumSize(760,520); dlg.setWindowFlag(Qt.WindowMaximizeButtonHint,True)
@@ -2118,7 +2376,8 @@ Write-Output $result.Text
             if secs>0:self.i_min.setValue(max(1,secs//60))
         self.i_start.timeChanged.connect(invoice_times); self.i_end.timeChanged.connect(invoice_times)
         self.i_last.editingFinished.connect(self.fill_invoice_client); self.i_first.editingFinished.connect(self.fill_invoice_client)
-        f.addRow("",self.i_red); self.i_paid=QCheckBox("✓ Zahlung bereits erhalten"); self.i_paid.setToolTip("Aktivieren, wenn der Rechnungsbetrag bereits bezahlt wurde. Die PDF wird dann als Zahlungsbestätigung formuliert."); f.addRow("Zahlungsstatus",self.i_paid); v.addWidget(card)
+        f.addRow("",self.i_red)
+        self.i_paid=QCheckBox("Rechnung ist bereits beglichen – zusätzlich PDF mit Dankeschön erstellen"); f.addRow("",self.i_paid); v.addWidget(card)
         itemrow=QHBoxLayout(); additem=QPushButton("＋ Leistung zur Rechnung hinzufügen"); additem.setMinimumHeight(46)
         self.iteminfo=QLabel("Noch keine zusätzlichen Leistungen"); self.iteminfo.setObjectName("pageSub")
         def add_manual_item():
@@ -2434,190 +2693,26 @@ Write-Output $result.Text
             if self.i_addr.text().strip(): c["address"]=self.i_addr.text().strip()
             if self.i_diag.text().strip(): c["diagnosis"]=self.i_diag.text().strip()
         d=client_dir(c)/"Rechnungen"; pdf=d/f"Rechnung_{no}.pdf"
-        can=canvas.Canvas(str(pdf),pagesize=A4); W,H=A4
-        # Finale A4-Rechnung: feste Markenfarben und Proportionen der freigegebenen Vorlage.
-        # Markenfarben direkt aus dem eingebundenen Praxislogo.
-        NAVY=HexColor("#000000"); TEAL=HexColor("#000000"); GOLD=HexColor("#A62908")
-        BROWN=HexColor("#6B310B"); CREAM=HexColor("#FFFFFF"); BORDER=BROWN; WHITE=HexColor("#FFFFFF")
-        regular,bold="Helvetica","Helvetica-Bold"
-        try:
-            arial=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arial.ttf"; arial_b=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"arialbd.ttf"
-            if arial.exists():
-                if "PraxisArial" not in pdfmetrics.getRegisteredFontNames(): pdfmetrics.registerFont(TTFont("PraxisArial",str(arial)))
-                regular="PraxisArial"
-            if arial_b.exists():
-                if "PraxisArialBold" not in pdfmetrics.getRegisteredFontNames(): pdfmetrics.registerFont(TTFont("PraxisArialBold",str(arial_b)))
-                bold="PraxisArialBold"
-        except Exception: pass
-        owner=get_setting("owner_name",""); practice_name=get_setting("practice_name","")
-        qualifications=get_setting("qualifications",""); practice_subtitle=get_setting("practice_subtitle","")
-        address=get_setting("address",""); phone=get_setting("phone",""); landline=get_setting("landline",""); fax=get_setting("fax","")
-        email=get_setting("email","info@psychologe-spandau.de"); website=get_setting("website","www.psychologe-spandau.de")
-        tax=get_setting("tax_number","19/405/00254"); iban=get_setting("iban","DE13 5001 0517 5404 0811 30")
-        bic=get_setting("bic","INGDDEFFXXX"); paypal=get_setting("paypal","erdogankulanoglu@hotmail.com")
-        items=[]
-        if rows:
-            for ss in rows:
-                items.append({"date":ss.get("date",""),"start":ss.get("start",""),"end":ss.get("end",""),"minutes":int(ss.get("minutes",0)),"type":ss.get("type",""),"reduced":bool(ss.get("reduced",False)),"amount":float(ss.get("amount",amount_for(int(ss.get("minutes",0)),ss.get("type","Einzeltherapie"),bool(ss.get("reduced",False)))))})
-        else:
-            items=[{"date":self.i_date.date().toString("dd.MM.yyyy"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amt}]
-        def dd(value):
-            try:return datetime.strptime(str(value),"%Y-%m-%d").strftime("%d.%m.%Y")
-            except:return str(value)
-        service_dates=[dd(it["date"]) for it in items if it.get("date")]
-        period=(service_dates[0] if len(service_dates)==1 else ((dd(min(str(it["date"]) for it in items if it.get("date")))+" - "+dd(max(str(it["date"]) for it in items if it.get("date")))) if service_dates else datetime.now().strftime("%d.%m.%Y")))
-        # Rechnungskopf: Praxislogo plus vollständige Praxisangaben aus der freigegebenen Vorlage.
-        audit("INVOICE_HEADER", "logo_and_practice_text", self.current_user.get("username","") if self.current_user else "")
-        # Logo links oben; darunter die vollständigen Praxisangaben.
-        logo = effective_practice_logo()
-        if not logo:
-            audit("INVOICE_LOGO_MISSING", "Standardlogo konnte nicht geladen werden", self.current_user.get("username","") if self.current_user else "")
-            return QMessageBox.warning(self, "Logo fehlt", "Das Standardlogo konnte nicht geladen werden. Rechnung wurde nicht erstellt.")
-        try:
-            from reportlab.lib.utils import ImageReader
-            im = ImageReader(str(logo)); iw, ih = im.getSize(); im.getRGBData()
-            mw=float(get_setting("logo_width_mm","72"))*mm
-            mh=float(get_setting("logo_height_mm","22"))*mm
-            scale=min(mw/iw,mh/ih)
-            lw,lh=iw*scale,ih*scale
-            zone=get_setting("invoice_header_logo_zone","Links") or "Links"
-            lefts={"Links":18.0,"Mitte":(210.0-float(get_setting("logo_width_mm","72")))/2.0,"Rechts":210.0-18.0-float(get_setting("logo_width_mm","72"))}
-            lx=lefts.get(zone,18.0)*mm
-            top=float(get_setting("logo_y_mm","7"))*mm
-            can.drawImage(im,lx,H-top-lh,width=lw,height=lh,preserveAspectRatio=True,mask="auto")
-            audit("INVOICE_HEADER_IMAGE", f"ok zone={zone} path={logo}", self.current_user.get("username","") if self.current_user else "")
-        except Exception as e:
-            audit("INVOICE_HEADER_IMAGE", f"failed:{str(e)[:300]}", self.current_user.get("username","") if self.current_user else "")
-            return QMessageBox.warning(self, "Logo-Fehler", "Das Praxislogo konnte nicht in die Rechnung gezeichnet werden. Rechnung wurde nicht erstellt.")
-
-        # Vollständiger Kopftext unter dem Logo; Kontaktdaten rechts.
-        can.setFillColor(NAVY)
-        can.setFont(bold,7.8)
-        can.drawString(18*mm,H-34*mm,owner or "Erdoğan Kulanoğlu")
-        can.setFont(regular,7.5)
-        can.drawString(18*mm,H-39*mm,practice_name or "Psychologische Privatpraxis")
-        can.drawString(18*mm,H-44*mm,qualifications or "Psychologe M.Sc. | Sozialarbeiter B.A.")
-        can.drawString(18*mm,H-49*mm,"Ehe-, Familien- und Lebensberatung | Zertifizierter Systemischer Berater und")
-        can.drawString(18*mm,H-54*mm,"Therapeut nach dem SIT-Modell")
-        hx=132*mm
-        can.setStrokeColor(BROWN); can.setLineWidth(0.35); can.line(hx-5*mm,H-31*mm,hx-5*mm,H-57*mm)
-        can.setFillColor(NAVY); can.setFont(regular,7.5); hy=H-34*mm
-        for line in [address, ("Handy "+phone) if phone else "", ("Festnetz "+landline) if landline else "", ("Fax: "+fax) if fax else "", email, website]:
-            if line:
-                can.drawString(hx,hy,line); hy-=4.3*mm
-        can.setStrokeColor(BROWN); can.setLineWidth(0.35); can.line(18*mm,H-61*mm,W-18*mm,H-61*mm)
-
-        # Empfänger und Rechnungsmetadten
-        y=H-70*mm; can.setFillColor(NAVY); can.setFont(regular,10)
-        can.drawString(18*mm,y,f"{first} {last}"); y-=5*mm
-        for line in (self.i_addr.text().strip().splitlines() or [""]): can.drawString(18*mm,y,line); y-=5*mm
-        mx=128*mm; my=H-70*mm
-        can.setFont(bold,9.5)
-        for lab,val in (("Rechnungs-Nr.:",no),("Rechnungsdatum:",datetime.now().strftime("%d.%m.%Y")),("Leistungszeitraum:",period)):
-            can.drawRightString(mx+24*mm,my,lab); can.setFont(regular,9.5); can.drawRightString(W-18*mm,my,val); my-=5*mm; can.setFont(bold,9.5)
-        can.setFillColor(NAVY); can.setFont(bold,24); can.drawString(18*mm,H-96*mm,"Rechnung")
-        can.setFillColor(NAVY); can.setFont(regular,10)
-        sal="Sehr geehrte Frau" if str(c.get("gender","")).lower().startswith("w") else "Sehr geehrter Herr"
-        can.drawString(18*mm,H-107*mm,f"{sal} {last},")
-        can.drawString(18*mm,H-114*mm,"hiermit stelle ich Ihnen folgende Leistungen in Rechnung:")
-        # Leistungstabelle
-        top=H-122*mm; x=[18*mm,48*mm,120*mm,145*mm,173*mm,W-18*mm]; rh=7.5*mm
-        can.setFillColor(CREAM); can.setStrokeColor(BORDER); can.rect(x[0],top-rh,x[-1]-x[0],rh,stroke=1,fill=1)
-        headers=["Datum","Leistung","Dauer","Einzelpreis","Betrag"]; can.setFillColor(TEAL); can.setFont(bold,8.2)
-        for j,h in enumerate(headers): can.drawString(x[j]+1.5*mm,top-5*mm,h)
-        for xx in x: can.line(xx,top,xx,top-rh*(len(items)+1))
-        cy=top-rh; can.setFillColor(NAVY); can.setFont(regular,8.4)
-        for it in items:
-            unit=float(it["amount"])
-            vals=[dd(it["date"]),it["type"],f'{it["minutes"]} Min.',f'{unit:.2f} €'.replace(".",","),f'{unit:.2f} €'.replace(".",",")]
-            for j,val in enumerate(vals):
-                if j>=3: can.drawRightString(x[j+1]-1.5*mm,cy-5*mm,val)
-                else: can.drawString(x[j]+1.5*mm,cy-5*mm,val)
-            cy-=rh; can.line(x[0],cy,x[-1],cy)
-        # Summenblock rechts
-        sy=cy-1*mm; sx=104*mm
-        can.setFillColor(WHITE); can.rect(sx,sy-rh,W-18*mm-sx,rh,stroke=1,fill=1)
-        can.setFillColor(NAVY); can.setFont(regular,8.5); can.drawString(sx+2*mm,sy-5*mm,"Zwischensumme:"); can.drawRightString(W-20*mm,sy-5*mm,f'{amt:.2f} €'.replace(".",","))
-        sy-=rh; can.setFillColor(WHITE); can.rect(sx,sy-rh,W-18*mm-sx,rh,stroke=1,fill=1)
-        can.setFillColor(NAVY); can.setFont(regular,8.1); can.drawString(sx+2*mm,sy-5*mm,"Umsatzsteuerbefreit nach § 4 Nr. 14 UStG:"); can.drawRightString(W-20*mm,sy-5*mm,"0,00 €")
-        sy-=rh; can.setFillColor(WHITE); can.rect(sx,sy-rh,W-18*mm-sx,rh,stroke=1,fill=1)
-        can.setFillColor(NAVY); can.setFont(bold,10); can.drawString(sx+2*mm,sy-5*mm,"Rechnungssumme:"); can.drawRightString(W-20*mm,sy-5*mm,f'{amt:.2f} €'.replace(".",","))
-        can.setFillColor(NAVY); can.setFont(regular,8.2)
-        can.drawString(18*mm,sy-13*mm,"Gemäß § 4 Nr. 14 UStG wird keine Umsatzsteuer erhoben.")
-        can.setFont(bold,8.8); can.drawRightString(W-18*mm,sy-19*mm,"Zahlungsziel: 14 Tage nach Rechnungsdatum.")
-        can.setFont(regular,8.2); can.drawRightString(W-18*mm,sy-25*mm,"Bitte Rechnungsnummer als Verwendungszweck angeben.")
-        # Zahlungsboxen mit QR-Codes
-        by=sy-72*mm; bh=42*mm; gap=4*mm; bw=(W-36*mm-gap)/2
-        def paybox(xb,title):
-            can.setStrokeColor(BORDER); can.setFillColor(WHITE); can.roundRect(xb,by,bw,bh,2*mm,stroke=1,fill=1)
-            can.setFillColor(CREAM); can.roundRect(xb,by+bh-8*mm,bw,8*mm,2*mm,stroke=0,fill=1)
-            can.setFillColor(TEAL); can.setFont(bold,10); can.drawString(xb+2*mm,by+bh-5.5*mm,title)
-        paybox(18*mm,"SEPA-Überweisung"); paybox(18*mm+bw+gap,"Zahlung per PayPal")
-        can.setFillColor(NAVY); can.setFont(bold,6.8); lx=20*mm; ly=by+bh-13*mm
-        for lab,val in (("Empfänger:",owner),("IBAN:",iban),("BIC:",bic),("Verwendungszweck:",no),("Betrag:",f'{amt:.2f} €'.replace(".",","))):
-            can.drawString(lx,ly,lab); can.setFont(regular,6.8); can.drawString(lx+29*mm,ly,val); ly-=4.2*mm; can.setFont(bold,6.8)
-        px=18*mm+bw+gap+2*mm; py=by+bh-13*mm
-        # Offizielles PayPal-Asset verwenden, falls es unverändert mitgeliefert wird; sonst neutrale Textkennzeichnung.
-        paypal_logo=bundled_asset("paypal.png")
-        paypal_logo_drawn=False
-        if paypal_logo is not None and paypal_logo.is_file():
-            try:
-                from reportlab.lib.utils import ImageReader
-                pim=ImageReader(str(paypal_logo)); piw,pih=pim.getSize(); pmw,pmh=28*mm,8*mm
-                psc=min(pmw/piw,pmh/pih)
-                can.drawImage(str(paypal_logo),px,py-1*mm,width=piw*psc,height=pih*psc,preserveAspectRatio=True,mask="auto")
-                paypal_logo_drawn=True
-            except Exception as e: audit("PAYPAL_LOGO_ERROR",str(e)[:300],self.current_user.get("username","") if self.current_user else "")
-        if not paypal_logo_drawn:
-            # Vektor-Fallback im PayPal-Markenbild, damit die Rechnung nie wieder nur schwarzen Text zeigt.
-            can.saveState()
-            can.setFont("Helvetica-BoldOblique",15)
-            can.setFillColor(HexColor("#003087"))
-            can.drawString(px,py+1*mm,"Pay")
-            pay_w=can.stringWidth("Pay","Helvetica-BoldOblique",15)
-            can.setFillColor(HexColor("#0070E0"))
-            can.drawString(px+pay_w,py+1*mm,"Pal")
-            can.restoreState()
-        can.setFont(regular,7); can.drawString(px,py-4*mm,"PayPal-Konto:")
-        can.setFont(bold,7); can.setFillColor(TEAL); can.drawString(px,py-9*mm,paypal); can.setFillColor(NAVY); can.setFont(regular,7); can.drawString(px,py-14*mm,f"Verwendungszweck: {no}")
-        try:
-            from reportlab.graphics.barcode.qr import QrCodeWidget
-            from reportlab.graphics.shapes import Drawing
-            from reportlab.graphics import renderPDF
-            def qr(data,xq,yq,size=21*mm):
-                q=QrCodeWidget(data); b=q.getBounds(); d=Drawing(size,size,transform=[size/(b[2]-b[0]),0,0,size/(b[3]-b[1]),0,0]); d.add(q); renderPDF.draw(d,can,xq,yq)
-            epc="\\n".join(["BCD","002","1","SCT",bic,owner,iban.replace(" ",""),"EUR"+f"{amt:.2f}","","",no])
-            qr(epc,18*mm+bw-24*mm,by+4*mm)
-            qr("mailto:"+paypal+"?subject=Rechnung%20"+no,18*mm+bw+gap+bw-24*mm,by+4*mm)
-        except Exception as e: audit("INVOICE_QR_ERROR",str(e)[:300],self.current_user.get("username","") if self.current_user else "")
-        # Abschluss
-        can.setFillColor(NAVY); can.setFont(regular,8.5); yy=by-8*mm
-        paid_now=hasattr(self,"i_paid") and self.i_paid.isChecked()\n        if paid_now:\n            can.setFont(bold,8.5); can.drawString(18*mm,yy,"Vielen Dank. Den Rechnungsbetrag haben wir dankend erhalten.")\n            can.setFont(regular,8.5); can.drawString(18*mm,yy-6*mm,"Diese Rechnung gilt zugleich als Zahlungsbestätigung.")\n        else:\n            can.drawString(18*mm,yy,"Vielen Dank für Ihr Vertrauen. Bitte überweisen Sie den Rechnungsbetrag.")\n            can.drawString(18*mm,yy-6*mm,"Mit freundlichen Grüßen")
-        can.setFillColor(TEAL); can.setFont(bold,9.5); can.drawString(18*mm,yy-18*mm,owner)
-        can.setFillColor(NAVY); can.setFont(regular,7.2); can.drawString(18*mm,yy-23*mm,qualifications)
-        can.setFont(regular,6.7)
-        can.drawRightString(W-18*mm,yy-18*mm,"Elektronisch erstellte Rechnung – ohne Unterschrift gültig.")
-        can.drawRightString(W-18*mm,yy-22*mm,"Bitte bewahren Sie dieses Dokument für Ihre Unterlagen auf.")
-        # Fußzeile
-        fy=15*mm; can.setStrokeColor(GOLD); can.line(18*mm,fy+10*mm,W-18*mm,fy+10*mm)
-        can.setFillColor(TEAL); can.setFont(bold,6.5)
-        for xx,title in ((18*mm,"Praxis"),(75*mm,"Kontakt"),(132*mm,"Zahlung / Steuer")): can.drawString(xx,fy+5*mm,title)
-        can.setFillColor(NAVY); can.setFont(regular,5.8)
-        can.drawString(18*mm,fy+1*mm,address); can.drawString(18*mm,fy-2.5*mm,website)
-        contact_footer=" · ".join(x for x in (phone,("Festnetz "+landline) if landline else "") if x)
-        can.drawString(75*mm,fy+1*mm,contact_footer)
-        if fax: can.drawString(75*mm,fy-2.5*mm,"Fax "+fax)
-        can.drawString(75*mm,fy-6*mm,email)
-        can.drawString(132*mm,fy+1*mm,"IBAN "+iban); can.drawString(132*mm,fy-2.5*mm,"BIC "+bic)
-        if tax: can.drawString(132*mm,fy-6*mm,"Steuernummer "+tax)
-        can.save()
+        user=self.current_user.get("username","") if self.current_user else ""
+        if not practice_logo_path():
+            QMessageBox.warning(self,"Logo fehlt","Es konnte kein gültiges Praxislogo geladen werden.\nDie Rechnung wird ohne Logo erzeugt.\nBitte prüfen Sie die Praxiseinstellungen.")
         invoice_items=[]
         if rows:
             for s in rows:
                 invoice_items.append({"id":s.get("id"),"date":s.get("date",""),"start":s.get("start",""),"end":s.get("end",""),"minutes":int(s.get("minutes",0)),"type":s.get("type",""),"reduced":bool(s.get("reduced",False)),"amount":round(float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))),2)})
         else:
             invoice_items=[{"id":None,"date":self.i_date.date().toString("yyyy-MM-dd"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amt}]
-        DB["invoices"].append({"number":no,"date":datetime.now().strftime("%Y-%m-%d"),"client":f"{last}, {first}","address":self.i_addr.text().strip(),"diagnosis":self.i_diag.text().strip(),"amount":amt,"status":"bezahlt" if paid_now else "offen","paid_date":datetime.now().strftime("%Y-%m-%d") if paid_now else "","pdf":str(pdf),"items":invoice_items})
+        paid_now=hasattr(self,"i_paid") and self.i_paid.isChecked()
+        rec={"number":no,"date":datetime.now().strftime("%Y-%m-%d"),"client":f"{last}, {first}","address":self.i_addr.text().strip(),"diagnosis":self.i_diag.text().strip(),"amount":amt,"status":"offen","paid_date":"","pdf":str(pdf),"items":invoice_items}
+        try:
+            write_invoice_pdf(rec,"invoice",pdf,user=user)
+            if paid_now:
+                rec["status"]="bezahlt"; rec["paid_date"]=datetime.now().strftime("%Y-%m-%d"); rec["reminder_closed"]=True
+                paid_pdf=d/f"Rechnung_{no}_beglichen.pdf"; write_invoice_pdf(rec,"paid",paid_pdf,paid_date=_de_date(rec["paid_date"]),user=user); rec["pdf_paid"]=str(paid_pdf)
+        except Exception as e:
+            audit("INVOICE_PDF_ERROR",str(e)[:500],user); return QMessageBox.warning(self,"Rechnung","Die PDF konnte nicht erstellt werden:\n\n"+str(e)[:500])
+        if paid_now: pdf=Path(rec["pdf_paid"])
+        DB["invoices"].append(rec)
         if rows:
             ids={s.get("id") for s in rows}
             for s in DB["sessions"]:
@@ -2626,6 +2721,7 @@ Write-Output $result.Text
         self.manual_items=[]; self.iteminfo.setText("Noch keine zusätzlichen Leistungen")
         if hasattr(self,"itemtable"): self.itemtable.setRowCount(0)
         save_data(); update_excel(); self.i_no.setText(next_no())
+        if hasattr(self,"i_paid"): self.i_paid.setChecked(False)
         done=QMessageBox(self); done.setIcon(QMessageBox.Information); done.setWindowTitle("Rechnung erstellt")
         done.setText("Die PDF-Rechnung wurde erfolgreich erstellt.")
         done.setInformativeText(str(pdf))
@@ -2917,13 +3013,37 @@ Write-Output $result.Text
             if r<0:
                 QMessageBox.information(self,"Rechnung","Bitte zuerst eine Rechnung auswählen."); return None,None
             no=t.item(r,0).text(); return r,next((x for x in DB["invoices"] if x.get("number")==no),None)
+        def invoice_folder(inv):
+            try:
+                pp=Path(inv.get("pdf","")) if inv.get("pdf") else None
+                if pp and pp.parent.exists(): return pp.parent
+            except Exception: pass
+            last,_,first=str(inv.get("client","")).partition(", ")
+            return client_dir({"last":last,"first":first})/"Rechnungen"
+        def make_paid_pdf(inv):
+            """Rechnung mit 'beglichen'-Stempel und Dankestext erzeugen (Original bleibt unverändert)."""
+            out=invoice_folder(inv)/f'Rechnung_{inv.get("number","")}_beglichen.pdf'
+            write_invoice_pdf(inv,"paid",out,paid_date=_de_date(inv.get("paid_date","")),user=self.current_user.get("username","") if self.current_user else "")
+            inv["pdf_paid"]=str(out); save_data(); return out
+        def offer_pdf(title,text,out):
+            box=QMessageBox(self); box.setIcon(QMessageBox.Information); box.setWindowTitle(title); box.setText(text); box.setInformativeText(str(out))
+            of=box.addButton("Ordner öffnen",QMessageBox.ActionRole); op=box.addButton("PDF öffnen",QMessageBox.ActionRole); box.addButton("Schließen",QMessageBox.RejectRole); box.exec()
+            if box.clickedButton()==of: QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(out).parent)))
+            elif box.clickedButton()==op: QDesktopServices.openUrl(QUrl.fromLocalFile(str(out)))
         def mark_paid():
             r,inv=selected_invoice()
             if inv:
                 if inv.get("status")=="storniert": return QMessageBox.warning(self,"Status","Eine stornierte Rechnung kann nicht als bezahlt markiert werden.")
-                if inv.get("status")=="bezahlt": return QMessageBox.information(self,"Status","Diese Rechnung ist bereits als bezahlt markiert.")
-                if QMessageBox.question(self,"Zahlung","Rechnung "+str(inv.get("number",""))+" als bezahlt markieren?")!=QMessageBox.Yes:return
+                if inv.get("status")=="bezahlt":
+                    # Bereits bezahlt: Dankes-PDF bei Bedarf (neu) erzeugen und anbieten.
+                    try: out=make_paid_pdf(inv)
+                    except Exception as e: return QMessageBox.warning(self,"PDF","Die PDF konnte nicht erstellt werden:\n\n"+str(e)[:500])
+                    return offer_pdf("Rechnung beglichen","Diese Rechnung ist bereits als bezahlt markiert.\nDie Bestätigung mit Dank wurde (neu) erstellt.",out)
+                if QMessageBox.question(self,"Zahlung","Rechnung "+str(inv.get("number",""))+" als bezahlt markieren?\n\nEs wird zusätzlich eine PDF mit Dankeschön erstellt.")!=QMessageBox.Yes:return
                 inv["status"]="bezahlt"; inv["paid_date"]=datetime.now().strftime("%Y-%m-%d"); inv["reminder_closed"]=True; save_data(); update_excel(); audit("INVOICE_PAID","Rechnung "+str(inv.get("number",""))+" als bezahlt markiert",self.current_user.get("username","") if self.current_user else ""); t.item(r,3).setText("bezahlt"); t.item(r,4).setText(inv["paid_date"]); t.item(r,5).setText(str(inv.get("reminder_count",0))); t.item(r,6).setText(inv.get("reminder_date",""))
+                try: out=make_paid_pdf(inv)
+                except Exception as e: return QMessageBox.warning(self,"PDF","Die Rechnung wurde als bezahlt markiert, die Dankes-PDF konnte aber nicht erstellt werden:\n\n"+str(e)[:500])
+                offer_pdf("Rechnung beglichen","Die Rechnung wurde als bezahlt markiert.\nDie PDF mit Dankeschön wurde erstellt.",out)
         paid.clicked.connect(mark_paid); h.addWidget(paid)
         cancel=QPushButton("Rechnung stornieren"); cancel.setMinimumHeight(50)
         def cancel_invoice():
@@ -2966,7 +3086,14 @@ Write-Output $result.Text
             if days<=14 and QMessageBox.question(self,"Zahlungserinnerung",f"Das 14-tägige Zahlungsziel ist noch nicht überschritten ({days} Tage). Trotzdem Erinnerung erfassen?")!=QMessageBox.Yes:return
             inv["reminder_date"]=datetime.now().strftime("%Y-%m-%d"); inv["reminder_count"]=int(inv.get("reminder_count",0))+1
             save_data(); t.item(t.currentRow(),5).setText(str(inv["reminder_count"])); t.item(t.currentRow(),6).setText(inv["reminder_date"]); audit("PAYMENT_REMINDER",f'Zahlungserinnerung zu Rechnung {inv.get("number","")} erfasst',self.current_user.get("username","") if self.current_user else "")
-            QMessageBox.information(self,"Zahlungserinnerung",f'Zahlungserinnerung für Rechnung {inv.get("number","")} wurde dokumentiert.\n\nMahnstufe: {inv["reminder_count"]}\nOffener Betrag: {float(inv.get("amount",0)):.2f} €\nDatum: {inv["reminder_date"]}\n\nDie ursprüngliche Rechnung wurde nicht verändert.')
+            try:
+                lvl=min(3,int(inv["reminder_count"])); due=(date.today()+timedelta(days=7)).strftime("%d.%m.%Y")
+                out=invoice_folder(inv)/f'Zahlungserinnerung_{inv.get("number","")}_{inv["reminder_count"]}.pdf'
+                write_invoice_pdf(inv,"reminder",out,reminder_level=lvl,due_text=f"Bitte begleichen Sie den Betrag bis zum {due}.",user=self.current_user.get("username","") if self.current_user else "")
+                inv.setdefault("reminder_pdfs",[]).append(str(out)); save_data()
+                offer_pdf("Zahlungserinnerung",f'Zahlungserinnerung für Rechnung {inv.get("number","")} wurde erstellt und dokumentiert.\n\nOffener Betrag: {float(inv.get("amount",0)):.2f} €\nZahlungsziel: {due}\n\nDie ursprüngliche Rechnung wurde nicht verändert.',out)
+            except Exception as e:
+                QMessageBox.warning(self,"Zahlungserinnerung","Die Erinnerung wurde dokumentiert, die PDF konnte aber nicht erstellt werden:\n\n"+str(e)[:500])
         remind.clicked.connect(payment_reminder); h.addWidget(remind)
         details=QPushButton("Details"); details.setMinimumHeight(50)
         def invoice_details():
@@ -2978,7 +3105,10 @@ Write-Output $result.Text
         details.clicked.connect(invoice_details); t.cellDoubleClicked.connect(lambda *_: invoice_details()); h.addWidget(details); v.addLayout(h)
         backup=QPushButton("Datensicherung erstellen"); backup.setMinimumHeight(48)
         def do_backup():
-            dest=ROOT/"Backups"/datetime.now().strftime("Backup_%Y-%m-%d_%H-%M-%S"); dest.mkdir(parents=True,exist_ok=True)
+            backup_root=Path(get_setting("backup_dir","") or ROOT/"Backups")
+            try: backup_root.mkdir(parents=True,exist_ok=True)
+            except Exception: return QMessageBox.warning(self,"Sicherung","Das Sicherungsziel ist nicht erreichbar:\n"+str(backup_root)+"\n\nBitte USB-Stick anschließen oder ein anderes Ziel wählen.")
+            dest=backup_root/datetime.now().strftime("Backup_%Y-%m-%d_%H-%M-%S"); dest.mkdir(parents=True,exist_ok=True)
             if DATA.exists(): shutil.copy2(DATA,dest/DATA.name)
             if DBFILE.exists():
                 con=sqlite3.connect(DBFILE); out=sqlite3.connect(dest/DBFILE.name); con.backup(out); out.close(); con.close()
@@ -2987,15 +3117,17 @@ Write-Output $result.Text
             for src in (ROOT/"Klienten").rglob("*.enc"):
                 rel=src.relative_to(ROOT/"Klienten"); target=dest/"Klienten"/rel; target.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(src,target)
             # Separater Wiederherstellungsschlüssel: bewusst nicht im Backup-Ordner.
-            key_export=ROOT/"Backups"/("Wiederherstellungsschluessel_"+datetime.now().strftime("%Y-%m-%d_%H-%M-%S")+".key")
-            if KEYFILE.exists(): shutil.copy2(KEYFILE,key_export)
+            key_export=backup_root/("Wiederherstellungsschluessel_"+datetime.now().strftime("%Y-%m-%d_%H-%M-%S")+".key")
+            key_exported=KEYFILE.exists()
+            if key_exported: shutil.copy2(KEYFILE,key_export)
             (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[])))+"\nDer Wiederherstellungsschlüssel wurde separat erstellt und darf nicht zusammen mit dem Backup aufbewahrt werden.",encoding="utf-8")
-            QMessageBox.information(self,"Sicherung","Sicherung erstellt:\n"+str(dest)+"\n\nWiederherstellungsschlüssel separat erstellt:\n"+str(key_export)+"\n\nBitte Schlüssel und Backup getrennt aufbewahren.")
+            if key_exported: QMessageBox.information(self,"Sicherung","Sicherung erstellt:\n"+str(dest)+"\n\nWiederherstellungsschlüssel separat erstellt:\n"+str(key_export)+"\n\nBitte Schlüssel und Backup getrennt aufbewahren (z. B. Schlüssel auf USB-Stick).")
+            else: QMessageBox.information(self,"Sicherung","Sicherung erstellt:\n"+str(dest)+"\n\nDer Datenschlüssel ist an Ihr Windows-Konto gebunden und wird nicht mitgesichert. Bewahren Sie Ihren Wiederherstellungsschlüssel (.key) getrennt auf. Ohne ihn lässt sich die Sicherung auf einem anderen PC nicht öffnen.")
         backup.clicked.connect(lambda: do_backup() if self.require_edit() else None); v.addWidget(backup)
         restore=QPushButton("Datensicherung wiederherstellen …"); restore.setMinimumHeight(48)
         def do_restore():
             if not self.is_admin(): return QMessageBox.warning(self,"Keine Berechtigung","Wiederherstellung ist Administratoren vorbehalten.")
-            folder=QFileDialog.getExistingDirectory(self,"Backup-Ordner auswählen",str(ROOT/"Backups"))
+            folder=QFileDialog.getExistingDirectory(self,"Backup-Ordner auswählen",str(Path(get_setting("backup_dir","") or ROOT/"Backups")))
             if not folder:return
             key,_=QFileDialog.getOpenFileName(self,"Wiederherstellungsschlüssel auswählen",str(ROOT/"Backups"),"Schlüssel (*.key);;Alle Dateien (*)")
             if not key:return
@@ -3010,11 +3142,61 @@ Write-Output $result.Text
             if DATA.exists():shutil.copy2(DATA,safety/DATA.name)
             if DBFILE.exists():shutil.copy2(DBFILE,safety/DBFILE.name)
             if KEYFILE.exists():shutil.copy2(KEYFILE,safety/KEYFILE.name)
+            if KEYFILE_PROT.exists():shutil.copy2(KEYFILE_PROT,safety/KEYFILE_PROT.name)
+            KEYFILE_PROT.unlink(missing_ok=True)
             shutil.copy2(key,KEYFILE); shutil.copy2(src/DATA.name,DATA); shutil.copy2(src/DBFILE.name,DBFILE)
             if (src/"Klienten").exists(): shutil.copytree(src/"Klienten",ROOT/"Klienten",dirs_exist_ok=True)
             audit("BACKUP_RESTORE","Datensicherung wiederhergestellt",self.current_user.get("username","") if self.current_user else "")
             QMessageBox.information(self,"Wiederherstellung","Wiederherstellung abgeschlossen. PraxisPro wird jetzt beendet. Bitte anschließend neu starten."); QApplication.quit()
-        restore.clicked.connect(do_restore); v.addWidget(restore); return w
+        restore.clicked.connect(do_restore); v.addWidget(restore)
+        target=QPushButton("Sicherungsziel wählen (z. B. USB-Stick) …"); target.setMinimumHeight(44)
+        target_label=QLabel("Aktuelles Ziel: "+str(Path(get_setting("backup_dir","") or ROOT/"Backups"))); target_label.setWordWrap(True); target_label.setObjectName("pageSub")
+        def choose_target():
+            if not self.require_edit(): return
+            folder=QFileDialog.getExistingDirectory(self,"Sicherungsziel auswählen",str(Path(get_setting("backup_dir","") or ROOT)))
+            if folder: set_setting("backup_dir",folder); target_label.setText("Aktuelles Ziel: "+folder)
+        target.clicked.connect(choose_target); v.addWidget(target); v.addWidget(target_label)
+        keyexp=QPushButton("Wiederherstellungsschlüssel speichern …"); keyexp.setMinimumHeight(44)
+        def export_key():
+            if not self.is_admin(): return QMessageBox.warning(self,"Keine Berechtigung","Nur Administratoren dürfen den Wiederherstellungsschlüssel speichern.")
+            path,_=QFileDialog.getSaveFileName(self,"Wiederherstellungsschlüssel speichern (am besten auf USB-Stick)",str(Path.home()/"Wiederherstellungsschluessel_PraxisPro.key"),"Schlüssel (*.key)")
+            if not path: return
+            try:
+                Path(path).write_bytes(encryption_key())
+                if Path(path).read_bytes()!=encryption_key(): raise OSError("Prüfung der gespeicherten Datei fehlgeschlagen")
+            except Exception as e: return QMessageBox.warning(self,"Schlüssel","Der Schlüssel konnte nicht gespeichert werden:\n"+str(e)[:300])
+            audit("KEY_EXPORT","Wiederherstellungsschlüssel gespeichert",self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.information(self,"Schlüssel","Der Wiederherstellungsschlüssel wurde gespeichert.\n\nBewahren Sie ihn getrennt von den Daten auf (z. B. USB-Stick im Safe). Wer diese Datei besitzt, kann die Praxisdaten entschlüsseln.")
+        keyexp.clicked.connect(export_key); v.addWidget(keyexp)
+        keyprot=QPushButton("Schlüssel mit Windows-Konto schützen …"); keyprot.setMinimumHeight(44); keyprot.clicked.connect(lambda: self.offer_key_protection(force=True)); v.addWidget(keyprot)
+        return w
+    def offer_key_protection(self,force=False):
+        """Bietet an, den Datenschlüssel an das Windows-Konto zu binden. Vorher wird ein Wiederherstellungsschlüssel gesichert."""
+        if os.name!="nt":
+            if force: QMessageBox.information(self,"Schlüsselschutz","Der Schlüsselschutz ist nur unter Windows verfügbar.")
+            return
+        if key_is_protected():
+            if force: QMessageBox.information(self,"Schlüsselschutz","Der Datenschlüssel ist bereits an Ihr Windows-Konto gebunden.")
+            return
+        if not KEYFILE.exists(): return
+        if not force and get_setting("key_protect_declined","0")=="1": return
+        if not self.is_admin():
+            if force: QMessageBox.warning(self,"Keine Berechtigung","Nur Administratoren können den Schlüsselschutz einrichten.")
+            return
+        box=QMessageBox(self); box.setIcon(QMessageBox.Question); box.setWindowTitle("Datenschlüssel schützen")
+        box.setText("Der Schlüssel zu Ihren Patientendaten liegt derzeit als normale Datei neben den Daten.")
+        box.setInformativeText("Empfohlen: an Ihr Windows-Benutzerkonto binden. Dann nützt eine kopierte Datenbank niemandem etwas.\n\nDazu speichern Sie zuerst einen Wiederherstellungsschlüssel auf einem USB-Stick. Ohne ihn sind die Daten nach einer Windows-Neuinstallation oder auf einem anderen PC nicht mehr lesbar.")
+        yes=box.addButton("Jetzt einrichten",QMessageBox.AcceptRole); later=box.addButton("Später",QMessageBox.RejectRole); never=box.addButton("Nicht mehr fragen",QMessageBox.DestructiveRole); box.exec()
+        if box.clickedButton()==never: set_setting("key_protect_declined","1"); return
+        if box.clickedButton()!=yes: return
+        path,_=QFileDialog.getSaveFileName(self,"Wiederherstellungsschlüssel speichern (am besten auf USB-Stick)",str(Path.home()/"Wiederherstellungsschluessel_PraxisPro.key"),"Schlüssel (*.key)")
+        if not path: return
+        try:
+            Path(path).write_bytes(encryption_key())
+            if Path(path).read_bytes()!=encryption_key(): raise OSError("Prüfung der gespeicherten Datei fehlgeschlagen")
+        except Exception as e: return QMessageBox.warning(self,"Schlüsselschutz","Der Wiederherstellungsschlüssel konnte nicht gespeichert werden. Es wurde nichts verändert.\n\n"+str(e)[:300])
+        ok,msg=protect_key_file(); audit("KEY_PROTECT" if ok else "KEY_PROTECT_FAILED",msg[:300],self.current_user.get("username","") if self.current_user else "")
+        (QMessageBox.information if ok else QMessageBox.warning)(self,"Schlüsselschutz",msg+("\n\nBitte bewahren Sie den Wiederherstellungsschlüssel sicher und getrennt auf." if ok else ""))
     def manual_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,24,28,28); v.setSpacing(12)
         title=QLabel("Hilfe · FAQ · Info"); title.setObjectName("pageTitle"); v.addWidget(title)
@@ -3074,10 +3256,17 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded); body=QWidget(); body.setMinimumWidth(0); v=QVBoxLayout(body); v.setContentsMargins(18,12,18,18); v.setSpacing(9)
         title=QLabel("Praxiseinstellungen"); title.setObjectName("pageTitle"); v.addWidget(title)
         sub=QLabel("Praxisdaten, Abrechnung, Honorare und Benutzer übersichtlich verwalten."); sub.setObjectName("pageSub"); v.addWidget(sub)
-        tabs=QTabWidget(); tabs.setDocumentMode(True); tabs.setMinimumHeight(440)
+        tabs=QTabWidget(); tabs.setDocumentMode(True)
         tabs.setStyleSheet("QTabBar::tab { min-width: 105px; padding-left: 10px; padding-right: 10px; }")
-        v.addWidget(tabs); scroll.setWidget(body); outer.addWidget(scroll)
-        general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(16,14,16,20); gv.setSpacing(10); general.setMinimumWidth(760)
+        # Jede Registerkarte bekommt eine eigene Scrollfläche: Inhalte werden nie mehr zusammengedrückt,
+        # sondern bei kleinen Bildschirmen / hoher Windows-Skalierung einfach scrollbar.
+        _orig_addtab=tabs.addTab
+        def _addtab_scroll(page,label):
+            sa=QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QFrame.NoFrame); sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); sa.setWidget(page)
+            return _orig_addtab(sa,label)
+        tabs.addTab=_addtab_scroll
+        v.addWidget(tabs,1); scroll.setWidget(body); outer.addWidget(scroll)
+        general=QWidget(); gv=QVBoxLayout(general); gv.setContentsMargins(16,14,16,20); gv.setSpacing(10)
         form=QFormLayout(); form.setHorizontalSpacing(18); form.setVerticalSpacing(10); form.setLabelAlignment(Qt.AlignLeft|Qt.AlignTop)
         # Praxisdaten bewusst kompakt halten: jede Zeile bekommt feste Höhe und Abstand.
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
@@ -3085,12 +3274,18 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         form.setFormAlignment(Qt.AlignTop)
         fields={}
         labels=[("practice_name","Praxisname"),("owner_name","Inhaber / Praxisleitung"),("qualifications","Qualifikationen"),("practice_subtitle","Zusatz / Spezialisierung"),("address","Anschrift"),("phone","Mobil / Telefon"),("landline","Festnetz"),("fax","Fax"),("email","E-Mail"),("website","Website"),("manufacturer","Herstellername"),("copyright","Copyright")]
+        def section(text):
+            lab=QLabel(text); lab.setObjectName("sectionTitle"); lab.setContentsMargins(0,10,0,2); form.addRow(lab)
+        section("Praxis und Inhaber")
         for key,label in labels:
-            ed=QLineEdit(get_setting(key)); ed.setFixedHeight(34); ed.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); fields[key]=ed; form.addRow(label,ed)
+            if key=="address": section("Anschrift und Kontakt")
+            if key=="manufacturer": section("Programmangaben")
+            ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(max(36,ed.fontMetrics().height()+22)); ed.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Minimum); fields[key]=ed; form.addRow(label,ed)
+        section("Logo und Rechnungskopf")
         # Rechnungskopf: eine sichtbare Bildflaeche mit dem mitgelieferten Praxislogo als Standard.
         custom_logo_value = (get_setting("logo_path", "") or "").strip()
         logo=QLineEdit(custom_logo_value)
-        logo.setFixedHeight(34); logo.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
+        logo.setMinimumHeight(max(36,logo.fontMetrics().height()+22)); logo.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Minimum)
         logo.setPlaceholderText("Standardlogo (mitgeliefert)")
         fields["logo_path"]=logo
 
@@ -3110,8 +3305,8 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             logo_preview.setPixmap(QPixmap())
             logo_preview.setText("Standardlogo nicht gefunden")
 
-        choose=QPushButton("Logo ersetzen …"); choose.setFixedHeight(34)
-        reset_logo=QPushButton("Standardlogo"); reset_logo.setFixedHeight(34)
+        choose=QPushButton("Logo ersetzen …"); choose.setMinimumHeight(max(36,logo.fontMetrics().height()+22))
+        reset_logo=QPushButton("Standardlogo"); reset_logo.setMinimumHeight(max(36,logo.fontMetrics().height()+22))
         def pick_logo():
             p,_=QFileDialog.getOpenFileName(self,"Praxislogo auswählen","","Bilder (*.png *.jpg *.jpeg)")
             if p:
@@ -3135,6 +3330,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
 
         logo_w=QDoubleSpinBox(); logo_w.setRange(15,120); logo_w.setValue(float(get_setting("logo_width_mm","72"))); logo_w.setSuffix(" mm")
         logo_h=QDoubleSpinBox(); logo_h.setRange(8,45); logo_h.setValue(float(get_setting("logo_height_mm","22"))); logo_h.setSuffix(" mm")
+        for sp in (logo_w,logo_h): sp.setMinimumWidth(130)
         size_row=QHBoxLayout(); size_row.addWidget(QLabel("Breite")); size_row.addWidget(logo_w); size_row.addWidget(QLabel("Höhe")); size_row.addWidget(logo_h); size_row.addStretch()
         form.addRow("Bildgröße",size_row)
 
@@ -3149,8 +3345,8 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         # Darstellungsoptionen kompakt in einer Zeile: sie dürfen die Praxisdaten nicht überdecken.
         ar=QHBoxLayout(appearance); ar.setContentsMargins(14,10,14,10); ar.setSpacing(10)
         theme=QComboBox(); theme.addItems(["PraxisPro Blau","Petrol","Grün","Gold","Violett"]); theme.setCurrentText(get_setting("ui_theme","PraxisPro Blau")); theme.setMinimumWidth(180); theme.setMaximumWidth(260)
-        fontsize=QSpinBox(); fontsize.setRange(9,16); fontsize.setValue(int(get_setting("ui_font_size","12"))); fontsize.setSuffix(" px"); fontsize.setFixedWidth(105)
-        density=QComboBox(); density.addItems(["Kompakt","Normal","Groß"]); density.setCurrentText(get_setting("ui_density","Kompakt")); density.setMinimumWidth(140); density.setMaximumWidth(200)
+        fontsize=QSpinBox(); fontsize.setRange(12,20); fontsize.setValue(max(12,int(get_setting("ui_font_size","14") or 14))); fontsize.setSuffix(" px"); fontsize.setMinimumWidth(110)
+        density=QComboBox(); density.addItems(["Kompakt","Normal","Groß"]); density.setCurrentText(get_setting("ui_density","Normal")); density.setMinimumWidth(140); density.setMaximumWidth(200)
         ar.addWidget(QLabel("Farbschema")); ar.addWidget(theme); ar.addSpacing(8); ar.addWidget(QLabel("Schriftgröße")); ar.addWidget(fontsize); ar.addSpacing(8); ar.addWidget(QLabel("Darstellung")); ar.addWidget(density); ar.addStretch()
         gv.addWidget(appearance)
         save=QPushButton("Praxiseinstellungen speichern"); save.setMinimumHeight(42)
@@ -3169,7 +3365,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         bv.addLayout(bf); save2=QPushButton("Abrechnung & Sicherheit speichern"); save2.setMinimumHeight(38); save2.clicked.connect(save_settings); bv.addWidget(save2); bv.addStretch(); tabs.addTab(billing,"Abrechnung & Bank")
         ratespage=QWidget(); rv=QVBoxLayout(ratespage); rv.setContentsMargins(12,10,12,12); rv.setSpacing(7)
         rates=QLabel("Honorarsätze"); rates.setObjectName("sectionTitle"); rv.addWidget(rates)
-        rt=QTableWidget(0,5); rt.setHorizontalHeaderLabels(["Leistung","Min.","Regulär €","Ermäßigt €","Abrechnung"]); rt.verticalHeader().setDefaultSectionSize(28); rt.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        rt=QTableWidget(0,5); rt.setMinimumHeight(300); rt.setHorizontalHeaderLabels(["Leistung","Min.","Regulär €","Ermäßigt €","Abrechnung"]); rt.verticalHeader().setDefaultSectionSize(28); rt.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         for name,mins,amount,reduced,mode in get_fee_rates():
             r=rt.rowCount(); rt.insertRow(r)
             for j,val in enumerate([name,mins,amount,reduced if reduced is not None else "",mode]): rt.setItem(r,j,QTableWidgetItem(str(val)))
@@ -3208,7 +3404,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
                 con=sqlite3.connect(DBFILE); con.execute("INSERT INTO users(username,display_name,role,active,password_hash,created_at,recovery_question,recovery_answer_hash) VALUES(?,?,?,?,?,?,?,?)",(name.strip(),display.strip(),"Therapeut",1,password_hash(pwd),datetime.now().isoformat(timespec="seconds"),rq.strip(),password_hash(normalize_recovery_answer(ra)))); con.commit(); con.close(); audit("USER_CREATED",display.strip()); QMessageBox.information(self,"Benutzer","Benutzer wurde angelegt.")
             except sqlite3.IntegrityError: QMessageBox.warning(self,"Benutzer","Dieser Benutzername existiert bereits.")
         ub.clicked.connect(add_user); uv.addWidget(ub)
-        ut=QTableWidget(0,4); ut.setHorizontalHeaderLabels(["Benutzername","Anzeigename","Rolle","Aktiv"]); ut.verticalHeader().setDefaultSectionSize(28); ut.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        ut=QTableWidget(0,4); ut.setMinimumHeight(260); ut.setHorizontalHeaderLabels(["Benutzername","Anzeigename","Rolle","Aktiv"]); ut.verticalHeader().setDefaultSectionSize(28); ut.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         def refresh_users():
             ut.setRowCount(0); con=sqlite3.connect(DBFILE); rows=con.execute("SELECT username,display_name,role,active FROM users ORDER BY display_name").fetchall(); con.close()
             for row in rows:
@@ -3289,11 +3485,14 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch(); return w
 if __name__ == "__main__":
     app=QApplication(sys.argv)
-    app_logo=effective_practice_logo()
+    _ico=bundled_asset("PraxisPro.ico")
+    app_logo=_ico or effective_practice_logo()
     if app_logo:
         app.setWindowIcon(QIcon(str(app_logo)))
-    app.setStyleSheet("QPushButton{font-size:16px;padding:8px} QLineEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox{font-size:16px;padding:7px}")
+    try: encryption_key()
+    except RuntimeError as _key_err:
+        QMessageBox.critical(None,"PraxisPro – Datenschlüssel",str(_key_err)); sys.exit(1)
     if not ensure_first_user(): sys.exit(0)
     login=LoginDialog()
     if login.exec()!=QDialog.Accepted: sys.exit(0)
-    win=Main(); win.current_user=login.user; win.setWindowTitle(f"PraxisPro v{APP_VERSION} – "+login.user.get("display_name","")); win.show(); sys.exit(app.exec())
+    win=Main(); win.current_user=login.user; win.setWindowTitle(f"PraxisPro v{APP_VERSION} – "+login.user.get("display_name","")); win.show(); QTimer.singleShot(2000,win.offer_key_protection); app.aboutToQuit.connect(lambda: _OCR_SERVER.stop() if _OCR_SERVER else None); sys.exit(app.exec())

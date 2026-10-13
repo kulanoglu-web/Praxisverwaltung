@@ -26,7 +26,9 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt pyinstaller pymupdf
       - name: Python syntax check
-        run: python -m py_compile main.py ui_screenshot_test.py generate_icon.py
+        run: python -m py_compile main.py invoice_pdf.py invoice_selftest.py ui_screenshot_test.py generate_icon.py
+      - name: Invoice self test (Rechnung, beglichen, Erinnerung)
+        run: python invoice_selftest.py
       - name: UI screenshot test (1600x900)
         run: python ui_screenshot_test.py
       - name: Prepare application icon
@@ -36,10 +38,23 @@ jobs:
           if (!(Test-Path "assets/PraxisPro.ico")) { throw "PraxisPro.ico was not generated" }
           Write-Host "Using practice logo for EXE, installer and shortcuts."
       
+      - name: Check image assets (Logo + PayPal must be readable)
+        run: |
+          python -c "
+          from PIL import Image
+          import sys
+          bad = 0
+          for f in ('assets/logo.png', 'assets/paypal.png', 'assets/PraxisPro.ico', 'installer/wizard_164.bmp', 'installer/wizard_small_55.bmp'):
+              try:
+                  im = Image.open(f); im.load(); print('OK', f, im.size, im.mode)
+              except Exception as e:
+                  print('DEFEKT', f, e); bad = 1
+          sys.exit(bad)
+          "
       - name: Build Windows executable
         shell: pwsh
         run: |
-          $args = @("--noconfirm","--clean","--onefile","--windowed","--icon","assets/PraxisPro.ico","--collect-submodules","reportlab.graphics.barcode","--collect-submodules","reportlab.graphics","--add-data","assets/logo.png;assets")
+          $args = @("--noconfirm","--clean","--onefile","--windowed","--icon","assets/PraxisPro.ico","--collect-submodules","reportlab.graphics.barcode","--collect-submodules","reportlab.graphics","--add-data","assets/logo.png;assets","--add-data","assets/PraxisPro.ico;assets")
           if (Test-Path "assets/paypal.png") {
             $args += @("--add-data","assets/paypal.png;assets")
             Write-Host "Bundling official PayPal logo asset."
