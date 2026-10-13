@@ -16,7 +16,10 @@ DATA = {"number": "TEST-001", "date": "28.09.2026", "period": "28.09.2026", "fir
 
 def text_of(pdf):
     try:
-        import fitz
+        try:
+            import pymupdf as fitz
+        except ImportError:
+            import fitz
         with fitz.open(str(pdf)) as doc:
             return "\n".join(page.get_text() for page in doc), len(doc)
     except ImportError:
@@ -42,15 +45,21 @@ def main():
             if mode == "paid" and "Zahlungsziel" in text: problems.append("paid: enthält noch 'Zahlungsziel'")
             if mode == "invoice":
                 try:
-                    import cv2
-                    png = Path(tmp) / "qr"
-                    subprocess.run(["pdftoppm", "-r", "300", "-png", str(pdf), str(png)], check=True)
-                    img = cv2.imread(str(next(Path(tmp).glob("qr*.png"))))
-                    _, found, _, _ = cv2.QRCodeDetector().detectAndDecodeMulti(img)
+                    import cv2, numpy as np
+                    try:
+                        import pymupdf
+                    except ImportError:
+                        import fitz as pymupdf
+                    found = []
+                    with pymupdf.open(str(pdf)) as doc:
+                        for dpi in (300, 400, 500):   # der Detektor findet je nach Auflösung nicht immer beide Codes
+                            pix = doc[0].get_pixmap(dpi=dpi)
+                            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)[:, :, :3].copy()
+                            found += list(cv2.QRCodeDetector().detectAndDecodeMulti(img)[1])
                     if not any(f.startswith("BCD\n002\n1\nSCT\n") and "DE13500105175404081130" in f for f in found): problems.append("SEPA-QR-Code nicht lesbar/ungültig")
                     if not any(f.startswith("https://www.paypal.me/") for f in found): problems.append("PayPal-QR-Code nicht lesbar")
                 except ImportError:
-                    print("QR-Lesetest übersprungen (opencv fehlt)")
+                    print("QR-Lesetest übersprungen (opencv/pymupdf fehlt)")
             print(f"{mode}: {pdf.stat().st_size} Bytes, {pages} Seite(n)")
     if problems:
         print("\nFEHLER:\n- " + "\n- ".join(problems)); sys.exit(1)
