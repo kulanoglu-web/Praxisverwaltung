@@ -705,7 +705,7 @@ import invoice_pdf
 
 INVOICE_SETTING_DEFAULTS={"owner_name":"","practice_name":"","qualifications":"","practice_subtitle":"","address":"","phone":"","landline":"","fax":"",
     "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254","iban":"DE13 5001 0517 5404 0811 30",
-    "bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com","logo_width_mm":"72","logo_height_mm":"22","logo_x_mm":"18","logo_y_mm":"7","invoice_header_logo_zone":"Links"}
+    "bic":"INGDDEFFXXX","paypal":"erdogankulanoglu@hotmail.com","paypal_me":"","logo_width_mm":"72","logo_height_mm":"22","logo_x_mm":"18","logo_y_mm":"7","invoice_header_logo_zone":"Links"}
 
 def invoice_settings():
     return {k:str(get_setting(k,v)) for k,v in INVOICE_SETTING_DEFAULTS.items()}
@@ -3361,7 +3361,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         save.clicked.connect(save_settings); gv.addSpacing(8); gv.addWidget(save); gv.addStretch(); tabs.addTab(general,"Praxisdaten")
         billing=QWidget(); bv=QVBoxLayout(billing); bv.setContentsMargins(16,14,16,18); bv.setSpacing(10)
         bf=QFormLayout(); bf.setHorizontalSpacing(18); bf.setVerticalSpacing(8)
-        for key,label in [("tax_number","Steuernummer"),("iban","IBAN"),("bic","BIC"),("paypal","PayPal")]:
+        for key,label in [("tax_number","Steuernummer"),("iban","IBAN"),("bic","BIC"),("paypal","PayPal (E-Mail)"),("paypal_me","PayPal.Me-Name oder -Link (für QR-Code)")]:
             ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(32); fields[key]=ed; bf.addRow(label,ed)
         lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(1,120); lock.setValue(int(get_setting("auto_lock_minutes","15"))); lock.setSuffix(" Minuten"); lockrow.addWidget(lock); lockrow.addStretch(); bf.addRow("Automatische Sperre",lockrow)
         travel=QDoubleSpinBox(); travel.setRange(0,500); travel.setDecimals(2); travel.setValue(float(get_setting("travel_surcharge","25"))); travel.setSuffix(" €"); bf.addRow("Hausbesuch Anfahrt",travel)

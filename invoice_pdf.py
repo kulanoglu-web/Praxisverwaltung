@@ -63,6 +63,20 @@ def _wrap(can, text, font, size, maxw):
     return lines
 
 
+def paypal_link(me, account, amount):
+    """Zahlungslink fuer den QR-Code. Eine E-Mail-Adresse allein kann keine Zahlung oeffnen,
+    dafuer wird ein PayPal.Me-Name oder -Link gebraucht."""
+    import re
+    me = (me or "").strip() or ((account or "").strip() if not "@" in (account or "") else "")
+    if not me:
+        return ""
+    m = re.search(r"paypal\.me/([^/?#\s]+)", me, re.I)
+    name = m.group(1) if m else (me if re.fullmatch(r"[A-Za-z0-9._-]+", me) else "")
+    if not name:
+        return ""
+    return f"https://www.paypal.me/{name}/{amount:.2f}EUR"
+
+
 def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, log=None):
     """Erzeugt das PDF. ``log(code, text)`` meldet Probleme (z. B. defektes Logo)."""
     log = log or (lambda code, text: None)
@@ -235,7 +249,11 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
 
             epc = "\n".join(["BCD", "002", "1", "SCT", bic, owner, iban.replace(" ", ""), "EUR" + f"{amt:.2f}", "", "", no])
             qr(epc, L + bw - 24 * mm, by + 4 * mm)
-            qr("mailto:" + paypal + "?subject=Rechnung%20" + no, L + bw + gap + bw - 24 * mm, by + 4 * mm)
+            link = paypal_link(s.get("paypal_me", ""), paypal, amt)
+            if link:
+                qr(link, L + bw + gap + bw - 24 * mm, by + 4 * mm)
+                can.setFont(regular, 5.6); can.setFillColor(NAVY)
+                can.drawCentredString(L + bw + gap + bw - 13.5 * mm, by + 1.8 * mm, "QR scannen: PayPal öffnet mit Betrag")
         except Exception as e:
             log("INVOICE_QR_ERROR", str(e)[:300])
         yy = by - 9 * mm
