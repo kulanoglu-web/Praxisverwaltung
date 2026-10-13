@@ -243,8 +243,8 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
             from reportlab.graphics.shapes import Drawing
             from reportlab.graphics import renderPDF
 
-            def qr(data, xq, yq, size=21 * mm):
-                q = QrCodeWidget(data); b = q.getBounds()
+            def qr(data, xq, yq, size=21 * mm, level="M"):
+                q = QrCodeWidget(data, barLevel=level); b = q.getBounds()
                 dr = Drawing(size, size, transform=[size / (b[2] - b[0]), 0, 0, size / (b[3] - b[1]), 0, 0]); dr.add(q); renderPDF.draw(dr, can, xq, yq)
 
             epc = "\n".join(["BCD", "002", "1", "SCT", bic, owner, iban.replace(" ", ""), "EUR" + f"{amt:.2f}", "", "", no])

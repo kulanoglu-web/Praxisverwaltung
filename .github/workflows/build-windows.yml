@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -r requirements.txt pyinstaller pymupdf
+      - run: pip install -r requirements.txt pyinstaller pymupdf opencv-python-headless
       - name: Python syntax check
         run: python -m py_compile main.py invoice_pdf.py invoice_selftest.py ui_screenshot_test.py generate_icon.py
       - name: Invoice self test (Rechnung, beglichen, Erinnerung)
