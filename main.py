@@ -2,8 +2,8 @@ import sys
 import subprocess, json, os, re, math, shutil, sqlite3, base64, hashlib, tempfile, time
 from pathlib import Path
 from datetime import datetime, date, timedelta
-from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, QEvent, Signal, QThread
-from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QListWidgetItem,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider,QSizePolicy,QCalendarWidget,QCompleter)
+from PySide6.QtCore import QObject, Qt, QTimer, QPoint, QUrl, QEvent, Signal, QThread
+from PySide6.QtWidgets import (QColorDialog,QGroupBox,QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QListWidgetItem,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider,QSizePolicy,QCalendarWidget,QCompleter)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QTextCharFormat, QImage, QPainter, QPen, QPixmap, QDesktopServices, QFont, QColor
 from reportlab.lib.pagesizes import A4
@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.0"
+APP_VERSION = "0.13.1"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -102,7 +102,7 @@ class InkCanvas(QWidget):
     stroke_started=Signal()
     stroke_finished=Signal()
     def __init__(self):
-        super().__init__(); self.rev=0; self.setMinimumHeight(220); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False; self.pen_width=3; self.eraser=False; self.history=[]
+        super().__init__(); self.rev=0; self.setMinimumHeight(220); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False; self.pen_width=3; self.pen_color=QColor('#000000'); self.eraser=False; self.history=[]
     def paintEvent(self,e):
         p=QPainter(self); p.drawImage(self.rect(),self.image)
         # Live-Uhr direkt auf der Handschriftfläche; wird nicht in die gespeicherte Notiz eingebrannt.
@@ -116,7 +116,7 @@ class InkCanvas(QWidget):
         if e.button()==Qt.LeftButton:self.history.append(self.image.copy()); self.history=self.history[-30:]; self.last=self.pointer(e);self.drawing=True; self.rev+=1; self.stroke_started.emit()
     def mouseMoveEvent(self,e):
         if self.drawing:
-            p=self.pointer(e); q=QPainter(self.image); q.setRenderHint(QPainter.Antialiasing); q.setPen(QPen(Qt.white if self.eraser else Qt.black,self.pen_width if not self.eraser else max(12,self.pen_width*4),Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin)); q.drawLine(self.last,p); q.end(); self.last=p; self.update()
+            p=self.pointer(e); q=QPainter(self.image); q.setRenderHint(QPainter.Antialiasing); q.setPen(QPen(Qt.white if self.eraser else self.pen_color,self.pen_width if not self.eraser else max(12,self.pen_width*4),Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin)); q.drawLine(self.last,p); q.end(); self.last=p; self.update()
     def mouseReleaseEvent(self,e):
         if e.button()==Qt.LeftButton:
             self.drawing=False; self.stroke_finished.emit()
@@ -125,6 +125,7 @@ class InkCanvas(QWidget):
         if self.history: self.image=self.history.pop(); self.rev+=1; self.update()
     def set_eraser(self,on): self.eraser=on
     def set_width(self,w): self.pen_width=w
+    def set_color(self,c): self.pen_color=QColor(c); self.eraser=False
     def save_png(self,path): return self.image.save(str(path),"PNG")
     def load_png(self,path):
         p=Path(path); img=QImage()
@@ -710,6 +711,7 @@ def save_data():
 def safe(s): return re.sub(r'[<>:"/\\|?*]','_',s).strip()
 
 import invoice_pdf
+from flexwidgets import FlexTimeEdit, FlexDateEdit, FlowLayout
 
 INVOICE_SETTING_DEFAULTS={"owner_name":"","practice_name":"","qualifications":"","practice_subtitle":"","address":"","phone":"","landline":"","fax":"",
     "email":"info@psychologe-spandau.de","website":"www.psychologe-spandau.de","tax_number":"19/405/00254","iban":"DE13 5001 0517 5404 0811 30",
@@ -1059,8 +1061,8 @@ class Main(QMainWindow):
         self.appt_calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         lv.addWidget(self.appt_calendar)
         quick=QHBoxLayout(); prev=QPushButton("‹ Tag"); today=QPushButton("Heute"); nxt=QPushButton("Tag ›"); quick.addWidget(prev); quick.addWidget(today); quick.addWidget(nxt); lv.addLayout(quick)
-        self.appt_date=QDateEdit(QDate.currentDate()); self.appt_date.setCalendarPopup(True); self.appt_date.setDisplayFormat("dd.MM.yyyy")
-        self.appt_time=QTimeEdit(QTime.currentTime()); self.appt_time.setDisplayFormat("HH:mm")
+        self.appt_date=FlexDateEdit(QDate.currentDate()); self.appt_date.setCalendarPopup(True); self.appt_date.setDisplayFormat("dd.MM.yyyy")
+        self.appt_time=FlexTimeEdit(QTime.currentTime()); self.appt_time.setDisplayFormat("HH:mm")
         self.appt_minutes=QSpinBox(); self.appt_minutes.setRange(5,300); self.appt_minutes.setValue(45); self.appt_minutes.setSuffix(" Min.")
         self.appt_type=QComboBox(); self.appt_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstiger Termin"])
         form=QFormLayout(); form.addRow("Datum",self.appt_date); form.addRow("Beginn",self.appt_time); form.addRow("Dauer",self.appt_minutes); form.addRow("Terminart",self.appt_type)
@@ -1319,8 +1321,8 @@ class Main(QMainWindow):
         self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("Klient auswählen …",None)
         for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.client_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
         newclient=QPushButton("＋ Neu"); newclient.setMinimumHeight(28); newclient.setMaximumWidth(72); newclient.clicked.connect(self.open_new_client_dialog)
-        self.s_date=QDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
-        self.s_start=QTimeEdit(QTime.currentTime()); self.s_end=QTimeEdit(QTime.currentTime().addSecs(45*60)); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
+        self.s_date=FlexDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
+        self.s_start=FlexTimeEdit(QTime.currentTime()); self.s_end=FlexTimeEdit(QTime.currentTime().addSecs(45*60)); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
         self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); self.s_red=QCheckBox("Ermäßigter Satz")
         self.partner_pick=QComboBox(); self.partner_pick.setEditable(True); self.partner_pick.setInsertPolicy(QComboBox.NoInsert); self.partner_pick.addItem("Zweiten Partner auswählen …",None)
         for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.partner_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
@@ -1420,12 +1422,13 @@ class Main(QMainWindow):
         hv.addWidget(self.session_homework); v.addWidget(homeworkbox)
 
         self.ink=InkCanvas(); self.current_ink_file=""; self.current_ocr_text=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch(); self.ink_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.ink_clock.setStyleSheet("font-size:18px;font-weight:800"); inkhead.addWidget(self.ink_clock); self.ink_clock_timer=QTimer(self); self.ink_clock_timer.timeout.connect(lambda: (self.ink_clock.setText(QTime.currentTime().toString("HH:mm:ss")), self.ink.update())); self.ink_clock_timer.start(1000)
-        width=QSpinBox(); width.setRange(1,10); width.setValue(3); width.setSuffix(" px"); width.valueChanged.connect(self.ink.set_width); eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
-        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(self.ink.clear); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); ocrink=QPushButton("⌨ Handschrift → Text"); ocrink.setToolTip("Lokale Windows-Handschrifterkennung; erkannter Text wird vor Übernahme angezeigt."); ocrink.clicked.connect(self.ink_to_text); ocrtest=QPushButton("OCR-Test"); ocrtest.setToolTip("Prüft Windows-OCR und installierte Erkennungssprachen."); ocrtest.clicked.connect(self.ocr_system_test); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
-        for x in (QLabel("Stärke:"),width,eraser,undo,saveink,ocrink,ocrtest,clearink,fullscreen):
-            if hasattr(x,"setMinimumHeight"): x.setMinimumHeight(40)
-            inkhead.addWidget(x)
-        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.ink.setMinimumHeight(235); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink)
+        eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
+        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(lambda: (self.ink.clear(),setattr(self,'_last_ink_text',''))); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); ocrink=QPushButton("⌨ Handschrift → Text"); ocrink.setToolTip("Lokale Windows-Handschrifterkennung; erkannter Text wird vor Übernahme angezeigt."); ocrink.clicked.connect(self.ink_to_text); ocrtest=QPushButton("OCR-Test"); ocrtest.setToolTip("Prüft Windows-OCR und installierte Erkennungssprachen."); ocrtest.clicked.connect(self.ocr_system_test); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
+        inktools=FlowLayout(hspacing=8,vspacing=6)
+        for x in self.make_pen_tools(eraser)+[eraser,undo,saveink,ocrink,ocrtest,clearink,fullscreen]:
+            if isinstance(x,QPushButton) and x.maximumHeight()>1000: x.setMinimumHeight(40)
+            inktools.addWidget(x)
+        self.inkbox=QFrame(); self.inkbox.setObjectName("formCard"); self.inkv=QVBoxLayout(self.inkbox); self.inkv.setContentsMargins(16,12,16,14); self.inkv.setSpacing(10); self.inkv.addLayout(inkhead); self.inkv.addLayout(inktools); self.ink.setMinimumHeight(235); self.ink.setStyleSheet("background:white;border:1px dashed #b8c7d4;border-radius:8px"); self.inkv.addWidget(self.ink)
         # Sofort-Texterkennung: nach kurzer Schreibpause wird die Handschrift automatisch in Text umgewandelt.
         self._ocr_busy=False; self._ocr_timer=QTimer(self); self._ocr_timer.setSingleShot(True); self._ocr_timer.timeout.connect(lambda: self.ink_ocr_start(manual=False))
         self.ink.stroke_started.connect(self._ocr_timer.stop); self.ink.stroke_finished.connect(self.ink_schedule_ocr)
@@ -1615,27 +1618,69 @@ Write-Output $result.Text
                 self.ink_commit_text(edit.toPlainText().strip(),clear_ink=False); dlg.accept()
             buttons.accepted.connect(accept_text); buttons.rejected.connect(dlg.reject); dlg.exec()
         elif hasattr(self,"ink_direct") and self.ink_direct.isChecked():
-            self.ink_commit_text(text.strip(),clear_ink=True)
+            self.ink_commit_text(text.strip())
         else:
             self.ink_status.setText("✓ Erkannt – bitte prüfen und übernehmen")
 
     def ink_commit_text(self,cleaned,clear_ink=False):
+        """Erkannten Text in die Therapienotiz übernehmen. Die Handschrift bleibt IMMER erhalten.
+        Wird dieselbe Handschrift erneut erkannt (weitergeschrieben), ersetzt der neue Text den zuvor
+        übernommenen Block, statt doppelt angehängt zu werden."""
         if not cleaned: return
-        existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+cleaned)
-        self.current_ocr_text=(self.current_ocr_text.rstrip()+"\n" if self.current_ocr_text else "")+cleaned
-        if clear_ink: self.ink.clear()
-        self.ink_status.setText("✓ In Therapienotiz übernommen"+(" (Zeichenfläche geleert – mit ‚Rückgängig‘ zurückholbar)" if clear_ink else ""))
+        prev=getattr(self,"_last_ink_text","")
+        existing=self.notes.toPlainText().rstrip()
+        if prev and existing.endswith(prev): existing=existing[:-len(prev)].rstrip()
+        self.notes.setPlainText((existing+"\n\n" if existing else "")+cleaned)
+        ocr_prev=self.current_ocr_text.rstrip()
+        if prev and ocr_prev.endswith(prev): ocr_prev=ocr_prev[:-len(prev)].rstrip()
+        self.current_ocr_text=(ocr_prev+"\n" if ocr_prev else "")+cleaned
+        self._last_ink_text=cleaned
+        self.ink_status.setText("✓ In Therapienotiz übernommen – Handschrift bleibt erhalten")
         self.ink_live.clear()
+
+    def make_pen_tools(self,eraser_cb=None):
+        """Stiftstärke (Regler + Zahl) und Farbauswahl für den Notizblock. Gibt Widgets zurück."""
+        wl=QLabel("Stärke"); sl=QSlider(Qt.Horizontal); sl.setRange(1,24); sl.setValue(self.ink.pen_width); sl.setMinimumWidth(110); sl.setMaximumWidth(180)
+        sp=QSpinBox(); sp.setRange(1,24); sp.setValue(self.ink.pen_width); sp.setSuffix(" px"); sp.setMinimumWidth(100)
+        sl.valueChanged.connect(sp.setValue); sp.valueChanged.connect(sl.setValue); sp.valueChanged.connect(self.ink.set_width)
+        widgets=[wl,sl,sp,QLabel("Farbe")]
+        def pick(color,apply=True):
+            if apply:
+                self.ink.set_color(color)
+                if eraser_cb is not None and eraser_cb.isChecked(): eraser_cb.setChecked(False)
+            for b,c in swatches: b.setStyleSheet(f"background:{c};border:3px solid {'#e0b030' if QColor(c)==self.ink.pen_color else '#9fb3c4'};border-radius:15px;")
+        swatches=[]
+        for c,name in (("#000000","Schwarz"),("#1f4fd8","Blau"),("#c62828","Rot"),("#2e7d32","Grün"),("#ef6c00","Orange"),("#6a1b9a","Violett")):
+            b=QPushButton(""); b.setFixedSize(30,30); b.setToolTip(name); b.setCursor(Qt.PointingHandCursor); b.clicked.connect(lambda _=False,col=c: pick(col)); swatches.append((b,c)); widgets.append(b)
+        more=QPushButton("🎨"); more.setToolTip("Eigene Farbe wählen …"); more.setFixedSize(34,30)
+        def custom():
+            col=QColorDialog.getColor(self.ink.pen_color,self,"Stiftfarbe wählen")
+            if col.isValid(): pick(col.name())
+        more.clicked.connect(custom); widgets.append(more); pick(self.ink.pen_color.name(),apply=False)
+        return widgets
 
     def open_ink_fullscreen(self):
         dlg=QDialog(self); dlg.setWindowTitle("Freihand-Notizbuch"); dlg.resize(1280,800); dlg.setMinimumSize(760,520); dlg.setWindowFlag(Qt.WindowMaximizeButtonHint,True)
         v=QVBoxLayout(dlg); bar=QHBoxLayout(); title=QLabel("Handschrift / Stift"); title.setStyleSheet("font-size:22px;font-weight:700"); bar.addWidget(title); bar.addStretch(); clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); clock.setStyleSheet("font-size:20px;font-weight:800"); bar.addWidget(clock); clocktimer=QTimer(dlg); clocktimer.timeout.connect(lambda: clock.setText(QTime.currentTime().toString("HH:mm:ss"))); clocktimer.start(1000)
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); erase=QCheckBox("Radierer"); erase.setChecked(self.ink.eraser); erase.toggled.connect(self.ink.set_eraser)
-        width=QSpinBox(); width.setRange(1,10); width.setValue(self.ink.pen_width); width.valueChanged.connect(self.ink.set_width)
         zoom=QSlider(Qt.Horizontal); zoom.setRange(60,180); zoom.setValue(100); zoom.setFixedWidth(170); zoomlabel=QLabel("100 %")
         save=QPushButton("💾 Notiz speichern"); save.clicked.connect(self.save_ink_note); ocr=QPushButton("⌨ Handschrift → Text"); ocr.clicked.connect(self.ink_to_text); ocrtest=QPushButton("OCR-Selbsttest"); ocrtest.clicked.connect(self.ocr_end_to_end_test); clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); full=QPushButton("⛶ Vollbild"); full.setCheckable(True); full.toggled.connect(lambda on: dlg.showFullScreen() if on else dlg.showNormal()); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
-        for x in (undo,erase,QLabel("Stärke"),width,QLabel("Ansicht"),zoom,zoomlabel,save,ocr,ocrtest,clear,full,close): bar.addWidget(x)
-        v.addLayout(bar); holder=QScrollArea(); holder.setWidgetResizable(True); holder.setAlignment(Qt.AlignCenter); self.ink.setMinimumSize(360,240); self.ink.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding); self.ink.setParent(holder); holder.setWidget(self.ink)
+        clear.clicked.disconnect(); clear.clicked.connect(lambda: (self.ink.clear(),setattr(self,'_last_ink_text','')))
+        tools=FlowLayout(hspacing=8,vspacing=6); allbtns=[]
+        for x in [undo,erase]+self.make_pen_tools(erase)+[QLabel("Ansicht"),zoom,zoomlabel,save,ocr,ocrtest,clear,full,close]:
+            tools.addWidget(x)
+            if isinstance(x,QPushButton) and x.maximumHeight()>1000: allbtns.append(x)
+        bar.setContentsMargins(0,0,0,0); v.addLayout(bar); v.addLayout(tools)
+        # Beim Drehen/Verkleinern des Fensters Schaltflächen in Höhe und Schrift mitskalieren (Touch-tauglich).
+        class _Rescale(QObject):
+            def eventFilter(_s,o,ev):
+                if ev.type()==QEvent.Resize:
+                    k=max(0.78,min(1.15,min(dlg.width()/1280,dlg.height()/720+0.25)))
+                    for b in allbtns:
+                        f=b.font(); f.setPointSizeF(max(9.0,12.5*k)); b.setFont(f); b.setMinimumHeight(int(max(34,46*k)))
+                return False
+        _rs=_Rescale(dlg); dlg.installEventFilter(_rs); dlg._rescale=_rs
+        holder=QScrollArea(); holder.setWidgetResizable(True); holder.setAlignment(Qt.AlignCenter); self.ink.setMinimumSize(360,240); self.ink.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding); self.ink.setParent(holder); holder.setWidget(self.ink)
         basew,baseh=max(360,holder.viewport().width()),max(240,holder.viewport().height())
         def scale_ink(value):
             zoomlabel.setText(f"{value} %"); self.ink.setMinimumSize(max(360,int(basew*value/100)),max(240,int(baseh*value/100)))
@@ -2373,12 +2418,9 @@ Write-Output $result.Text
         self.i_client.activated.connect(pick_invoice_client)
         self.i_client.lineEdit().editingFinished.connect(pick_invoice_client)
         for ed in (self.i_no,self.i_last,self.i_first,self.i_addr,self.i_diag): ed.setMinimumHeight(40)
-        self.i_date=QDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_date.setDisplayFormat("dd.MM.yyyy"); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstige"])
+        self.i_date=FlexDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_date.setDisplayFormat("dd.MM.yyyy"); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstige"])
         self.i_min=QSpinBox(); self.i_min.setRange(1,1000); self.i_min.setValue(45); self.i_red=QCheckBox("Ermäßigter Satz")
-        self.i_start=QTimeEdit(QTime.currentTime()); self.i_start.setDisplayFormat("HH:mm"); self.i_end=QTimeEdit(QTime.currentTime().addSecs(45*60)); self.i_end.setDisplayFormat("HH:mm")
-        for te in (self.i_start,self.i_end):
-            te.setKeyboardTracking(False); te.setAccelerated(True); te.setWrapping(True); te.setToolTip("Zeit direkt eingeben, z. B. 1430 für 14:30")
-            te.lineEdit().setInputMask("99:99;_"); te.lineEdit().setPlaceholderText("HH:MM"); te.lineEdit().installEventFilter(self)
+        self.i_start=FlexTimeEdit(QTime.currentTime()); self.i_start.setDisplayFormat("HH:mm"); self.i_end=FlexTimeEdit(QTime.currentTime().addSecs(45*60)); self.i_end.setDisplayFormat("HH:mm")
         for ed in (self.i_date,self.i_type,self.i_min,self.i_start,self.i_end): ed.setMinimumHeight(40)
         f.addRow("Klient auswählen / suchen",self.i_client)
         for a,b in [("Rechnungsnummer",self.i_no),("Nachname",self.i_last),("Vorname",self.i_first),("Adresse",self.i_addr),("Diagnose (optional)",self.i_diag),("Leistungsdatum",self.i_date),("Beginn",self.i_start),("Ende",self.i_end),("Leistung",self.i_type),("Dauer Minuten",self.i_min)]: f.addRow(a,b)
@@ -2486,9 +2528,8 @@ Write-Output $result.Text
         if not self.require_edit(): return
         audit("INVOICE_ENGINE", "html", self.current_user.get("username","") if self.current_user else "")
         for label, te in (("Beginn", self.i_start), ("Ende", self.i_end)):
-            raw = te.lineEdit().text().strip().replace("_", "")
-            parsed = QTime.fromString(raw, "HH:mm")
-            if not parsed.isValid():
+            te.normalize(); parsed=te.time()
+            if not te.hasValidInput():
                 return QMessageBox.warning(self, "Zeitangabe", f"{label}: Bitte eine gültige Uhrzeit im Format HH:MM eingeben.")
             te.setTime(parsed)
 
@@ -2681,9 +2722,8 @@ Write-Output $result.Text
         audit("INVOICE_ENGINE", "reportlab", self.current_user.get("username","") if self.current_user else "")
         # Eingaben zuerst sauber übernehmen; ungültige Zeiten verständlich melden.
         for label,te in (("Beginn",self.i_start),("Ende",self.i_end)):
-            raw=te.lineEdit().text().strip().replace("_","")
-            parsed=QTime.fromString(raw,"HH:mm")
-            if not parsed.isValid():
+            te.normalize(); parsed=te.time()
+            if not te.hasValidInput():
                 return QMessageBox.warning(self,"Zeitangabe",f"{label}: Bitte eine gültige Uhrzeit im Format HH:MM eingeben.")
             te.setTime(parsed)
         no=self.i_no.text().strip()
@@ -2824,8 +2864,8 @@ Write-Output $result.Text
                 rr,s=selected_session()
                 if s is None: return QMessageBox.information(dlg,"Sitzung","Bitte zuerst eine Sitzung auswählen.")
                 ed=QDialog(dlg); ed.setWindowTitle("Sitzung korrigieren"); form=QFormLayout(ed)
-                start_time=QTimeEdit(); start_time.setDisplayFormat("HH:mm"); start_time.setTime(QTime.fromString(s.get("start","09:00"),"HH:mm"))
-                end_time=QTimeEdit(); end_time.setDisplayFormat("HH:mm"); end_time.setTime(QTime.fromString(s.get("end","09:45"),"HH:mm"))
+                start_time=FlexTimeEdit(); start_time.setDisplayFormat("HH:mm"); start_time.setTime(QTime.fromString(s.get("start","09:00"),"HH:mm"))
+                end_time=FlexTimeEdit(); end_time.setDisplayFormat("HH:mm"); end_time.setTime(QTime.fromString(s.get("end","09:45"),"HH:mm"))
                 mins=QSpinBox(); mins.setRange(0,1439); mins.setReadOnly(True); mins.setButtonSymbols(QSpinBox.NoButtons)
                 def calculate_minutes():
                     duration=start_time.time().secsTo(end_time.time())//60
@@ -2971,6 +3011,77 @@ Write-Output $result.Text
                 r=t.rowCount(); t.insertRow(r)
                 for j,k in enumerate(["last","first","dob","phone","email"]): t.setItem(r,j,QTableWidgetItem(str(cc.get(k,""))))
         b.clicked.connect(refresh); v.addWidget(b); return w
+    def backup_box(self):
+        """Sicherung, Sicherungsziel und Schlüsselschutz (gehört in die Einstellungen, nicht in die Rechnungsliste)."""
+        bkbox=QGroupBox("Datensicherung && Wiederherstellungsschlüssel"); bkflow=FlowLayout(bkbox); bkflow.setContentsMargins(12,20,12,12); v=bkflow
+        backup=QPushButton("Datensicherung erstellen"); backup.setMinimumHeight(42)
+        def do_backup():
+            backup_root=Path(get_setting("backup_dir","") or ROOT/"Backups")
+            try: backup_root.mkdir(parents=True,exist_ok=True)
+            except Exception: return QMessageBox.warning(self,"Sicherung","Das Sicherungsziel ist nicht erreichbar:\n"+str(backup_root)+"\n\nBitte USB-Stick anschließen oder ein anderes Ziel wählen.")
+            dest=backup_root/datetime.now().strftime("Backup_%Y-%m-%d_%H-%M-%S"); dest.mkdir(parents=True,exist_ok=True)
+            if DATA.exists(): shutil.copy2(DATA,dest/DATA.name)
+            if DBFILE.exists():
+                con=sqlite3.connect(DBFILE); out=sqlite3.connect(dest/DBFILE.name); con.backup(out); out.close(); con.close()
+            # Exporte (PDF/XLSX) bleiben bewusst außerhalb der verschlüsselten Datensicherung.
+            # Der lokale Hauptschlüssel wird niemals zusammen mit dem Backup kopiert.
+            for src in (ROOT/"Klienten").rglob("*.enc"):
+                rel=src.relative_to(ROOT/"Klienten"); target=dest/"Klienten"/rel; target.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(src,target)
+            # Separater Wiederherstellungsschlüssel: bewusst nicht im Backup-Ordner.
+            key_export=backup_root/("Wiederherstellungsschluessel_"+datetime.now().strftime("%Y-%m-%d_%H-%M-%S")+".key")
+            key_exported=KEYFILE.exists()
+            if key_exported: shutil.copy2(KEYFILE,key_export)
+            (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[])))+"\nDer Wiederherstellungsschlüssel wurde separat erstellt und darf nicht zusammen mit dem Backup aufbewahrt werden.",encoding="utf-8")
+            if key_exported: QMessageBox.information(self,"Sicherung","Sicherung erstellt:\n"+str(dest)+"\n\nWiederherstellungsschlüssel separat erstellt:\n"+str(key_export)+"\n\nBitte Schlüssel und Backup getrennt aufbewahren (z. B. Schlüssel auf USB-Stick).")
+            else: QMessageBox.information(self,"Sicherung","Sicherung erstellt:\n"+str(dest)+"\n\nDer Datenschlüssel ist an Ihr Windows-Konto gebunden und wird nicht mitgesichert. Bewahren Sie Ihren Wiederherstellungsschlüssel (.key) getrennt auf. Ohne ihn lässt sich die Sicherung auf einem anderen PC nicht öffnen.")
+        backup.clicked.connect(lambda: do_backup() if self.require_edit() else None); v.addWidget(backup)
+        restore=QPushButton("Datensicherung wiederherstellen …"); restore.setMinimumHeight(42)
+        def do_restore():
+            if not self.is_admin(): return QMessageBox.warning(self,"Keine Berechtigung","Wiederherstellung ist Administratoren vorbehalten.")
+            folder=QFileDialog.getExistingDirectory(self,"Backup-Ordner auswählen",str(Path(get_setting("backup_dir","") or ROOT/"Backups")))
+            if not folder:return
+            key,_=QFileDialog.getOpenFileName(self,"Wiederherstellungsschlüssel auswählen",str(ROOT/"Backups"),"Schlüssel (*.key);;Alle Dateien (*)")
+            if not key:return
+            src=Path(folder)
+            if not (src/DATA.name).exists() or not (src/DBFILE.name).exists(): return QMessageBox.warning(self,"Wiederherstellung","Der ausgewählte Ordner enthält kein vollständiges PraxisPro-Backup.")
+            try:
+                testkey=Path(key).read_bytes(); token=(src/DATA.name).read_text(encoding="utf-8")
+                if token.startswith("enc:"): Fernet(testkey).decrypt(token[4:].encode("ascii"))
+            except Exception:return QMessageBox.critical(self,"Wiederherstellung","Der Schlüssel passt nicht zu dieser Sicherung.")
+            if QMessageBox.question(self,"Wiederherstellung","Die aktuellen Praxisdaten werden ersetzt. Fortfahren?")!=QMessageBox.Yes:return
+            stamp=datetime.now().strftime("%Y%m%d_%H%M%S"); safety=ROOT/"Backups"/("Vor_Wiederherstellung_"+stamp); safety.mkdir(parents=True,exist_ok=True)
+            if DATA.exists():shutil.copy2(DATA,safety/DATA.name)
+            if DBFILE.exists():shutil.copy2(DBFILE,safety/DBFILE.name)
+            if KEYFILE.exists():shutil.copy2(KEYFILE,safety/KEYFILE.name)
+            if KEYFILE_PROT.exists():shutil.copy2(KEYFILE_PROT,safety/KEYFILE_PROT.name)
+            KEYFILE_PROT.unlink(missing_ok=True)
+            shutil.copy2(key,KEYFILE); shutil.copy2(src/DATA.name,DATA); shutil.copy2(src/DBFILE.name,DBFILE)
+            if (src/"Klienten").exists(): shutil.copytree(src/"Klienten",ROOT/"Klienten",dirs_exist_ok=True)
+            audit("BACKUP_RESTORE","Datensicherung wiederhergestellt",self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.information(self,"Wiederherstellung","Wiederherstellung abgeschlossen. PraxisPro wird jetzt beendet. Bitte anschließend neu starten."); QApplication.quit()
+        restore.clicked.connect(do_restore); v.addWidget(restore)
+        target=QPushButton("Sicherungsziel wählen (z. B. USB-Stick) …"); target.setMinimumHeight(42)
+        target_label=QLabel("Aktuelles Ziel: "+str(Path(get_setting("backup_dir","") or ROOT/"Backups"))); target_label.setWordWrap(True); target_label.setMaximumWidth(620); target_label.setObjectName("pageSub")
+        def choose_target():
+            if not self.require_edit(): return
+            folder=QFileDialog.getExistingDirectory(self,"Sicherungsziel auswählen",str(Path(get_setting("backup_dir","") or ROOT)))
+            if folder: set_setting("backup_dir",folder); target_label.setText("Aktuelles Ziel: "+folder)
+        target.clicked.connect(choose_target); v.addWidget(target); v.addWidget(target_label)
+        keyexp=QPushButton("Wiederherstellungsschlüssel speichern …"); keyexp.setMinimumHeight(42)
+        def export_key():
+            if not self.is_admin(): return QMessageBox.warning(self,"Keine Berechtigung","Nur Administratoren dürfen den Wiederherstellungsschlüssel speichern.")
+            path,_=QFileDialog.getSaveFileName(self,"Wiederherstellungsschlüssel speichern (am besten auf USB-Stick)",str(Path.home()/"Wiederherstellungsschluessel_PraxisPro.key"),"Schlüssel (*.key)")
+            if not path: return
+            try:
+                Path(path).write_bytes(encryption_key())
+                if Path(path).read_bytes()!=encryption_key(): raise OSError("Prüfung der gespeicherten Datei fehlgeschlagen")
+            except Exception as e: return QMessageBox.warning(self,"Schlüssel","Der Schlüssel konnte nicht gespeichert werden:\n"+str(e)[:300])
+            audit("KEY_EXPORT","Wiederherstellungsschlüssel gespeichert",self.current_user.get("username","") if self.current_user else "")
+            QMessageBox.information(self,"Schlüssel","Der Wiederherstellungsschlüssel wurde gespeichert.\n\nBewahren Sie ihn getrennt von den Daten auf (z. B. USB-Stick im Safe). Wer diese Datei besitzt, kann die Praxisdaten entschlüsseln.")
+        keyexp.clicked.connect(export_key); v.addWidget(keyexp)
+        keyprot=QPushButton("Schlüssel mit Windows-Konto schützen …"); keyprot.setMinimumHeight(42); keyprot.clicked.connect(lambda: self.offer_key_protection(force=True)); v.addWidget(keyprot)
+        return bkbox
+
     def invoices_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
         title=QLabel("Rechnungen"); title.setObjectName("pageTitle"); v.addWidget(title)
@@ -2978,7 +3089,7 @@ Write-Output $result.Text
         filters=QHBoxLayout(); search=QLineEdit(); search.setPlaceholderText("Rechnung oder Klient suchen …"); search.setClearButtonEnabled(True)
         statusfilter=QComboBox(); statusfilter.addItems(["Alle Status","offen","überfällig","bezahlt","storniert"]); statusfilter.setMinimumWidth(150)
         filters.addWidget(search,1); filters.addWidget(statusfilter); v.addLayout(filters)
-        t=QTableWidget(0,8); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Zahlungsdatum","Mahnstufe","Letzte Erinnerung","Betrag"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True); t.setToolTip("Doppelklick öffnet die Rechnungsdetails")
+        t=QTableWidget(0,8); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Zahlungsdatum","Mahnstufe","Letzte Erinnerung","Betrag"]); hh=t.horizontalHeader(); hh.setSectionResizeMode(QHeaderView.ResizeToContents); hh.setSectionResizeMode(2,QHeaderView.Stretch); hh.setMinimumHeight(38); t.verticalHeader().setVisible(False); t.setWordWrap(False); t.setMinimumHeight(240); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True); t.setToolTip("Doppelklick öffnet die Rechnungsdetails")
         for i in reversed(DB["invoices"]):
             r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),str(i.get("reminder_count",0)),i.get("reminder_date",""),f'{float(i.get("amount",0)):.2f} €']
             for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
@@ -3000,8 +3111,8 @@ Write-Output $result.Text
                             for j in range(t.columnCount()):
                                 if t.item(r,j): t.item(r,j).setToolTip("Zahlungsziel von 14 Tagen überschritten")
                     except Exception: pass
-        search.textChanged.connect(filt); statusfilter.currentTextChanged.connect(filt); v.addWidget(t)
-        summary=QHBoxLayout()
+        search.textChanged.connect(filt); statusfilter.currentTextChanged.connect(filt); v.addWidget(t,1)
+        summary=FlowLayout()
         overdue_count=0
         today=date.today()
         for inv in DB["invoices"]:
@@ -3016,9 +3127,9 @@ Write-Output $result.Text
             lab=QPushButton(txt); lab.setObjectName("clientBadge"); lab.setCursor(Qt.PointingHandCursor); lab.setMinimumHeight(40); lab.setToolTip("Klicken, um diese Rechnungen in der Liste anzuzeigen.")
             lab.clicked.connect(lambda _=False,s=status_value: statusfilter.setCurrentText(s))
             summary.addWidget(lab); summary_buttons.append(lab)
-        v.addLayout(summary)
-        h=QHBoxLayout()
-        paid=QPushButton("✓ Als bezahlt markieren"); paid.setMinimumHeight(50)
+        v.insertLayout(2,summary)
+        h=FlowLayout()
+        paid=QPushButton("✓ Als bezahlt markieren"); paid.setMinimumHeight(42)
         def selected_invoice():
             r=t.currentRow()
             if r<0:
@@ -3056,7 +3167,7 @@ Write-Output $result.Text
                 except Exception as e: return QMessageBox.warning(self,"PDF","Die Rechnung wurde als bezahlt markiert, die Dankes-PDF konnte aber nicht erstellt werden:\n\n"+str(e)[:500])
                 offer_pdf("Rechnung beglichen","Die Rechnung wurde als bezahlt markiert.\nDie PDF mit Dankeschön wurde erstellt.",out)
         paid.clicked.connect(mark_paid); h.addWidget(paid)
-        cancel=QPushButton("Rechnung stornieren"); cancel.setMinimumHeight(50)
+        cancel=QPushButton("Rechnung stornieren"); cancel.setMinimumHeight(42)
         def cancel_invoice():
             r,inv=selected_invoice()
             if not inv:return
@@ -3073,7 +3184,7 @@ Write-Output $result.Text
             save_data(); update_excel(); audit("INVOICE_CANCELLED","Rechnung "+str(no)+" storniert",self.current_user.get("username","") if self.current_user else ""); t.item(r,3).setText("storniert"); t.item(r,4).setText("")
             QMessageBox.information(self,"Storniert",f"Rechnung {no} wurde storniert.\n{released} verknüpfte Sitzung(en) sind wieder abrechenbar.")
         cancel.clicked.connect(cancel_invoice); h.addWidget(cancel)
-        openpdf=QPushButton("PDF öffnen"); openpdf.setMinimumHeight(50)
+        openpdf=QPushButton("PDF öffnen"); openpdf.setMinimumHeight(42)
         def open_pdf():
             _,inv=selected_invoice()
             if not inv:return
@@ -3086,7 +3197,7 @@ Write-Output $result.Text
                 if guess.exists(): inv["pdf"]=str(guess); save_data(); QDesktopServices.openUrl(QUrl.fromLocalFile(str(guess))); return
             QMessageBox.information(self,"PDF","Das PDF konnte nicht gefunden werden.")
         openpdf.clicked.connect(open_pdf); h.addWidget(openpdf)
-        remind=QPushButton("Zahlungserinnerung"); remind.setMinimumHeight(50)
+        remind=QPushButton("Zahlungserinnerung"); remind.setMinimumHeight(42)
         def payment_reminder():
             _,inv=selected_invoice()
             if not inv:return
@@ -3106,7 +3217,7 @@ Write-Output $result.Text
             except Exception as e:
                 QMessageBox.warning(self,"Zahlungserinnerung","Die Erinnerung wurde dokumentiert, die PDF konnte aber nicht erstellt werden:\n\n"+str(e)[:500])
         remind.clicked.connect(payment_reminder); h.addWidget(remind)
-        details=QPushButton("Details"); details.setMinimumHeight(50)
+        details=QPushButton("Details"); details.setMinimumHeight(42)
         def invoice_details():
             _,inv=selected_invoice()
             if not inv:return
@@ -3114,72 +3225,6 @@ Write-Output $result.Text
             lines="\n".join(f'{x.get("date","")}  {x.get("start","")}–{x.get("end","")}  {x.get("minutes",0)} Min.  {x.get("type","")}  {float(x.get("amount",0)):.2f} €' for x in items) or "Keine Einzelpositionen gespeichert."
             QMessageBox.information(self,"Rechnungsdetails",f'Rechnung: {inv.get("number","")}\nKlient: {inv.get("client","")}\nStatus: {inv.get("status","offen")}\nZahlungsdatum: {inv.get("paid_date","") or "–"}\nLetzte Zahlungserinnerung: {inv.get("reminder_date","") or "–"}\nMahnstufe: {inv.get("reminder_count",0)}\nBetrag: {float(inv.get("amount",0)):.2f} €\n\n{lines}')
         details.clicked.connect(invoice_details); t.cellDoubleClicked.connect(lambda *_: invoice_details()); h.addWidget(details); v.addLayout(h)
-        backup=QPushButton("Datensicherung erstellen"); backup.setMinimumHeight(48)
-        def do_backup():
-            backup_root=Path(get_setting("backup_dir","") or ROOT/"Backups")
-            try: backup_root.mkdir(parents=True,exist_ok=True)
-            except Exception: return QMessageBox.warning(self,"Sicherung","Das Sicherungsziel ist nicht erreichbar:\n"+str(backup_root)+"\n\nBitte USB-Stick anschließen oder ein anderes Ziel wählen.")
-            dest=backup_root/datetime.now().strftime("Backup_%Y-%m-%d_%H-%M-%S"); dest.mkdir(parents=True,exist_ok=True)
-            if DATA.exists(): shutil.copy2(DATA,dest/DATA.name)
-            if DBFILE.exists():
-                con=sqlite3.connect(DBFILE); out=sqlite3.connect(dest/DBFILE.name); con.backup(out); out.close(); con.close()
-            # Exporte (PDF/XLSX) bleiben bewusst außerhalb der verschlüsselten Datensicherung.
-            # Der lokale Hauptschlüssel wird niemals zusammen mit dem Backup kopiert.
-            for src in (ROOT/"Klienten").rglob("*.enc"):
-                rel=src.relative_to(ROOT/"Klienten"); target=dest/"Klienten"/rel; target.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(src,target)
-            # Separater Wiederherstellungsschlüssel: bewusst nicht im Backup-Ordner.
-            key_export=backup_root/("Wiederherstellungsschluessel_"+datetime.now().strftime("%Y-%m-%d_%H-%M-%S")+".key")
-            key_exported=KEYFILE.exists()
-            if key_exported: shutil.copy2(KEYFILE,key_export)
-            (dest/"Backup_Info.txt").write_text("Praxisverwaltung Sicherung\nErstellt: "+datetime.now().isoformat(timespec="seconds")+"\nKlienten: "+str(len(DB.get("clients",[])))+"\nSitzungen: "+str(len(DB.get("sessions",[])))+"\nRechnungen: "+str(len(DB.get("invoices",[])))+"\nDer Wiederherstellungsschlüssel wurde separat erstellt und darf nicht zusammen mit dem Backup aufbewahrt werden.",encoding="utf-8")
-            if key_exported: QMessageBox.information(self,"Sicherung","Sicherung erstellt:\n"+str(dest)+"\n\nWiederherstellungsschlüssel separat erstellt:\n"+str(key_export)+"\n\nBitte Schlüssel und Backup getrennt aufbewahren (z. B. Schlüssel auf USB-Stick).")
-            else: QMessageBox.information(self,"Sicherung","Sicherung erstellt:\n"+str(dest)+"\n\nDer Datenschlüssel ist an Ihr Windows-Konto gebunden und wird nicht mitgesichert. Bewahren Sie Ihren Wiederherstellungsschlüssel (.key) getrennt auf. Ohne ihn lässt sich die Sicherung auf einem anderen PC nicht öffnen.")
-        backup.clicked.connect(lambda: do_backup() if self.require_edit() else None); v.addWidget(backup)
-        restore=QPushButton("Datensicherung wiederherstellen …"); restore.setMinimumHeight(48)
-        def do_restore():
-            if not self.is_admin(): return QMessageBox.warning(self,"Keine Berechtigung","Wiederherstellung ist Administratoren vorbehalten.")
-            folder=QFileDialog.getExistingDirectory(self,"Backup-Ordner auswählen",str(Path(get_setting("backup_dir","") or ROOT/"Backups")))
-            if not folder:return
-            key,_=QFileDialog.getOpenFileName(self,"Wiederherstellungsschlüssel auswählen",str(ROOT/"Backups"),"Schlüssel (*.key);;Alle Dateien (*)")
-            if not key:return
-            src=Path(folder)
-            if not (src/DATA.name).exists() or not (src/DBFILE.name).exists(): return QMessageBox.warning(self,"Wiederherstellung","Der ausgewählte Ordner enthält kein vollständiges PraxisPro-Backup.")
-            try:
-                testkey=Path(key).read_bytes(); token=(src/DATA.name).read_text(encoding="utf-8")
-                if token.startswith("enc:"): Fernet(testkey).decrypt(token[4:].encode("ascii"))
-            except Exception:return QMessageBox.critical(self,"Wiederherstellung","Der Schlüssel passt nicht zu dieser Sicherung.")
-            if QMessageBox.question(self,"Wiederherstellung","Die aktuellen Praxisdaten werden ersetzt. Fortfahren?")!=QMessageBox.Yes:return
-            stamp=datetime.now().strftime("%Y%m%d_%H%M%S"); safety=ROOT/"Backups"/("Vor_Wiederherstellung_"+stamp); safety.mkdir(parents=True,exist_ok=True)
-            if DATA.exists():shutil.copy2(DATA,safety/DATA.name)
-            if DBFILE.exists():shutil.copy2(DBFILE,safety/DBFILE.name)
-            if KEYFILE.exists():shutil.copy2(KEYFILE,safety/KEYFILE.name)
-            if KEYFILE_PROT.exists():shutil.copy2(KEYFILE_PROT,safety/KEYFILE_PROT.name)
-            KEYFILE_PROT.unlink(missing_ok=True)
-            shutil.copy2(key,KEYFILE); shutil.copy2(src/DATA.name,DATA); shutil.copy2(src/DBFILE.name,DBFILE)
-            if (src/"Klienten").exists(): shutil.copytree(src/"Klienten",ROOT/"Klienten",dirs_exist_ok=True)
-            audit("BACKUP_RESTORE","Datensicherung wiederhergestellt",self.current_user.get("username","") if self.current_user else "")
-            QMessageBox.information(self,"Wiederherstellung","Wiederherstellung abgeschlossen. PraxisPro wird jetzt beendet. Bitte anschließend neu starten."); QApplication.quit()
-        restore.clicked.connect(do_restore); v.addWidget(restore)
-        target=QPushButton("Sicherungsziel wählen (z. B. USB-Stick) …"); target.setMinimumHeight(44)
-        target_label=QLabel("Aktuelles Ziel: "+str(Path(get_setting("backup_dir","") or ROOT/"Backups"))); target_label.setWordWrap(True); target_label.setObjectName("pageSub")
-        def choose_target():
-            if not self.require_edit(): return
-            folder=QFileDialog.getExistingDirectory(self,"Sicherungsziel auswählen",str(Path(get_setting("backup_dir","") or ROOT)))
-            if folder: set_setting("backup_dir",folder); target_label.setText("Aktuelles Ziel: "+folder)
-        target.clicked.connect(choose_target); v.addWidget(target); v.addWidget(target_label)
-        keyexp=QPushButton("Wiederherstellungsschlüssel speichern …"); keyexp.setMinimumHeight(44)
-        def export_key():
-            if not self.is_admin(): return QMessageBox.warning(self,"Keine Berechtigung","Nur Administratoren dürfen den Wiederherstellungsschlüssel speichern.")
-            path,_=QFileDialog.getSaveFileName(self,"Wiederherstellungsschlüssel speichern (am besten auf USB-Stick)",str(Path.home()/"Wiederherstellungsschluessel_PraxisPro.key"),"Schlüssel (*.key)")
-            if not path: return
-            try:
-                Path(path).write_bytes(encryption_key())
-                if Path(path).read_bytes()!=encryption_key(): raise OSError("Prüfung der gespeicherten Datei fehlgeschlagen")
-            except Exception as e: return QMessageBox.warning(self,"Schlüssel","Der Schlüssel konnte nicht gespeichert werden:\n"+str(e)[:300])
-            audit("KEY_EXPORT","Wiederherstellungsschlüssel gespeichert",self.current_user.get("username","") if self.current_user else "")
-            QMessageBox.information(self,"Schlüssel","Der Wiederherstellungsschlüssel wurde gespeichert.\n\nBewahren Sie ihn getrennt von den Daten auf (z. B. USB-Stick im Safe). Wer diese Datei besitzt, kann die Praxisdaten entschlüsseln.")
-        keyexp.clicked.connect(export_key); v.addWidget(keyexp)
-        keyprot=QPushButton("Schlüssel mit Windows-Konto schützen …"); keyprot.setMinimumHeight(44); keyprot.clicked.connect(lambda: self.offer_key_protection(force=True)); v.addWidget(keyprot)
         return w
     def offer_key_protection(self,force=False):
         """Bietet an, den Datenschlüssel an das Windows-Konto zu binden. Vorher wird ein Wiederherstellungsschlüssel gesichert."""
@@ -3373,7 +3418,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(32); fields[key]=ed; bf.addRow(label,ed)
         lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(1,120); lock.setValue(int(get_setting("auto_lock_minutes","15"))); lock.setSuffix(" Minuten"); lockrow.addWidget(lock); lockrow.addStretch(); bf.addRow("Automatische Sperre",lockrow)
         travel=QDoubleSpinBox(); travel.setRange(0,500); travel.setDecimals(2); travel.setValue(float(get_setting("travel_surcharge","25"))); travel.setSuffix(" €"); bf.addRow("Hausbesuch Anfahrt",travel)
-        bv.addLayout(bf); save2=QPushButton("Abrechnung & Sicherheit speichern"); save2.setMinimumHeight(38); save2.clicked.connect(save_settings); bv.addWidget(save2); bv.addStretch(); tabs.addTab(billing,"Abrechnung & Bank")
+        bv.addLayout(bf); bv.addWidget(self.backup_box()); save2=QPushButton("Abrechnung & Sicherheit speichern"); save2.setMinimumHeight(38); save2.clicked.connect(save_settings); bv.addWidget(save2); bv.addStretch(); tabs.addTab(billing,"Abrechnung & Bank")
         ratespage=QWidget(); rv=QVBoxLayout(ratespage); rv.setContentsMargins(12,10,12,12); rv.setSpacing(7)
         rates=QLabel("Honorarsätze"); rates.setObjectName("sectionTitle"); rv.addWidget(rates)
         rt=QTableWidget(0,5); rt.setMinimumHeight(300); rt.setHorizontalHeaderLabels(["Leistung","Min.","Regulär €","Ermäßigt €","Abrechnung"]); rt.verticalHeader().setDefaultSectionSize(28); rt.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)

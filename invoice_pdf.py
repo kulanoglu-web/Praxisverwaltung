@@ -69,6 +69,12 @@ def paypal_link(me, account, amount):
     import re
     me = (me or "").strip() or ((account or "").strip() if not "@" in (account or "") else "")
     if not me:
+        # Ohne PayPal.Me-Namen: Link zur Überweisung an die PayPal-E-Mail (öffnet PayPal nach der Anmeldung
+        # mit Empfänger und Betrag). Zuverlässiger ist ein PayPal.Me-Name – siehe Einstellungen.
+        if account and "@" in account:
+            from urllib.parse import quote
+            return ("https://www.paypal.com/myaccount/transfer/homepage/buy/preview?recipient="
+                    + quote(account.strip()) + f"&amount={amount:.2f}&currencyCode=EUR")
         return ""
     m = re.search(r"paypal\.me/([^/?#\s]+)", me, re.I)
     name = m.group(1) if m else (me if re.fullmatch(r"[A-Za-z0-9._-]+", me) else "")
@@ -253,7 +259,7 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
             if link:
                 qr(link, L + bw + gap + bw - 24 * mm, by + 4 * mm)
                 can.setFont(regular, 5.6); can.setFillColor(NAVY)
-                can.drawCentredString(L + bw + gap + bw - 13.5 * mm, by + 1.8 * mm, "QR scannen: PayPal öffnet mit Betrag")
+                can.drawCentredString(L + bw + gap + bw - 13.5 * mm, by + 1.8 * mm, "QR scannen: PayPal mit Betrag öffnen")
         except Exception as e:
             log("INVOICE_QR_ERROR", str(e)[:300])
         yy = by - 9 * mm
