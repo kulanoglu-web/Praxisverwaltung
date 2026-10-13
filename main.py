@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.1"
+APP_VERSION = "0.13.2"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -102,7 +102,7 @@ class InkCanvas(QWidget):
     stroke_started=Signal()
     stroke_finished=Signal()
     def __init__(self):
-        super().__init__(); self.rev=0; self.setMinimumHeight(220); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False; self.pen_width=3; self.pen_color=QColor('#000000'); self.eraser=False; self.history=[]
+        super().__init__(); self.rev=0; self.setMinimumHeight(220); self.setAttribute(Qt.WA_StaticContents); self.image=QImage(1200,700,QImage.Format_ARGB32); self.image.fill(Qt.white); self.last=QPoint(); self.drawing=False; self.pen_width=3; self.pen_color=QColor('#000000'); self.eraser=False; self.history=[]; self.strokes=[]; self._cur=None; self.strokes_ok=True
     def paintEvent(self,e):
         p=QPainter(self); p.drawImage(self.rect(),self.image)
         # Live-Uhr direkt auf der Handschriftfläche; wird nicht in die gespeicherte Notiz eingebrannt.
@@ -113,16 +113,27 @@ class InkCanvas(QWidget):
     def pointer(self,e):
         return QPoint(int(e.position().x()*self.image.width()/max(1,self.width())),int(e.position().y()*self.image.height()/max(1,self.height())))
     def mousePressEvent(self,e):
-        if e.button()==Qt.LeftButton:self.history.append(self.image.copy()); self.history=self.history[-30:]; self.last=self.pointer(e);self.drawing=True; self.rev+=1; self.stroke_started.emit()
+        if e.button()==Qt.LeftButton:self.history.append(self.image.copy()); self.history=self.history[-30:]; self.last=self.pointer(e);self.drawing=True; self.rev+=1; self._cur=[(e.position().x(),e.position().y())]; self.stroke_started.emit()
     def mouseMoveEvent(self,e):
         if self.drawing:
             p=self.pointer(e); q=QPainter(self.image); q.setRenderHint(QPainter.Antialiasing); q.setPen(QPen(Qt.white if self.eraser else self.pen_color,self.pen_width if not self.eraser else max(12,self.pen_width*4),Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin)); q.drawLine(self.last,p); q.end(); self.last=p; self.update()
+            if self.eraser: self.strokes_ok=False
+            elif self._cur is not None: self._cur.append((e.position().x(),e.position().y()))
     def mouseReleaseEvent(self,e):
         if e.button()==Qt.LeftButton:
-            self.drawing=False; self.stroke_finished.emit()
-    def clear(self): self.history.append(self.image.copy()); self.image.fill(Qt.white); self.rev+=1; self.update()
+            self.drawing=False
+            if self._cur and not self.eraser and len(self._cur)>=1:
+                if len(self._cur)==1: self._cur.append((self._cur[0][0]+0.5,self._cur[0][1]+0.5))
+                self.strokes.append(self._cur)
+            self._cur=None; self.stroke_finished.emit()
+    def clear(self): self.history.append(self.image.copy()); self.image.fill(Qt.white); self.strokes=[]; self.strokes_ok=True; self.rev+=1; self.update()
+    def stroke_data(self):
+        """Striche für die Windows-Handschrifterkennung (Rohkoordinaten) oder None, wenn nicht verfügbar."""
+        return {"w":self.width(),"h":self.height(),"strokes":[[ [round(x,1),round(y,1)] for x,y in st] for st in self.strokes]} if self.strokes and self.strokes_ok else None
     def undo(self):
-        if self.history: self.image=self.history.pop(); self.rev+=1; self.update()
+        if self.history:
+            self.image=self.history.pop(); self.rev+=1; self.update()
+            if self.strokes: self.strokes.pop()
     def set_eraser(self,on): self.eraser=on
     def set_width(self,w): self.pen_width=w
     def set_color(self,c): self.pen_color=QColor(c); self.eraser=False
@@ -132,7 +143,7 @@ class InkCanvas(QWidget):
         if p.suffix==".enc":
             raw=decrypt_file_bytes(p); img.loadFromData(raw,"PNG")
         else: img=QImage(str(path))
-        if not img.isNull(): self.image=img.convertToFormat(QImage.Format_ARGB32).scaled(1200,700,Qt.IgnoreAspectRatio,Qt.SmoothTransformation); self.history=[]; self.update(); return True
+        if not img.isNull(): self.image=img.convertToFormat(QImage.Format_ARGB32).scaled(1200,700,Qt.IgnoreAspectRatio,Qt.SmoothTransformation); self.history=[]; self.strokes=[]; self.strokes_ok=False; self.update(); return True
         return False
 
 OCR_PS_COMMON = r"""$ErrorActionPreference='Stop'
@@ -150,6 +161,47 @@ $null=[Windows.Globalization.Language,Windows.Globalization,ContentType=WindowsR
 # Die richtige AsTask-Überladung (IAsyncOperation) gezielt wählen, nicht einfach die erste generische.
 $asTask=([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
 function Await($op,$type){ $t=$asTask.MakeGenericMethod($type).Invoke($null,@($op)); [void]$t.Wait(-1); return $t.Result }
+
+# Handschrift-Erkennung als Text einlesen: ein Fehler darin darf die normale Texterkennung nicht lahmlegen.
+$inkSrc=@'
+function Recognize-Ink($path,$pref){
+  $null=[Windows.UI.Input.Inking.InkStrokeBuilder,Windows.UI.Input.Inking,ContentType=WindowsRuntime]
+  $null=[Windows.UI.Input.Inking.InkStrokeContainer,Windows.UI.Input.Inking,ContentType=WindowsRuntime]
+  $null=[Windows.UI.Input.Inking.InkRecognizerContainer,Windows.UI.Input.Inking,ContentType=WindowsRuntime]
+  $null=[Windows.UI.Input.Inking.InkRecognitionResult,Windows.UI.Input.Inking,ContentType=WindowsRuntime]
+  $null=[Windows.Foundation.Point,Windows.Foundation,ContentType=WindowsRuntime]
+  $data=[IO.File]::ReadAllText($path,[Text.Encoding]::UTF8) | ConvertFrom-Json
+  $container=New-Object Windows.UI.Input.Inking.InkStrokeContainer
+  $builder=New-Object Windows.UI.Input.Inking.InkStrokeBuilder
+  $n=0
+  foreach($st in $data.strokes){
+    $pts=New-Object 'System.Collections.Generic.List[Windows.Foundation.Point]'
+    foreach($pt in $st){ $pts.Add((New-Object Windows.Foundation.Point([single]$pt[0],[single]$pt[1]))) }
+    if($pts.Count -lt 2){ continue }
+    $container.AddStroke($builder.CreateStroke($pts)); $n++
+  }
+  if($n -eq 0){ throw 'KEINE_STRICHE' }
+  $rc=New-Object Windows.UI.Input.Inking.InkRecognizerContainer
+  $recs=@($rc.GetRecognizers())
+  if($recs.Count -eq 0){ throw 'KEIN_HANDSCHRIFT_ERKENNER' }
+  $want=@{'de-DE'='German|Deutsch|de-DE';'tr-TR'='Turk|Türk|tr-TR';'en-US'='English|Englisch|en-US'}
+  $rx=$want[$pref]; if(-not $rx){ $rx='German|Deutsch|de-DE' }
+  $pick=$recs | Where-Object { $_.Name -match $rx } | Select-Object -First 1
+  if($pick){ $rc.SetDefaultRecognizer($pick) }
+  $listType=[System.Collections.Generic.IReadOnlyList[Windows.UI.Input.Inking.InkRecognitionResult]]
+  $res=Await ($rc.RecognizeAsync($container,[Windows.UI.Input.Inking.InkRecognitionTarget]::All)) $listType
+  $out=@(); $line=''; $lastY=$null
+  foreach($r in $res){
+    $c=@($r.GetTextCandidates()); if($c.Count -eq 0){ continue }
+    $t=[string]$c[0]; $b=$r.BoundingRect
+    if($null -ne $lastY -and ([math]::Abs($b.Y-$lastY) -gt [math]::Max(25,$b.Height*0.8))){ $out+=$line; $line=$t } else { $line=($line+' '+$t).Trim() }
+    $lastY=$b.Y
+  }
+  if($line){ $out+=$line }
+  return $out
+}
+'@
+try{ Invoke-Expression $inkSrc }catch{}
 $engines=@{}
 function Get-Engine($pref){
   $order=@(); if($pref){ $order+=$pref }; $order+=@('de-DE','tr-TR','en-US')
@@ -163,6 +215,7 @@ function Get-Engine($pref){
   return [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
 }
 function Recognize($path,$pref){
+  if($path.EndsWith('.json')){ if(-not (Get-Command Recognize-Ink -ErrorAction SilentlyContinue)){ throw 'HANDSCHRIFTMODUL_FEHLT' }; return (Recognize-Ink $path $pref) }
   # Datei als .NET-Stream öffnen und ohne asynchronen Aufruf in einen WinRT-Stream wandeln (zuverlässiger als StorageFile.OpenAsync).
   $fs=$null
   try{
@@ -238,6 +291,10 @@ def prepare_ink_for_ocr(image):
     m=12
     cx0=max(0,(x0-m)*q); cy0=max(0,(y0-m)*q); cx1=min(image.width(),(x1+m+1)*q); cy1=min(image.height(),(y1+m+1)*q)
     crop=image.copy(cx0,cy0,max(8,cx1-cx0),max(8,cy1-cy0)).convertToFormat(QImage.Format_RGB32)
+    # dünne Stiftstriche leicht verstärken (Windows-OCR erkennt dünne Linien schlecht)
+    th=QImage(crop.size(),QImage.Format_RGB32); th.fill(Qt.white); pt0=QPainter(th); pt0.setCompositionMode(QPainter.CompositionMode_Darken)
+    for dx,dy in ((0,0),(1,0),(0,1),(1,1),(-1,0),(0,-1)): pt0.drawImage(dx,dy,crop)
+    pt0.end(); crop=th
     scale=max(0.5,min(2.5,64.0/max(8,med)))
     out=QImage(crop.width()+120,crop.height()+120,QImage.Format_RGB32); out.fill(Qt.white)
     pt=QPainter(out); pt.drawImage(60,60,crop); pt.end()
@@ -297,13 +354,27 @@ class OcrServer:
 
 _OCR_SERVER=None
 
-def run_windows_ocr(image,lang="de-DE"):
+def run_windows_ocr(image,lang="de-DE",strokes=None):
     """Gibt (text, fehlermeldung) zurück. Läuft komplett lokal über die Windows-Texterkennung."""
     global _OCR_SERVER
     if os.name!="nt": return "", "Die Handschrift-Erkennung ist nur unter Windows verfügbar."
     prepared=prepare_ink_for_ocr(image)
     if prepared is None: return "", "LEER"
     tmpdir=Path(tempfile.gettempdir()); stamp=f"{os.getpid()}_{int(time.time()*1000)}"
+    # 1) echte Handschrifterkennung anhand der Striche (erkennt auch Schreibschrift); 2) sonst Texterkennung auf dem Bild
+    if strokes:
+        js=tmpdir/f"PraxisPro_INK_{stamp}.json"
+        try:
+            js.write_text(json.dumps(strokes),encoding="utf-8")
+            if _OCR_SERVER is None: _OCR_SERVER=OcrServer()
+            txt=_OCR_SERVER.recognize(js,lang)
+            if txt.strip(): return txt.strip(),""
+            audit("INK_RECOGNIZER_EMPTY","leer")
+        except Exception as e:
+            audit("INK_RECOGNIZER_FALLBACK",str(e)[:300])
+        finally:
+            try: js.unlink(missing_ok=True)
+            except Exception: pass
     png=tmpdir/f"PraxisPro_OCR_{stamp}.png"
     try:
         if not prepared.save(str(png),"PNG"): return "", "Die Zeichenfläche konnte nicht vorbereitet werden."
@@ -341,10 +412,10 @@ def run_windows_ocr(image,lang="de-DE"):
 
 class OcrWorker(QThread):
     done=Signal(str,str,int,bool)
-    def __init__(self,image,rev,manual,lang="de-DE"):
-        super().__init__(); self.image=image; self.rev=rev; self.manual=manual; self.lang=lang
+    def __init__(self,image,rev,manual,lang="de-DE",strokes=None):
+        super().__init__(); self.image=image; self.rev=rev; self.manual=manual; self.lang=lang; self.strokes=strokes
     def run(self):
-        text,err=run_windows_ocr(self.image,self.lang); self.done.emit(text,err,self.rev,self.manual)
+        text,err=run_windows_ocr(self.image,self.lang,self.strokes); self.done.emit(text,err,self.rev,self.manual)
 
 from openpyxl import Workbook, load_workbook
 
@@ -1591,7 +1662,7 @@ Write-Output $result.Text
             if manual: QMessageBox.warning(self,"Handschrift erkennen","Keine Handschrift vorhanden.")
             return
         self._ocr_busy=True; self.ink_status.setText("⏳ Handschrift wird erkannt …")
-        w=OcrWorker(self.ink.image.copy(),self.ink.rev,manual,OCR_LANGS.get(self.ink_lang.currentText() if hasattr(self,"ink_lang") else "Deutsch","de-DE")); w.done.connect(self.ink_ocr_done); w.finished.connect(w.deleteLater); self._ocr_worker=w; w.start()
+        w=OcrWorker(self.ink.image.copy(),self.ink.rev,manual,OCR_LANGS.get(self.ink_lang.currentText() if hasattr(self,"ink_lang") else "Deutsch","de-DE"),self.ink.stroke_data()); w.done.connect(self.ink_ocr_done); w.finished.connect(w.deleteLater); self._ocr_worker=w; w.start()
 
     def ink_ocr_done(self,text,err,rev,manual):
         self._ocr_busy=False
