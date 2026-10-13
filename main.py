@@ -140,7 +140,7 @@ try{ [Console]::InputEncoding=New-Object System.Text.UTF8Encoding($false) }catch
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
 $null=[Windows.Storage.FileAccessMode,Windows.Storage,ContentType=WindowsRuntime]
-$null=[Windows.Storage.Streams.IRandomAccessStreamWithContentType,Windows.Storage.Streams,ContentType=WindowsRuntime]
+$null=[Windows.Storage.Streams.IRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime]
 $null=[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
 $null=[Windows.Graphics.Imaging.SoftwareBitmap,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
 $null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
@@ -162,12 +162,20 @@ function Get-Engine($pref){
   return [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
 }
 function Recognize($path,$pref){
-  $file=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
-  $stream=Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+  # Datei als .NET-Stream öffnen und ohne asynchronen Aufruf in einen WinRT-Stream wandeln (zuverlässiger als StorageFile.OpenAsync).
+  $fs=$null
+  try{
+    $fs=[System.IO.File]::Open($path,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::ReadWrite)
+    $stream=[System.IO.WindowsRuntimeStreamExtensions]::AsRandomAccessStream($fs)
+  }catch{
+    if($fs){ try{$fs.Dispose()}catch{} }; $fs=$null
+    $file=Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
+    $stream=Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+  }
   try{
     $decoder=Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
     $bitmap=Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-  } finally { try{ $stream.Dispose() }catch{} }
+  } finally { try{ $stream.Dispose() }catch{}; if($fs){ try{$fs.Dispose()}catch{} } }
   $engine=Get-Engine $pref
   if(-not $engine){ throw 'KEINE_OCR_SPRACHE' }
   $result=Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
@@ -1523,8 +1531,8 @@ function Await-WinRT($Operation,[Type]$ResultType){
   foreach($m in $methods){try{$task=$m.MakeGenericMethod($ResultType).Invoke($null,@($Operation));if($null -ne $task){$task.GetAwaiter().GetResult();return $task.Result}}catch{}}
   throw ('WinRT-Operation fehlgeschlagen: '+$ResultType.FullName)
 }
-$file=Await-WinRT ([Windows.Storage.StorageFile]::GetFileFromPathAsync($env:PRAXISPRO_OCR_PATH)) ([Windows.Storage.StorageFile])
-$stream=Await-WinRT ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+$fs=[System.IO.File]::Open($env:PRAXISPRO_OCR_PATH,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::ReadWrite)
+$stream=[System.IO.WindowsRuntimeStreamExtensions]::AsRandomAccessStream($fs)
 $decoder=Await-WinRT ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
 $bitmap=Await-WinRT ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
 $langs=@([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages)
