@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.9"
+APP_VERSION = "0.13.10"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -3294,6 +3294,69 @@ Write-Output ($lines -join "`n")
             for r in rows: t.removeRow(r)
             QMessageBox.information(self,"Gelöscht",f"{removed} Rechnung(en) gelöscht."+(f"\n{deleted_files} PDF-Datei(en) entfernt." if files else "\nDie PDF-Dateien wurden behalten.")+(f"\n{released} verknüpfte Sitzung(en) sind wieder abrechenbar." if released else ""))
         delbtn.clicked.connect(delete_invoices); h.addWidget(delbtn)
+        def fill_rows():
+            t.setRowCount(0)
+            for i in reversed(DB["invoices"]):
+                r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),str(i.get("reminder_count",0)),i.get("reminder_date",""),f'{float(i.get("amount",0)):.2f} €']
+                for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
+            filt()
+        def invoice_form(inv=None):
+            """Dialog zum Erfassen einer früheren Rechnung (inv=None) oder zum Ändern einer vorhandenen."""
+            if not self.require_edit(): return
+            dlg=QDialog(self); dlg.setWindowTitle("Rechnung bearbeiten" if inv else "Frühere Rechnung erfassen"); dlg.setMinimumWidth(560); lay=QVBoxLayout(dlg)
+            lay.addWidget(QLabel("Für Rechnungen, die vor PraxisPro erstellt wurden, oder um Nummer und Angaben einer Rechnung zu korrigieren."))
+            form=QFormLayout(); form.setVerticalSpacing(10)
+            e_no=QLineEdit(inv.get("number","") if inv else next_no()); e_date=FlexDateEdit(QDate.fromString(inv.get("date",""),"yyyy-MM-dd") if inv and QDate.fromString(inv.get("date",""),"yyyy-MM-dd").isValid() else QDate.currentDate())
+            e_client=QLineEdit(inv.get("client","") if inv else ""); e_client.setPlaceholderText("Nachname, Vorname")
+            e_amt=QDoubleSpinBox(); e_amt.setRange(0,1000000); e_amt.setDecimals(2); e_amt.setSuffix(" €"); e_amt.setValue(float(inv.get("amount",0)) if inv else 0)
+            e_status=QComboBox(); e_status.addItems(["offen","bezahlt","storniert"]); e_status.setCurrentText(inv.get("status","offen") if inv else "offen")
+            pd=QDate.fromString(inv.get("paid_date",""),"yyyy-MM-dd") if inv else QDate()
+            e_paid=FlexDateEdit(pd if pd.isValid() else QDate.currentDate())
+            e_pdf=QLineEdit(inv.get("pdf","") if inv else ""); e_pdf.setPlaceholderText("Optional: PDF der Rechnung"); browse=QPushButton("Datei wählen …")
+            def pick():
+                f,_=QFileDialog.getOpenFileName(dlg,"PDF der Rechnung wählen",str(Path.home()),"PDF (*.pdf)")
+                if f: e_pdf.setText(f)
+            browse.clicked.connect(pick); pr=QHBoxLayout(); pr.addWidget(e_pdf,1); pr.addWidget(browse)
+            for ed in (e_no,e_date,e_client,e_amt,e_status,e_paid,e_pdf): ed.setMinimumHeight(36)
+            for lab,w_ in (("Rechnungsnummer",e_no),("Rechnungsdatum",e_date),("Klient",e_client),("Betrag",e_amt),("Status",e_status),("Bezahlt am",e_paid)): form.addRow(lab,w_)
+            form.addRow("PDF",pr); lay.addLayout(form)
+            e_paid.setEnabled(e_status.currentText()=="bezahlt"); e_status.currentTextChanged.connect(lambda v: e_paid.setEnabled(v=="bezahlt"))
+            bb=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); bb.button(QDialogButtonBox.Save).setText("Speichern"); bb.button(QDialogButtonBox.Cancel).setText("Abbrechen"); lay.addWidget(bb)
+            def save_form():
+                no=e_no.text().strip()
+                if not no or not re.fullmatch(r"[A-Za-z0-9._-]+",no): return QMessageBox.warning(dlg,"Rechnungsnummer","Bitte eine Rechnungsnummer eingeben (nur Buchstaben, Zahlen, Punkt, Bindestrich, Unterstrich).")
+                if any(x.get("number")==no and x is not inv for x in DB["invoices"]): return QMessageBox.warning(dlg,"Doppelt","Diese Rechnungsnummer existiert bereits.")
+                client=e_client.text().strip()
+                if not client: return QMessageBox.warning(dlg,"Klient","Bitte den Klienten eintragen (Nachname, Vorname).")
+                if not e_date.hasValidInput(): return QMessageBox.warning(dlg,"Datum","Bitte ein gültiges Rechnungsdatum eingeben.")
+                pdf=e_pdf.text().strip()
+                if pdf and not inv and Path(pdf).is_file():
+                    try:
+                        parts=[x.strip() for x in client.split(",",1)]; dest=client_folder(parts[0],parts[1] if len(parts)>1 else "")/"Rechnungen"; dest.mkdir(parents=True,exist_ok=True)
+                        target=dest/Path(pdf).name
+                        if not target.exists(): shutil.copy2(pdf,target)
+                        pdf=str(target)
+                    except Exception: pass
+                status=e_status.currentText(); paid=e_paid.date().toString("yyyy-MM-dd") if status=="bezahlt" else ""
+                if inv:
+                    old=inv.get("number","")
+                    if old!=no:
+                        for sess in DB["sessions"]:
+                            if sess.get("invoice_number")==old: sess["invoice_number"]=no
+                    inv.update({"number":no,"date":e_date.date().toString("yyyy-MM-dd"),"client":client,"amount":e_amt.value(),"status":status,"paid_date":paid,"pdf":pdf})
+                    audit("INVOICE_EDITED",f"{old} -> {no}",self.current_user.get("username","") if self.current_user else "")
+                else:
+                    DB["invoices"].append({"number":no,"date":e_date.date().toString("yyyy-MM-dd"),"client":client,"address":"","diagnosis":"","amount":e_amt.value(),"status":status,"paid_date":paid,"pdf":pdf,"items":[],"imported":True})
+                    audit("INVOICE_IMPORTED",f"Frühere Rechnung {no} erfasst",self.current_user.get("username","") if self.current_user else "")
+                save_data(); update_excel(); dlg.accept(); fill_rows()
+                if hasattr(self,"i_no") and not inv: self.i_no.setText(next_no())
+            bb.accepted.connect(save_form); bb.rejected.connect(dlg.reject); dlg.exec()
+        addold=QPushButton("＋ Frühere Rechnung erfassen"); addold.setMinimumHeight(42); addold.setToolTip("Rechnungen, die vor PraxisPro erstellt wurden, in die Liste aufnehmen (mit Nummer, Datum, Betrag, Status, optional PDF)."); addold.clicked.connect(lambda: invoice_form()); h.addWidget(addold)
+        editbtn=QPushButton("✎ Nummer/Angaben ändern"); editbtn.setMinimumHeight(42); editbtn.setToolTip("Rechnungsnummer, Datum, Klient, Betrag oder Status der markierten Rechnung ändern.")
+        def edit_invoice():
+            r,inv=selected_invoice()
+            if inv: invoice_form(inv)
+        editbtn.clicked.connect(edit_invoice); h.addWidget(editbtn)
         openpdf=QPushButton("PDF öffnen"); openpdf.setMinimumHeight(42)
         def open_pdf():
             _,inv=selected_invoice()
