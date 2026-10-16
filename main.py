@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.6"
+APP_VERSION = "0.13.7"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -173,7 +173,7 @@ function Recognize-Ink($path,$pref){
   $null=[Windows.UI.Input.Inking.InkStrokeContainer,Windows.UI.Input.Inking,ContentType=WindowsRuntime]
   $null=[Windows.UI.Input.Inking.InkRecognizerContainer,Windows.UI.Input.Inking,ContentType=WindowsRuntime]
   $null=[Windows.UI.Input.Inking.InkRecognitionResult,Windows.UI.Input.Inking,ContentType=WindowsRuntime]
-  $null=[Windows.Foundation.Point,Windows.Foundation,ContentType=WindowsRuntime]
+  # Windows.Foundation.Point ist in System.Runtime.WindowsRuntime enthalten und braucht kein Vorladen.
   $data=[IO.File]::ReadAllText($path,[Text.Encoding]::UTF8) | ConvertFrom-Json
   $container=New-Object Windows.UI.Input.Inking.InkStrokeContainer
   $builder=New-Object Windows.UI.Input.Inking.InkStrokeBuilder
