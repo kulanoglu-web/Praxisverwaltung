@@ -2,7 +2,7 @@ import sys
 import subprocess, json, os, re, math, shutil, sqlite3, base64, hashlib, tempfile, time
 from pathlib import Path
 from datetime import datetime, date, timedelta
-from PySide6.QtCore import QObject, Qt, QTimer, QPoint, QUrl, QEvent, Signal, QThread
+from PySide6.QtCore import QRect, QObject, Qt, QTimer, QPoint, QUrl, QEvent, Signal, QThread
 from PySide6.QtWidgets import (QColorDialog,QGroupBox,QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QListWidgetItem,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider,QSizePolicy,QCalendarWidget,QCompleter)
 from PySide6.QtCore import QDate,QTime
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QTextCharFormat, QImage, QPainter, QPen, QPixmap, QDesktopServices, QFont, QColor
@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.7"
+APP_VERSION = "0.13.8"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -141,7 +141,13 @@ class InkCanvas(QWidget):
     def set_eraser(self,on): self.eraser=on
     def set_width(self,w): self.pen_width=w
     def set_color(self,c): self.pen_color=QColor(c); self.eraser=False
-    def save_png(self,path): return self.image.save(str(path),"PNG")
+    def save_png(self,path,stamp=None):
+        """Speichert die Handschrift. Mit stamp wird oben eine Kopfzeile (z. B. Klient, Datum, Uhrzeit) eingefügt."""
+        if not stamp: return self.image.save(str(path),"PNG")
+        head=64; img=QImage(self.image.width(),self.image.height()+head,QImage.Format_ARGB32); img.fill(Qt.white)
+        q=QPainter(img); q.drawImage(0,head,self.image); q.setPen(QColor("#17324d")); f=QFont(); f.setPointSize(16); f.setBold(True); q.setFont(f)
+        q.drawText(QRect(16,0,img.width()-32,head),Qt.AlignVCenter|Qt.AlignLeft,stamp); q.setPen(QColor("#b8c7d4")); q.drawLine(0,head-1,img.width(),head-1); q.end()
+        return img.save(str(path),"PNG")
     def load_png(self,path):
         p=Path(path); img=QImage()
         if p.suffix==".enc":
@@ -1502,7 +1508,7 @@ class Main(QMainWindow):
 
         self.ink=InkCanvas(); self.current_ink_file=""; self.current_ocr_text=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch(); self.ink_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.ink_clock.setStyleSheet("font-size:18px;font-weight:800"); inkhead.addWidget(self.ink_clock); self.ink_clock_timer=QTimer(self); self.ink_clock_timer.timeout.connect(lambda: (self.ink_clock.setText(QTime.currentTime().toString("HH:mm:ss")), self.ink.update())); self.ink_clock_timer.start(1000)
         eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
-        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(lambda: (self.ink.clear(),setattr(self,'_last_ink_text',''))); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); ocrink=QPushButton("⌨ Handschrift → Text"); ocrink.setToolTip("Lokale Windows-Handschrifterkennung; erkannter Text wird vor Übernahme angezeigt."); ocrink.clicked.connect(self.ink_to_text); ocrtest=QPushButton("OCR-Test"); ocrtest.setToolTip("Prüft Windows-OCR und installierte Erkennungssprachen."); ocrtest.clicked.connect(self.ocr_system_test); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
+        undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); clearink=QPushButton("Zeichenfläche löschen"); clearink.clicked.connect(lambda: (self.ink.clear(),(setattr(self,'_last_ink_text',''),setattr(self,'_last_ink_stamp','')))); saveink=QPushButton("💾 Notiz speichern"); saveink.clicked.connect(self.save_ink_note); ocrink=QPushButton("⌨ Handschrift → Text"); ocrink.setToolTip("Lokale Windows-Handschrifterkennung; erkannter Text wird vor Übernahme angezeigt."); ocrink.clicked.connect(self.ink_to_text); ocrtest=QPushButton("OCR-Test"); ocrtest.setToolTip("Prüft Windows-OCR und installierte Erkennungssprachen."); ocrtest.clicked.connect(self.ocr_system_test); fullscreen=QPushButton("⛶ Notizbuch"); fullscreen.clicked.connect(self.open_ink_fullscreen)
         inktools=FlowLayout(hspacing=8,vspacing=6)
         for x in self.make_pen_tools(eraser)+[eraser,undo,saveink,ocrink,ocrtest,clearink,fullscreen]:
             if isinstance(x,QPushButton) and x.maximumHeight()>1000: x.setMinimumHeight(40)
@@ -1561,7 +1567,8 @@ class Main(QMainWindow):
         if not last or not first: return QMessageBox.warning(self,"Freihand-Notiz","Bitte zuerst einen Klienten auswählen.")
         folder=client_folder(last,first)/"Sitzungen"; folder.mkdir(parents=True,exist_ok=True)
         stamp=datetime.now().strftime("%Y%m%d_%H%M%S"); tmp=folder/f"Freihand_{stamp}.png"
-        if not self.ink.save_png(tmp): return QMessageBox.warning(self,"Freihand-Notiz","Die Notiz konnte nicht gespeichert werden.")
+        now_=datetime.now(); if_stamp=f"{last}, {first}  –  {now_.strftime('%d.%m.%Y')}, {now_.strftime('%H:%M')} Uhr"
+        if not self.ink.save_png(tmp,if_stamp): return QMessageBox.warning(self,"Freihand-Notiz","Die Notiz konnte nicht gespeichert werden.")
         enc=encrypt_file(tmp); self.current_ink_file=enc; audit("INK_NOTE_SAVED",f"Freihand-Notiz gespeichert: {last}, {first}",self.current_user.get("username","") if self.current_user else "")
         QMessageBox.information(self,"Freihand-Notiz","Die Freihand-Notiz wurde verschlüsselt beim Klienten gespeichert.\n\n"+str(Path(enc).name))
 
@@ -1695,6 +1702,8 @@ Write-Output ($lines -join "`n")
         Wird dieselbe Handschrift erneut erkannt (weitergeschrieben), ersetzt der neue Text den zuvor
         übernommenen Block, statt doppelt angehängt zu werden."""
         if not cleaned: return
+        if not getattr(self,"_last_ink_stamp",""): self._last_ink_stamp=datetime.now().strftime("%d.%m.%Y %H:%M")
+        cleaned=f"[{self._last_ink_stamp} Uhr] "+cleaned
         prev=getattr(self,"_last_ink_text","")
         existing=self.notes.toPlainText().rstrip()
         if prev and existing.endswith(prev): existing=existing[:-len(prev)].rstrip()
@@ -1733,7 +1742,7 @@ Write-Output ($lines -join "`n")
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); erase=QCheckBox("Radierer"); erase.setChecked(self.ink.eraser); erase.toggled.connect(self.ink.set_eraser)
         zoom=QSlider(Qt.Horizontal); zoom.setRange(60,180); zoom.setValue(100); zoom.setFixedWidth(170); zoomlabel=QLabel("100 %")
         save=QPushButton("💾 Notiz speichern"); save.clicked.connect(self.save_ink_note); ocr=QPushButton("⌨ Handschrift → Text"); ocr.clicked.connect(self.ink_to_text); ocrtest=QPushButton("OCR-Selbsttest"); ocrtest.clicked.connect(self.ocr_end_to_end_test); clear=QPushButton("Löschen"); clear.clicked.connect(self.ink.clear); full=QPushButton("⛶ Vollbild"); full.setCheckable(True); full.toggled.connect(lambda on: dlg.showFullScreen() if on else dlg.showNormal()); close=QPushButton("✓ Zur Sitzung"); close.clicked.connect(dlg.accept)
-        clear.clicked.disconnect(); clear.clicked.connect(lambda: (self.ink.clear(),setattr(self,'_last_ink_text','')))
+        clear.clicked.disconnect(); clear.clicked.connect(lambda: (self.ink.clear(),(setattr(self,'_last_ink_text',''),setattr(self,'_last_ink_stamp',''))))
         tools=FlowLayout(hspacing=8,vspacing=6); allbtns=[]
         for x in [undo,erase]+self.make_pen_tools(erase)+[QLabel("Ansicht"),zoom,zoomlabel,save,ocr,ocrtest,clear,full,close]:
             tools.addWidget(x)
@@ -1754,7 +1763,8 @@ Write-Output ($lines -join "`n")
             zoomlabel.setText(f"{value} %"); self.ink.setMinimumSize(max(360,int(basew*value/100)),max(240,int(baseh*value/100)))
         zoom.valueChanged.connect(scale_ink); scale_ink(100); v.addWidget(holder,1)
         dlg.exec()
-        self.ink.setParent(self.inkbox); self.inkv.addWidget(self.ink); self.ink.show()
+        self.ink.setMinimumSize(0,235); self.ink.setMaximumSize(16777215,16777215); self.ink.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
+        self.ink.setParent(self.inkbox); self.inkv.addWidget(self.ink); self.ink.show(); self.inkbox.updateGeometry()
 
     def helper_ui(self):
         w=QWidget(); outer=QVBoxLayout(w); outer.setContentsMargins(0,0,0,0)
@@ -2425,7 +2435,7 @@ Write-Output ($lines -join "`n")
         note_timestamp=datetime.now().isoformat(timespec="seconds")
         rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":note_date,"note_date":note_date,"saved_at":note_timestamp,"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"suspected_diagnosis":self.session_diag.text().strip(),"notes":self.notes.toPlainText(),"homework":self.session_homework.toPlainText().strip(),"billed":False}
         if partner: rec["partner"]={"last":partner.get("last",""),"first":partner.get("first",""),"dob":partner.get("dob","")}
-        d=client_dir(c)/"Sitzungen"; inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile); rec["ink_file"]=encrypt_file(inkfile)
+        d=client_dir(c)/"Sitzungen"; inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile,f"{last}, {first}  –  {rec['date']} {datetime.now().strftime('%H:%M')} Uhr"); rec["ink_file"]=encrypt_file(inkfile)
         rec["ocr_text"]=self.current_ocr_text.strip()
         if rec["ocr_text"]:
             ocrfile=d/(rec["date"]+"_"+rec["id"]+"_OCR.txt.enc")
