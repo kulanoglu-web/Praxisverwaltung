@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.4"
+APP_VERSION = "0.13.5"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -127,6 +127,10 @@ class InkCanvas(QWidget):
                 self.strokes.append(self._cur)
             self._cur=None; self.stroke_finished.emit()
     def clear(self): self.history.append(self.image.copy()); self.image.fill(Qt.white); self.strokes=[]; self.strokes_ok=True; self.rev+=1; self.update()
+    def set_stroke_data(self,data):
+        try:
+            self.strokes=[[(float(x),float(y)) for x,y in st] for st in data["strokes"]]; self.strokes_ok=bool(self.strokes)
+        except Exception: self.strokes=[]; self.strokes_ok=False
     def stroke_data(self):
         """Striche für die Windows-Handschrifterkennung (Rohkoordinaten) oder None, wenn nicht verfügbar."""
         return {"w":self.width(),"h":self.height(),"strokes":[[ [round(x,1),round(y,1)] for x,y in st] for st in self.strokes]} if self.strokes and self.strokes_ok else None
@@ -1680,7 +1684,7 @@ Write-Output $result.Text
         user=self.current_user.get("username","") if self.current_user else ""
         if err in ("LEER","KEIN_TEXT"):
             self.ink_status.setText("Keine Schrift erkannt – bitte deutlicher/größer schreiben." if err=="KEIN_TEXT" else "")
-            if manual and err=="KEIN_TEXT": QMessageBox.information(self,"Handschrift erkennen","Es wurde keine Schrift erkannt. Bitte etwas größer und deutlicher schreiben (Stärke 4–6 px).\n\nTechnischer Hinweis: "+(OCR_LAST_INK_NOTE or "Handschrift-Erkenner nicht verwendet (keine Strichdaten).")+"\n\nTipp: Mit „OCR-Test“ sehen Sie, ob das Handschrift-Paket installiert ist.")
+            if manual and err=="KEIN_TEXT": QMessageBox.information(self,"Handschrift erkennen","Es wurde keine Schrift erkannt. Bitte etwas größer und deutlicher schreiben (Stärke 4–6 px).\n\nTechnischer Hinweis: "+(OCR_LAST_INK_NOTE or "Handschrift-Erkenner nicht verwendet: Das Bild stammt aus einer wiederhergestellten/gespeicherten Notiz und enthält keine Strichdaten. Bitte „Zeichenfläche löschen“ und das Wort neu schreiben.")+"\n\nTipp: Mit „OCR-Test“ sehen Sie, ob das Handschrift-Paket installiert ist.")
             return
         if err:
             audit("INK_OCR_ERROR",err[:900],user); self.ink_status.setText("⚠ Erkennung nicht möglich")
@@ -2355,14 +2359,16 @@ Write-Output $result.Text
                 if qe.isValid(): self.s_end.setTime(qe)
                 self.s_type.setCurrentText(d.get("type","Einzeltherapie")); self.s_red.setChecked(bool(d.get("reduced",False))); self.notes.setPlainText(d.get("notes","")); self.session_homework.setPlainText(d.get("homework",""))
                 inkfile=d.get("ink_file","")
-                if inkfile and Path(inkfile).exists(): self.ink.load_png(inkfile)
+                if inkfile and Path(inkfile).exists():
+                    self.ink.load_png(inkfile)
+                    if d.get("ink_strokes"): self.ink.set_stroke_data(d["ink_strokes"])
                 self.acc=int(d.get("seconds",0)); self.running=False; self.started=None
                 self.nav.setCurrentRow(1)
         except Exception: pass
     def autosave_session(self):
         if not self.running and not self.notes.toPlainText().strip() and not self.s_last.text().strip() and not self.s_first.text().strip(): return
         draft={"last":self.s_last.text(),"first":self.s_first.text(),"dob":self.s_dob.text(),"date":self.s_date.date().toString("yyyy-MM-dd"),"note_date":self.s_date.date().toString("yyyy-MM-dd"),"autosaved_at":datetime.now().isoformat(timespec="seconds"),"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"seconds":self.elapsed(),"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"notes":self.notes.toPlainText(),"homework":self.session_homework.toPlainText().strip(),"running":self.running}
-        inkdraft=ROOT/"Sitzung_Autosave_Handschrift.png"; self.ink.save_png(inkdraft); encrypted_ink=encrypt_file(inkdraft); draft["ink_file"]=encrypted_ink
+        inkdraft=ROOT/"Sitzung_Autosave_Handschrift.png"; self.ink.save_png(inkdraft); encrypted_ink=encrypt_file(inkdraft); draft["ink_file"]=encrypted_ink; draft["ink_strokes"]=self.ink.stroke_data()
         (ROOT/"Sitzung_Autosave.json.enc").write_text(encrypt_text(json.dumps(draft,ensure_ascii=False)),encoding="utf-8")
     def fill_session_client(self):
         last,first=self.s_last.text().strip().lower(),self.s_first.text().strip().lower()
