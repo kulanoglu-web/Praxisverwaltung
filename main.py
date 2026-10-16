@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.10"
+APP_VERSION = "0.13.11"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -2184,7 +2184,7 @@ Write-Output ($lines -join "`n")
             keys=["VT","TP","Systemisch","SIT","EFT"] if chosen=="Alle Schulen" else [chosen]
             for key in keys:
                 if key in d and key not in lib: parts+=["",labels[key]]+["• "+x for x in d[key]]
-            selected=selected_override
+            selected=selected_override if isinstance(selected_override,list) else None  # Signale (z. B. currentTextChanged) liefern Text -> ignorieren
             if selected is None:
                 selected=[]
                 if hasattr(self,"symptom_list"):
