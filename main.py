@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.5"
+APP_VERSION = "0.13.6"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1603,37 +1603,19 @@ if($null -ne $tr){Write-Output ('Türkisch: '+$tr.LanguageTag)}else{Write-Output
         p.drawText(img.rect().adjusted(40,20,-40,-20),Qt.AlignCenter,"PraxisPro Test 123"); p.end()
         if not img.save(str(tmp),"PNG"):
             return QMessageBox.warning(self,"OCR-Selbsttest","Testbild konnte nicht erzeugt werden.")
-        ps=r'''$ErrorActionPreference="Stop"
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$null=[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
-$null=[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
-$null=[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
-function Await-WinRT($Operation,[Type]$ResultType){
-  $methods=[System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {$_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetGenericArguments().Count -eq 1 -and $_.GetParameters().Count -eq 1}
-  foreach($m in $methods){try{$task=$m.MakeGenericMethod($ResultType).Invoke($null,@($Operation));if($null -ne $task){$task.GetAwaiter().GetResult();return $task.Result}}catch{}}
-  throw ('WinRT-Operation fehlgeschlagen: '+$ResultType.FullName)
-}
-$fs=[System.IO.File]::Open($env:PRAXISPRO_OCR_PATH,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::ReadWrite)
-$stream=[System.IO.WindowsRuntimeStreamExtensions]::AsRandomAccessStream($fs)
-$decoder=Await-WinRT ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-$bitmap=Await-WinRT ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+        # Derselbe Erkennungscode wie bei der echten Handschrifterkennung (OCR_PS_COMMON), damit der Test aussagekräftig ist.
+        ps=OCR_PS_COMMON+r'''
+$lines=Recognize $env:PRAXISPRO_OCR_PATH 'de-DE'
 $langs=@([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages)
-$lang=$langs | Where-Object {$_.LanguageTag -match '^de(-|$)'} | Select-Object -First 1
-if($null -eq $lang){$lang=$langs | Where-Object {$_.LanguageTag -match '^en(-|$)'} | Select-Object -First 1}
-if($null -eq $lang){$lang=$langs | Select-Object -First 1}
-if($null -eq $lang){throw 'Keine Windows-OCR-Sprache installiert.'}
-$engine=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)
-if($null -eq $engine){throw 'Windows OCR Engine konnte nicht gestartet werden.'}
-$result=Await-WinRT ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false)
-Write-Output ('__LANG__='+$lang.LanguageTag)
+Write-Output ('__LANG__=de-DE')
 Write-Output ('__LANGS__='+((@($langs | ForEach-Object {$_.LanguageTag})) -join ', '))
 try{ $null=[Windows.UI.Input.Inking.InkRecognizerContainer,Windows.UI.Input.Inking,ContentType=WindowsRuntime]; $rcx=New-Object Windows.UI.Input.Inking.InkRecognizerContainer; Write-Output ('__INK__='+((@($rcx.GetRecognizers() | ForEach-Object {$_.Name})) -join ', ')) }catch{ Write-Output ('__INK__=FEHLER: '+$_.Exception.Message) }
-Write-Output $result.Text
+Write-Output ($lines -join "`n")
 '''
         try:
             env=os.environ.copy(); env["PRAXISPRO_OCR_PATH"]=str(tmp.resolve())
-            run=subprocess.run(["powershell.exe","-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",ps],
+            psfile=tmp.with_suffix(".ps1"); psfile.write_text(ps,encoding="utf-8-sig")
+            run=subprocess.run(["powershell.exe","-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",str(psfile)],
                 env=env,capture_output=True,text=True,encoding="utf-8-sig",errors="replace",timeout=30,
                 creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
             out=(run.stdout or "").strip(); err=(run.stderr or "").strip()
@@ -1657,7 +1639,7 @@ Write-Output $result.Text
             audit("INK_OCR_E2E_EXCEPTION",str(e)[:1200],self.current_user.get("username","") if self.current_user else "")
             QMessageBox.warning(self,"OCR-Selbsttest","OCR-Selbsttest fehlgeschlagen:\n\n"+str(e)[:1200])
         finally:
-            try: tmp.unlink(missing_ok=True)
+            try: tmp.unlink(missing_ok=True); tmp.with_suffix(".ps1").unlink(missing_ok=True)
             except Exception: pass
 
     def ink_schedule_ocr(self):
