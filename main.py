@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.3"
+APP_VERSION = "0.13.4"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -353,10 +353,12 @@ class OcrServer:
                 self.stop(); raise RuntimeError("OCR-Dienst nicht erreichbar")
 
 _OCR_SERVER=None
+OCR_LAST_INK_NOTE=""
 
 def run_windows_ocr(image,lang="de-DE",strokes=None):
     """Gibt (text, fehlermeldung) zurück. Läuft komplett lokal über die Windows-Texterkennung."""
-    global _OCR_SERVER
+    global _OCR_SERVER, OCR_LAST_INK_NOTE
+    OCR_LAST_INK_NOTE=""
     if os.name!="nt": return "", "Die Handschrift-Erkennung ist nur unter Windows verfügbar."
     prepared=prepare_ink_for_ocr(image)
     if prepared is None: return "", "LEER"
@@ -369,9 +371,9 @@ def run_windows_ocr(image,lang="de-DE",strokes=None):
             if _OCR_SERVER is None: _OCR_SERVER=OcrServer()
             txt=_OCR_SERVER.recognize(js,lang)
             if txt.strip(): return txt.strip(),""
-            audit("INK_RECOGNIZER_EMPTY","leer")
+            audit("INK_RECOGNIZER_EMPTY","leer"); OCR_LAST_INK_NOTE="Der Handschrift-Erkenner hat nichts geliefert."
         except Exception as e:
-            audit("INK_RECOGNIZER_FALLBACK",str(e)[:300])
+            audit("INK_RECOGNIZER_FALLBACK",str(e)[:300]); OCR_LAST_INK_NOTE=str(e)[:300]
         finally:
             try: js.unlink(missing_ok=True)
             except Exception: pass
@@ -1621,6 +1623,8 @@ if($null -eq $engine){throw 'Windows OCR Engine konnte nicht gestartet werden.'}
 $result=Await-WinRT ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
 [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false)
 Write-Output ('__LANG__='+$lang.LanguageTag)
+Write-Output ('__LANGS__='+((@($langs | ForEach-Object {$_.LanguageTag})) -join ', '))
+try{ $null=[Windows.UI.Input.Inking.InkRecognizerContainer,Windows.UI.Input.Inking,ContentType=WindowsRuntime]; $rcx=New-Object Windows.UI.Input.Inking.InkRecognizerContainer; Write-Output ('__INK__='+((@($rcx.GetRecognizers() | ForEach-Object {$_.Name})) -join ', ')) }catch{ Write-Output ('__INK__=FEHLER: '+$_.Exception.Message) }
 Write-Output $result.Text
 '''
         try:
@@ -1633,13 +1637,18 @@ Write-Output $result.Text
                 detail=(err or out or "Unbekannter OCR-Fehler")[:1500]
                 audit("INK_OCR_E2E_ERROR",detail,self.current_user.get("username","") if self.current_user else "")
                 return QMessageBox.warning(self,"OCR-Selbsttest","Windows OCR ist vorhanden, aber die Texterkennung ist fehlgeschlagen.\n\n"+detail)
-            recognized="\n".join(x for x in out.splitlines() if not x.startswith("__LANG__=")).strip()
+            info={k:"" for k in ("__LANG__=","__LANGS__=","__INK__=")}
+            for x in out.splitlines():
+                for k in info:
+                    if x.startswith(k): info[k]=x[len(k):].strip()
+            recognized="\n".join(x for x in out.splitlines() if not x.startswith(("__LANG__=","__LANGS__=","__INK__="))).strip()
+            diag="\n\nDiagnose:\n• Texterkennung (OCR) Sprachen: "+(info["__LANGS__="] or "keine")+"\n• Handschrift-Erkenner: "+(info["__INK__="] or "KEINER installiert")+("\n\n→ Für Schreibschrift fehlt das Handschrift-Paket: Einstellungen → Zeit & Sprache → Sprache & Region → Deutsch → Sprachoptionen → Handschrift hinzufügen. Danach PraxisPro neu starten." if not info["__INK__="] or info["__INK__="].startswith("FEHLER") else "")
             ok=("praxispro" in recognized.lower() and "123" in recognized)
             audit("INK_OCR_E2E_OK" if ok else "INK_OCR_E2E_BAD",recognized[:1000],self.current_user.get("username","") if self.current_user else "")
             if ok:
-                QMessageBox.information(self,"OCR-Selbsttest","OCR funktioniert technisch.\n\nErkannt: "+recognized+"\n\nWenn Handschrift trotzdem nicht erkannt wird, liegt es an der Handschrifterkennung – nicht an der OCR-Installation.")
+                QMessageBox.information(self,"OCR-Selbsttest","OCR funktioniert technisch.\n\nErkannt: "+recognized+"\n\nWenn Handschrift trotzdem nicht erkannt wird, liegt es an der Handschrifterkennung – nicht an der OCR-Installation."+diag)
             else:
-                QMessageBox.warning(self,"OCR-Selbsttest","OCR wurde ausgeführt, hat das klare Testbild aber nicht zuverlässig erkannt.\n\nErkannt: "+(recognized or "(leer)"))
+                QMessageBox.warning(self,"OCR-Selbsttest","OCR wurde ausgeführt, hat das klare Testbild aber nicht zuverlässig erkannt.\n\nErkannt: "+(recognized or "(leer)")+diag)
         except Exception as e:
             audit("INK_OCR_E2E_EXCEPTION",str(e)[:1200],self.current_user.get("username","") if self.current_user else "")
             QMessageBox.warning(self,"OCR-Selbsttest","OCR-Selbsttest fehlgeschlagen:\n\n"+str(e)[:1200])
@@ -1671,7 +1680,7 @@ Write-Output $result.Text
         user=self.current_user.get("username","") if self.current_user else ""
         if err in ("LEER","KEIN_TEXT"):
             self.ink_status.setText("Keine Schrift erkannt – bitte deutlicher/größer schreiben." if err=="KEIN_TEXT" else "")
-            if manual and err=="KEIN_TEXT": QMessageBox.information(self,"Handschrift erkennen","Es wurde keine Schrift erkannt. Bitte etwas größer und in Druckbuchstaben schreiben.")
+            if manual and err=="KEIN_TEXT": QMessageBox.information(self,"Handschrift erkennen","Es wurde keine Schrift erkannt. Bitte etwas größer und deutlicher schreiben (Stärke 4–6 px).\n\nTechnischer Hinweis: "+(OCR_LAST_INK_NOTE or "Handschrift-Erkenner nicht verwendet (keine Strichdaten).")+"\n\nTipp: Mit „OCR-Test“ sehen Sie, ob das Handschrift-Paket installiert ist.")
             return
         if err:
             audit("INK_OCR_ERROR",err[:900],user); self.ink_status.setText("⚠ Erkennung nicht möglich")
