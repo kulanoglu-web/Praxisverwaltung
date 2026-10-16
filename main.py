@@ -14,7 +14,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.8"
+APP_VERSION = "0.13.9"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -3169,7 +3169,7 @@ Write-Output ($lines -join "`n")
         filters=QHBoxLayout(); search=QLineEdit(); search.setPlaceholderText("Rechnung oder Klient suchen …"); search.setClearButtonEnabled(True)
         statusfilter=QComboBox(); statusfilter.addItems(["Alle Status","offen","überfällig","bezahlt","storniert"]); statusfilter.setMinimumWidth(150)
         filters.addWidget(search,1); filters.addWidget(statusfilter); v.addLayout(filters)
-        t=QTableWidget(0,8); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Zahlungsdatum","Mahnstufe","Letzte Erinnerung","Betrag"]); hh=t.horizontalHeader(); hh.setSectionResizeMode(QHeaderView.ResizeToContents); hh.setSectionResizeMode(2,QHeaderView.Stretch); hh.setMinimumHeight(38); t.verticalHeader().setVisible(False); t.setWordWrap(False); t.setMinimumHeight(240); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True); t.setToolTip("Doppelklick öffnet die Rechnungsdetails")
+        t=QTableWidget(0,8); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Zahlungsdatum","Mahnstufe","Letzte Erinnerung","Betrag"]); hh=t.horizontalHeader(); hh.setSectionResizeMode(QHeaderView.ResizeToContents); hh.setSectionResizeMode(2,QHeaderView.Stretch); hh.setMinimumHeight(38); t.verticalHeader().setVisible(False); t.setWordWrap(False); t.setMinimumHeight(240); t.setSelectionMode(QTableWidget.ExtendedSelection); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True); t.setToolTip("Doppelklick öffnet die Rechnungsdetails")
         for i in reversed(DB["invoices"]):
             r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),str(i.get("reminder_count",0)),i.get("reminder_date",""),f'{float(i.get("amount",0)):.2f} €']
             for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
@@ -3264,6 +3264,36 @@ Write-Output ($lines -join "`n")
             save_data(); update_excel(); audit("INVOICE_CANCELLED","Rechnung "+str(no)+" storniert",self.current_user.get("username","") if self.current_user else ""); t.item(r,3).setText("storniert"); t.item(r,4).setText("")
             QMessageBox.information(self,"Storniert",f"Rechnung {no} wurde storniert.\n{released} verknüpfte Sitzung(en) sind wieder abrechenbar.")
         cancel.clicked.connect(cancel_invoice); h.addWidget(cancel)
+        delbtn=QPushButton("🗑 Rechnung löschen"); delbtn.setMinimumHeight(42); delbtn.setToolTip("Löscht markierte Rechnungen endgültig (z. B. Testrechnungen). Mehrere mit Strg/Umschalt markieren.")
+        def delete_invoices():
+            if not self.require_edit(): return
+            if not self.is_admin(): return QMessageBox.warning(self,"Keine Berechtigung","Nur Administratoren dürfen Rechnungen löschen.")
+            rows=sorted({i.row() for i in t.selectionModel().selectedRows()},reverse=True)
+            if not rows and t.currentRow()>=0: rows=[t.currentRow()]
+            if not rows: return QMessageBox.information(self,"Rechnung löschen","Bitte zuerst eine oder mehrere Rechnungen in der Liste markieren (mehrere mit Strg oder Umschalt).")
+            numbers=[t.item(r,0).text() for r in rows]
+            shown=", ".join(numbers[:8])+(" …" if len(numbers)>8 else "")
+            warn=""
+            if any(next((x for x in DB["invoices"] if x.get("number")==n),{}).get("status")=="bezahlt" for n in numbers): warn="\n\nAchtung: Darunter sind bereits als bezahlt markierte Rechnungen. Für echte Rechnungen ist Stornieren meist besser (Buchhaltung, Aufbewahrungspflicht)."
+            if QMessageBox.question(self,"Rechnungen löschen",f"{len(numbers)} Rechnung(en) endgültig löschen?\n\n{shown}{warn}\n\nDas kann nicht rückgängig gemacht werden.")!=QMessageBox.Yes: return
+            files=QMessageBox.question(self,"PDF-Dateien","Auch die zugehörigen PDF-Dateien (Rechnung, Dankes-PDF, Zahlungserinnerungen) vom Computer löschen?")==QMessageBox.Yes
+            removed=0; released=0; deleted_files=0
+            for n in numbers:
+                inv=next((x for x in DB["invoices"] if x.get("number")==n),None)
+                if not inv: continue
+                for sess in DB["sessions"]:
+                    if sess.get("invoice_number")==n: sess["billed"]=False; sess["invoice_number"]=""; released+=1
+                if files:
+                    for f in [inv.get("pdf"),inv.get("pdf_paid")]+list(inv.get("reminder_pdfs",[]) or []):
+                        try:
+                            if f and Path(f).exists(): Path(f).unlink(); deleted_files+=1
+                        except Exception: pass
+                DB["invoices"].remove(inv); removed+=1
+            save_data(); update_excel()
+            audit("INVOICE_DELETED",f"{removed} Rechnung(en) gelöscht: {', '.join(numbers)[:300]}",self.current_user.get("username","") if self.current_user else "")
+            for r in rows: t.removeRow(r)
+            QMessageBox.information(self,"Gelöscht",f"{removed} Rechnung(en) gelöscht."+(f"\n{deleted_files} PDF-Datei(en) entfernt." if files else "\nDie PDF-Dateien wurden behalten.")+(f"\n{released} verknüpfte Sitzung(en) sind wieder abrechenbar." if released else ""))
+        delbtn.clicked.connect(delete_invoices); h.addWidget(delbtn)
         openpdf=QPushButton("PDF öffnen"); openpdf.setMinimumHeight(42)
         def open_pdf():
             _,inv=selected_invoice()
