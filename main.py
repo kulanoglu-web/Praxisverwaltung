@@ -2,9 +2,10 @@ import sys
 import subprocess, json, os, re, math, shutil, sqlite3, base64, hashlib, tempfile, time
 from pathlib import Path
 from datetime import datetime, date, timedelta
-from PySide6.QtCore import QRect, QObject, Qt, QTimer, QPoint, QUrl, QEvent, Signal, QThread
+from PySide6.QtCore import QSize, QRect, QObject, Qt, QTimer, QPoint, QUrl, QEvent, Signal, QThread
 from PySide6.QtWidgets import (QColorDialog,QGroupBox,QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,QTextEdit,QComboBox,QCheckBox,QPushButton,QLabel,QTabWidget,QTableWidget,QTableWidgetItem,QMessageBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox,QHeaderView,QDialog,QDialogButtonBox,QFileDialog,QSplitter,QListWidget,QListWidgetItem,QStackedWidget,QFrame,QGridLayout,QInputDialog,QScrollArea,QSlider,QSizePolicy,QCalendarWidget,QCompleter)
 from PySide6.QtCore import QDate,QTime
+from PySide6.QtWidgets import QTextBrowser
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QTextCharFormat, QImage, QPainter, QPen, QPixmap, QDesktopServices, QFont, QColor
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -14,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.13.11"
+APP_VERSION = "0.14.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -943,25 +944,25 @@ def ensure_first_user():
 
 class Main(QMainWindow):
     def __init__(self):
-        super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle(f"PraxisPro v{APP_VERSION} – Erdoğan Kulanoğlu"); self.resize(1280,820); self.setMinimumSize(1050,700)
+        super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle(f"PraxisPro v{APP_VERSION} – Erdoğan Kulanoğlu"); self.resize(1280,820); self.setMinimumSize(480,520)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
-        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(235); sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
-        brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand)
-        self.nav=QListWidget(); self.nav.setObjectName("nav")
-        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","♥  Paarakte","▦  Terminkalender","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","?  Hilfe · FAQ · Info"]: self.nav.addItem(x)
+        sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(235); self.sidebar=sidebar; sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
+        brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand); self.brand_label=brand
+        self.nav=QListWidget(); self.nav.setObjectName("nav"); self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","♥  Paarakte","▦  Terminkalender","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","📖  Glossar","?  Hilfe · FAQ · Info"]: self.nav.addItem(x)
         sv.addWidget(self.nav,1)
-        foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); foot.setWordWrap(True); sv.addWidget(foot)
+        foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); foot.setWordWrap(True); sv.addWidget(foot); self.side_foot=foot; self.nav_full=[self.nav.item(i).text() for i in range(self.nav.count())]
         content=QWidget(); contentv=QVBoxLayout(content); contentv.setContentsMargins(0,0,0,0); contentv.setSpacing(0)
         topbar=QFrame(); topbar.setObjectName("topBrandBar"); topbar.setFixedHeight(62); tb=QHBoxLayout(topbar); tb.setContentsMargins(16,5,18,5); tb.addStretch()
-        self.top_logo=QLabel(); self.top_logo.setAlignment(Qt.AlignRight|Qt.AlignVCenter); self.top_logo.setMinimumWidth(220)
+        self.top_logo=QLabel(); self.top_logo.setAlignment(Qt.AlignRight|Qt.AlignVCenter); self.top_logo.setMinimumWidth(0)
         logo_path=practice_logo_path()
         if logo_path:
             px=QPixmap(str(logo_path))
             if not px.isNull(): self.top_logo.setPixmap(px.scaled(220,46,Qt.KeepAspectRatio,Qt.SmoothTransformation))
-        lockbtn=QPushButton("🔒 Bildschirm sperren"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_screen); tb.insertWidget(0,lockbtn)
+        lockbtn=QPushButton("🔒 Bildschirm sperren"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_screen); tb.insertWidget(0,lockbtn); self.lockbtn=lockbtn
         tb.addWidget(self.top_logo); contentv.addWidget(topbar)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.manual_ui()); contentv.addWidget(self.pages,1)
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
         self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(content,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -1123,6 +1124,39 @@ class Main(QMainWindow):
         return (self.current_user or {}).get("role","Therapeut")
     def can_edit(self): return self.role() in ("Administrator","Therapeut")
     def is_admin(self): return self.role()=="Administrator"
+    def responsive_split(self,split,threshold):
+        """Splitter wechselt bei schmaler Breite (Hochformat) von nebeneinander auf untereinander."""
+        class _F(QObject):
+            def eventFilter(s_,o,ev):
+                if ev.type()==QEvent.Resize:
+                    want=Qt.Vertical if o.width()<threshold else Qt.Horizontal
+                    if o.orientation()!=want: o.setOrientation(want)
+                return False
+        split._rf=_F(split); split.installEventFilter(split._rf)
+    def wrap_pages(self):
+        """Jede Seite in eine Scroll-Fläche setzen: bei schmalem Hochformat wird gescrollt statt abgeschnitten."""
+        for i in range(self.pages.count()):
+            page=self.pages.widget(i)
+            if isinstance(page,QScrollArea): continue
+            self.pages.removeWidget(page)
+            sc=QScrollArea(); sc.setWidgetResizable(True); sc.setFrameShape(QFrame.NoFrame); sc.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded); sc.setWidget(page)
+            self.pages.insertWidget(i,sc)
+    def resizeEvent(self,e):
+        super().resizeEvent(e); self.apply_responsive()
+    def apply_responsive(self):
+        """Passt Seitenleiste, Kopfzeile und Seiten an die Fensterbreite an (Hoch-/Querformat, Drehen des Geräts)."""
+        if not hasattr(self,"sidebar") or not hasattr(self,"nav_full"): return
+        w=self.width(); compact=w<900; tiny=w<640
+        if getattr(self,"_compact",None)!=compact:
+            self._compact=compact
+            self.sidebar.setFixedWidth(66 if compact else 235)
+            self.brand_label.setVisible(not compact); self.side_foot.setVisible(not compact)
+            for i,full in enumerate(self.nav_full):
+                it=self.nav.item(i); it.setToolTip(full.strip())
+                it.setText(full.split()[0].replace("＋","+") if compact else full); it.setTextAlignment(Qt.AlignCenter if compact else Qt.AlignLeft|Qt.AlignVCenter)
+            self.nav.setIconSize(QSize(24,24)) if compact else None
+        if getattr(self,"_tiny",None)!=tiny:
+            self._tiny=tiny; self.top_logo.setVisible(not tiny); self.lockbtn.setText("🔒" if tiny else "🔒 Bildschirm sperren")
     def navigate(self,index):
         # Einstellungen mit Benutzer-/Sicherheitsverwaltung nur für Administratoren.
         if index==9 and not self.is_admin():
@@ -1171,7 +1205,7 @@ class Main(QMainWindow):
         self.appt_status=QComboBox(); self.appt_status.addItems(["geplant","erschienen","abgesagt","ausgefallen"]); form.addRow("Status",self.appt_status)
         self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Interne Terminnotiz – verschlüsselt"); form.addRow("Notiz",self.appt_note); rv.addLayout(form)
         actions=FlowLayout(hspacing=8,vspacing=8); save=QPushButton("＋ Neuen Termin anlegen"); edit=QPushButton("✎ Termin ändern"); delete=QPushButton("Termin löschen"); start=QPushButton("▶ Sitzung starten"); save.setToolTip("Legt mit den Angaben oben einen neuen Termin an."); edit.setToolTip("Erst einen Termin in der Liste unten markieren, dann hier klicken. Danach Angaben ändern und erneut klicken."); actions.addWidget(save); actions.addWidget(edit); actions.addWidget(delete); actions.addWidget(start); rv.addLayout(actions)
-        split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); split.setChildrenCollapsible(False); left.setMinimumWidth(380); right.setMinimumWidth(430); v.addWidget(split,0)
+        self.responsive_split(split,880); split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); split.setChildrenCollapsible(False); left.setMinimumWidth(380); right.setMinimumWidth(430); v.addWidget(split,0)
         viewrow=QHBoxLayout(); self.appt_view=QComboBox(); self.appt_view.addItems(["Tag","Woche"]); viewrow.addWidget(QLabel("Ansicht")); viewrow.addWidget(self.appt_view); viewrow.addStretch(); v.addLayout(viewrow)
         self.appt_day_title=QLabel(); self.appt_day_title.setProperty("class","sectionTitle"); v.addWidget(self.appt_day_title)
         self.appt_list=QTableWidget(0,6); self.appt_list.setHorizontalHeaderLabels(["Zeit","Dauer","Art","Klient / Paar","Status","Notiz"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.appt_list.setSelectionBehavior(QTableWidget.SelectRows); self.appt_list.setAlternatingRowColors(True); self.appt_list.setMinimumHeight(190); v.addWidget(self.appt_list,1)
@@ -1737,7 +1771,7 @@ Write-Output ($lines -join "`n")
         return widgets
 
     def open_ink_fullscreen(self):
-        dlg=QDialog(self); dlg.setWindowTitle("Freihand-Notizbuch"); dlg.resize(1280,800); dlg.setMinimumSize(760,520); dlg.setWindowFlag(Qt.WindowMaximizeButtonHint,True)
+        dlg=QDialog(self); dlg.setWindowTitle("Freihand-Notizbuch"); dlg.resize(1280,800); dlg.setMinimumSize(460,420); dlg.setWindowFlag(Qt.WindowMaximizeButtonHint,True)
         v=QVBoxLayout(dlg); bar=QHBoxLayout(); title=QLabel("Handschrift / Stift"); title.setStyleSheet("font-size:22px;font-weight:700"); bar.addWidget(title); bar.addStretch(); clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); clock.setStyleSheet("font-size:20px;font-weight:800"); bar.addWidget(clock); clocktimer=QTimer(dlg); clocktimer.timeout.connect(lambda: clock.setText(QTime.currentTime().toString("HH:mm:ss"))); clocktimer.start(1000)
         undo=QPushButton("↶ Rückgängig"); undo.clicked.connect(self.ink.undo); erase=QCheckBox("Radierer"); erase.setChecked(self.ink.eraser); erase.toggled.connect(self.ink.set_eraser)
         zoom=QSlider(Qt.Horizontal); zoom.setRange(60,180); zoom.setValue(100); zoom.setFixedWidth(170); zoomlabel=QLabel("100 %")
@@ -3426,6 +3460,96 @@ Write-Output ($lines -join "`n")
         except Exception as e: return QMessageBox.warning(self,"Schlüsselschutz","Der Wiederherstellungsschlüssel konnte nicht gespeichert werden. Es wurde nichts verändert.\n\n"+str(e)[:300])
         ok,msg=protect_key_file(); audit("KEY_PROTECT" if ok else "KEY_PROTECT_FAILED",msg[:300],self.current_user.get("username","") if self.current_user else "")
         (QMessageBox.information if ok else QMessageBox.warning)(self,"Schlüsselschutz",msg+("\n\nBitte bewahren Sie den Wiederherstellungsschlüssel sicher und getrennt auf." if ok else ""))
+    def glossary_ui(self):
+        import glossar_data
+        entries=glossar_data.alle(); schulen=glossar_data.SCHULEN
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(24,22,24,22); v.setSpacing(10)
+        title=QLabel("Glossar der Störungsbilder"); title.setObjectName("pageTitle"); v.addWidget(title)
+        sub=QLabel("ICD-10-GM · ICD-11 · DSM-5-TR – fachlich und patientenverständlich, mit Herangehensweisen nach Therapieschulen. Orientierungshilfe, keine Diagnosestellung."); sub.setObjectName("pageSub"); sub.setWordWrap(True); v.addWidget(sub)
+        bar=QWidget(); fl=FlowLayout(bar,8,8); fl.setContentsMargins(0,0,0,0)
+        search=QLineEdit(); search.setPlaceholderText("Suchen: Name, Symptom, Code (z. B. F41, 6B00) …"); search.setClearButtonEnabled(True); search.setMinimumWidth(300); search.setMinimumHeight(38)
+        grp=QComboBox(); grp.addItems(["Alle Bereiche"]+sorted({e["gruppe"] for e in entries})); grp.setMinimumHeight(38)
+        mode=QComboBox(); mode.addItems(["Fachlich + einfach","Nur fachlich","Nur patientenverständlich"]); mode.setMinimumHeight(38)
+        school=QComboBox(); school.addItems(["Alle Therapieschulen"]+[schulen[k] for k in schulen]); school.setMinimumHeight(38)
+        for x in (search,grp,mode,school): fl.addWidget(x)
+        v.addWidget(bar)
+        split=QSplitter(Qt.Horizontal); split.setChildrenCollapsible(False)
+        lst=QListWidget(); lst.setMinimumWidth(200); lst.setAlternatingRowColors(True)
+        view=QTextBrowser(); view.setOpenExternalLinks(False); view.setMinimumHeight(240)
+        split.addWidget(lst); split.addWidget(view); split.setStretchFactor(0,1); split.setStretchFactor(1,3); split.setMinimumHeight(420)
+        v.addWidget(split,1)
+        btnbar=QWidget(); bl=FlowLayout(btnbar,8,8); bl.setContentsMargins(0,0,0,0)
+        b_note=QPushButton("In Sitzungsnotiz übernehmen"); b_copy=QPushButton("Text kopieren"); b_pdf=QPushButton("Patientenblatt als PDF")
+        for b in (b_note,b_copy,b_pdf): b.setMinimumHeight(40); bl.addWidget(b)
+        v.addWidget(btnbar)
+        def esc(t): return (t or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+        def sel_schools(): 
+            i=school.currentIndex(); keys=list(schulen)
+            return keys if i<=0 else [keys[i-1]]
+        def html_for(e,m,sc):
+            h=["<h2 style='margin-bottom:2px'>"+esc(e["name"])+"</h2><p style='color:#555'>"+esc(e["gruppe"])+"</p>"]
+            h.append("<table cellpadding='4' style='border:1px solid #c8d4e0'><tr><td><b>ICD-10-GM</b></td><td>"+esc(e["icd10"])+"</td></tr><tr><td><b>ICD-11</b></td><td>"+esc(e["icd11"])+"</td></tr><tr><td><b>DSM-5-TR</b></td><td>"+esc(e["dsm5"])+"</td></tr></table>")
+            if m in (0,1):
+                h.append("<h3>Fachliche Beschreibung</h3><p>"+esc(e["kurz"])+"</p><h3>Symptome</h3><ul>"+"".join("<li>"+esc(x)+"</li>" for x in e["symptome"])+"</ul><h3>Ätiologie (fachlich)</h3><p>"+esc(e["etio"])+"</p>")
+            if m in (0,2):
+                h.append("<div style='background:#eaf6f3;padding:8px;border-radius:6px'><h3>Einfach erklärt</h3><p>"+esc(e["einfach"])+"</p><p><b>Wie entsteht das?</b> "+esc(e["etio_einfach"])+"</p></div>")
+            if m in (0,1):
+                h.append("<h3>Herangehensweisen nach Therapieschulen</h3><ul>"+"".join("<li><b>"+esc(schulen[k])+":</b> "+esc(e["therapie"][k])+"</li>" for k in sc)+"</ul>")
+                if e["hinweis"]: h.append("<p style='background:#fff6e0;padding:6px'><b>Hinweis:</b> "+esc(e["hinweis"])+"</p>")
+            h.append("<p style='color:#777'><i>Orientierungshilfe, keine Diagnose und keine Behandlungsanweisung. Maßgeblich sind Leitlinien, eigene Diagnostik und ärztliche Abklärung.</i></p>")
+            return "".join(h)
+        def text_for(e,m,sc):
+            t=[e["name"]+"  ("+e["icd10"]+" | ICD-11: "+e["icd11"]+" | DSM-5-TR: "+e["dsm5"]+")"]
+            if m in (0,1): t+=["",e["kurz"],"Symptome:"]+["• "+x for x in e["symptome"]]+["Ätiologie: "+e["etio"]]
+            if m in (0,2): t+=["","Einfach erklärt: "+e["einfach"],"Wie entsteht das? "+e["etio_einfach"]]
+            if m in (0,1): t+=["","Herangehensweisen:"]+["• "+schulen[k]+": "+e["therapie"][k] for k in sc]
+            return "\n".join(t)
+        def current_entry():
+            it=lst.currentItem(); return it.data(Qt.UserRole) if it else None
+        def show_entry(*_):
+            e=current_entry()
+            if e is None: view.setHtml("<p>Bitte links ein Störungsbild wählen.</p>"); return
+            view.setHtml(html_for(e,mode.currentIndex(),sel_schools()))
+        def fill(*_):
+            q=search.text().lower().strip(); g=grp.currentText(); keep=current_entry()["name"] if current_entry() else None
+            lst.blockSignals(True); lst.clear(); sel=None
+            for e in entries:
+                if g!="Alle Bereiche" and e["gruppe"]!=g: continue
+                hay=(e["name"]+" "+e["icd10"]+" "+e["icd11"]+" "+e["dsm5"]+" "+e["kurz"]+" "+" ".join(e["symptome"])+" "+e["einfach"]).lower()
+                if q and q not in hay: continue
+                it=QListWidgetItem(e["name"]+"\n"+e["icd10"].split(",")[0].split(" (")[0]); it.setData(Qt.UserRole,e); it.setToolTip(e["gruppe"]); lst.addItem(it)
+                if e["name"]==keep: sel=it
+            lst.blockSignals(False)
+            if lst.count(): lst.setCurrentItem(sel or lst.item(0))
+            show_entry()
+        lst.currentItemChanged.connect(show_entry); search.textChanged.connect(fill); grp.currentIndexChanged.connect(fill); mode.currentIndexChanged.connect(show_entry); school.currentIndexChanged.connect(show_entry)
+        def to_note():
+            e=current_entry()
+            if e is None: return QMessageBox.information(self,"Glossar","Bitte zuerst ein Störungsbild wählen.")
+            if not hasattr(self,"notes"): return QMessageBox.information(self,"Sitzungsnotiz","Die Sitzungsnotiz ist nicht verfügbar.")
+            block="Glossar – "+text_for(e,1,sel_schools())
+            existing=self.notes.toPlainText().rstrip(); self.notes.setPlainText((existing+"\n\n" if existing else "")+block)
+            QMessageBox.information(self,"Sitzungsnotiz","Der Glossar-Eintrag (fachliche Sicht) wurde in die Sitzungsnotiz übernommen.")
+        def copy_text():
+            e=current_entry()
+            if e is not None: QApplication.clipboard().setText(text_for(e,mode.currentIndex(),sel_schools())); QMessageBox.information(self,"Glossar","Text in die Zwischenablage kopiert.")
+        def patient_pdf():
+            e=current_entry()
+            if e is None: return QMessageBox.information(self,"Glossar","Bitte zuerst ein Störungsbild wählen.")
+            f,_=QFileDialog.getSaveFileName(self,"Patientenblatt speichern",str(Path.home()/("Patientenblatt_"+re.sub(r"[^A-Za-z0-9]+","_",e["name"])[:40]+".pdf")),"PDF (*.pdf)")
+            if not f: return
+            from PySide6.QtGui import QTextDocument, QPdfWriter, QPageSize
+            doc=QTextDocument(); doc.setHtml("<h1>"+esc(e["name"])+"</h1><h3>Einfach erklärt</h3><p>"+esc(e["einfach"])+"</p><h3>Wie entsteht das?</h3><p>"+esc(e["etio_einfach"])+"</p><h3>Typische Anzeichen</h3><ul>"+"".join("<li>"+esc(x)+"</li>" for x in e["symptome"][:6])+"</ul><p><i>Dieses Blatt ersetzt keine ärztliche oder psychotherapeutische Diagnose. "+esc(get_setting("practice_name",""))+"</i></p>")
+            wr=QPdfWriter(f); wr.setPageSize(QPageSize(QPageSize.A4)); doc.print_(wr)
+            QMessageBox.information(self,"Glossar","Patientenblatt gespeichert:\n"+f)
+        b_note.clicked.connect(to_note); b_copy.clicked.connect(copy_text); b_pdf.clicked.connect(patient_pdf)
+        def orient(): split.setOrientation(Qt.Vertical if w.width()<860 else Qt.Horizontal)
+        class _Ev(QObject):
+            def eventFilter(s_,o,ev):
+                if ev.type()==QEvent.Resize: orient()
+                return False
+        w._ev=_Ev(w); w.installEventFilter(w._ev); orient(); fill()
+        return w
     def manual_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,24,28,28); v.setSpacing(12)
         title=QLabel("Hilfe · FAQ · Info"); title.setObjectName("pageTitle"); v.addWidget(title)

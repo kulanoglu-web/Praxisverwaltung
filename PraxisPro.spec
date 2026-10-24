@@ -16,6 +16,7 @@ hiddenimports = [
     "PySide6.QtWebEngineCore",
     "PySide6.QtWebChannel",
     "PySide6.QtNetwork",
+    "glossar_data","glossar_teil1","glossar_teil2","glossar_teil3","glossar_teil4","glossar_teil5",
 ]
 
 a = Analysis(
