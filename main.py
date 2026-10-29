@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.14.2"
+APP_VERSION = "0.14.3"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -842,6 +842,19 @@ def client_dir(c):
     p=ROOT/"Klienten"/safe(f"{c.get('last','')}, {c.get('first','')}")
     for x in ["Stammdaten","Sitzungen","Rechnungen","Dokumente"]:(p/x).mkdir(parents=True,exist_ok=True)
     return p
+
+def client_folder(last,first):
+    """Ordner eines Klienten (wird bei Bedarf angelegt)."""
+    return client_dir({"last":last,"first":first})
+
+def strip_ink_header(img):
+    """Gespeicherte Handschriften haben oben eine 64-px-Kopfzeile (Name, Datum). Für die Texterkennung abschneiden."""
+    try:
+        if img.height()>80 and img.width()>20:
+            c=img.pixelColor(10,63)
+            if abs(c.red()-184)<14 and abs(c.green()-199)<14 and abs(c.blue()-212)<14: return img.copy(0,64,img.width(),img.height()-64)
+    except Exception: pass
+    return img
 
 def next_no():
     y=str(datetime.now().year); nums=[]
@@ -3135,7 +3148,7 @@ Write-Output ($lines -join "`n")
                 def convert():
                     lang=OCR_LANGS.get(get_setting("ocr_lang","Deutsch"),"de-DE")
                     QApplication.setOverrideCursor(Qt.WaitCursor)
-                    try: text,err=run_windows_ocr(ink_img,lang,s.get("ink_strokes"))
+                    try: text,err=run_windows_ocr(strip_ink_header(ink_img),lang,s.get("ink_strokes"))
                     finally: QApplication.restoreOverrideCursor()
                     if err in ("LEER","KEIN_TEXT"): return QMessageBox.information(nd,"Handschrift → Text","Es wurde keine Schrift erkannt.")
                     if err: return QMessageBox.warning(nd,"Handschrift → Text","Die Handschrift konnte nicht erkannt werden.\n\n"+err)
@@ -3221,17 +3234,11 @@ Write-Output ($lines -join "`n")
             if not x:return
             self.i_last.setText(x.get("last","")); self.i_first.setText(x.get("first","")); self.i_addr.setText(x.get("address","")); self.i_diag.setText(x.get("diagnosis","")); self.nav.setCurrentRow(7)
         tosession.clicked.connect(client_to_session); toinvoice.clicked.connect(client_to_invoice); clientactions.addWidget(tosession); clientactions.addWidget(toinvoice); v.addLayout(clientactions)
-        openink=QPushButton("Letzte Handschrift des ausgewählten Klienten anzeigen"); openink.setMinimumHeight(45)
+        openink=QPushButton("✎ Handschriften des Klienten ansehen / in Text umwandeln"); openink.setMinimumHeight(45)
         def show_ink():
             r=t.currentRow()
-            if r<0:return
-            last=t.item(r,0).text(); first=t.item(r,1).text()
-            rows=[s for s in DB["sessions"] if s.get("last")==last and s.get("first")==first and s.get("ink_file") and Path(s.get("ink_file","")).exists()]
-            rows.sort(key=lambda s:(s.get("date",""),s.get("start","")),reverse=True)
-            if not rows:return QMessageBox.information(self,"Handschrift","Keine handschriftliche Notiz gefunden.")
-            data=decrypt_file_bytes(rows[0].get("ink_file","")); pix=QPixmap()
-            if not data or not pix.loadFromData(data):return QMessageBox.warning(self,"Handschrift","Die handschriftliche Notiz konnte nicht gelesen werden.")
-            dlg=QMessageBox(self); dlg.setWindowTitle("Handschriftliche Notiz"); dlg.setIconPixmap(pix.scaled(900,550,Qt.KeepAspectRatio,Qt.SmoothTransformation)); dlg.exec()
+            if r<0: return QMessageBox.information(self,"Handschrift","Bitte zuerst einen Klienten auswählen.")
+            self.handwriting_archive(t.item(r,0).text(),t.item(r,1).text())
         openink.clicked.connect(show_ink); v.addWidget(openink)
         b=QPushButton("Klientenliste aktualisieren"); b.setMinimumHeight(45)
         def refresh():
@@ -3665,6 +3672,104 @@ Write-Output ($lines -join "`n")
                 return False
         w._ev=_Ev(w); w.installEventFilter(w._ev); orient(); fill()
         return w
+    def handwriting_archive(self,last,first):
+        """Alle gespeicherten Handschriften eines Klienten (Sitzungen + Freihand-Notizen): ansehen, in Text umwandeln, speichern."""
+        items=[]
+        for ss in DB["sessions"]:
+            if ss.get("last")==last and ss.get("first")==first and ss.get("ink_file") and Path(ss["ink_file"]).exists():
+                items.append({"path":Path(ss["ink_file"]),"session":ss,"label":f'{ss.get("date","")} {ss.get("start","")}  ·  Sitzung ({ss.get("type","")})',"key":ss.get("date","")+" "+ss.get("start","")})
+        known={str(i["path"]) for i in items}
+        try:
+            folder=client_folder(last,first)/"Sitzungen"
+            for f in sorted(folder.glob("Freihand_*.png.enc")):
+                if str(f) in known: continue
+                m=re.match(r"Freihand_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})",f.name)
+                lab=f"{m.group(3)}.{m.group(2)}.{m.group(1)} {m.group(4)}:{m.group(5)}  ·  Freihand-Notiz" if m else f.name
+                items.append({"path":f,"session":None,"label":lab,"key":(m.group(1)+"-"+m.group(2)+"-"+m.group(3)+" "+m.group(4)+":"+m.group(5)) if m else f.name})
+        except Exception: pass
+        if not items: return QMessageBox.information(self,"Handschrift","Für diesen Klienten wurde keine gespeicherte Handschrift gefunden.")
+        items.sort(key=lambda x:x["key"],reverse=True)
+        def sidecar(it): return Path(str(it["path"])+".txt.enc")
+        def load_text(it):
+            if it.get("text") is not None: return it["text"]
+            txt=""
+            if it["session"] is not None: txt=it["session"].get("ocr_text","") or ""
+            try:
+                if not txt and sidecar(it).exists(): txt=decrypt_text(sidecar(it).read_text(encoding="utf-8"))
+            except Exception: txt=""
+            it["text"]=txt; return txt
+        dlg=QDialog(self); dlg.setWindowTitle(f"Handschriften – {last}, {first}"); dlg.resize(1000,760); v=QVBoxLayout(dlg)
+        info=QLabel("Links eine Handschrift wählen, dann „Handschrift → Text“. Der Text ist bearbeitbar; die Handschrift bleibt immer erhalten."); info.setWordWrap(True); v.addWidget(info)
+        split=QSplitter(Qt.Horizontal); lst=QListWidget(); lst.setMinimumWidth(240)
+        right=QWidget(); rv=QVBoxLayout(right); rv.setContentsMargins(0,0,0,0)
+        lab=QLabel("Bitte links eine Handschrift wählen."); lab.setAlignment(Qt.AlignCenter); sc=QScrollArea(); sc.setWidgetResizable(True); sc.setWidget(lab); sc.setMinimumHeight(200); rv.addWidget(sc,3)
+        txt=QTextEdit(); txt.setPlaceholderText("Hier erscheint der erkannte Text (bearbeitbar)."); rv.addWidget(txt,2)
+        split.addWidget(lst); split.addWidget(right); split.setStretchFactor(1,3); self.responsive_split(split,760); v.addWidget(split,1)
+        for idx,it in enumerate(items):
+            li=QListWidgetItem(("✓ " if load_text(it) else "")+it["label"]); li.setData(Qt.UserRole,idx); lst.addItem(li)
+        def cur():
+            q=lst.currentItem(); return items[q.data(Qt.UserRole)] if q else None
+        def image_of(it):
+            raw=decrypt_file_bytes(it["path"]); im=QImage(); im.loadFromData(raw); return im
+        def show(*_):
+            it=cur()
+            if not it: return
+            im=image_of(it)
+            if im.isNull(): lab.setText("Die Handschrift konnte nicht gelesen werden."); txt.setPlainText(""); return
+            pm=QPixmap.fromImage(im); lab.setPixmap(pm.scaledToWidth(min(860,pm.width()),Qt.SmoothTransformation)); txt.setPlainText(load_text(it))
+        lst.currentItemChanged.connect(show)
+        def convert_item(it):
+            im=image_of(it)
+            if im.isNull(): return "","Bild nicht lesbar"
+            strokes=it["session"].get("ink_strokes") if it["session"] is not None else None
+            return run_windows_ocr(strip_ink_header(im),OCR_LANGS.get(get_setting("ocr_lang","Deutsch"),"de-DE"),strokes)
+        def persist(it,text):
+            it["text"]=text.strip()
+            user=self.current_user.get("username","") if self.current_user else ""
+            if it["session"] is not None:
+                ss=it["session"]; ss["ocr_text"]=it["text"]; ss["corrected_at"]=datetime.now().isoformat(timespec="seconds")
+                try:
+                    ocrf=Path(str(it["path"])).parent/(ss.get("date","")+"_"+ss.get("id","Sitzung")+"_OCR.txt.enc"); ocrf.write_text(encrypt_text(it["text"]),encoding="utf-8"); ss["ocr_file"]=str(ocrf)
+                except Exception: pass
+                save_data()
+            else:
+                sidecar(it).write_text(encrypt_text(it["text"]),encoding="utf-8")
+            audit("INK_TEXT_SAVED",f"Handschrift als Text gespeichert: {last}, {first}",user)
+        def do_convert():
+            it=cur()
+            if not it: return QMessageBox.information(dlg,"Handschrift","Bitte zuerst eine Handschrift wählen.")
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try: text,err=convert_item(it)
+            finally: QApplication.restoreOverrideCursor()
+            if err in ("LEER","KEIN_TEXT"): return QMessageBox.information(dlg,"Handschrift → Text","Es wurde keine Schrift erkannt.")
+            if err: return QMessageBox.warning(dlg,"Handschrift → Text","Die Handschrift konnte nicht erkannt werden.\n\n"+err)
+            txt.setPlainText(text.strip())
+            QMessageBox.information(dlg,"Handschrift → Text","Text erkannt. Bitte prüfen/korrigieren und dann „Text speichern“ drücken.")
+        def do_save():
+            it=cur()
+            if not it: return
+            persist(it,txt.toPlainText()); q=lst.currentItem(); q.setText(("✓ " if it["text"] else "")+it["label"]); QMessageBox.information(dlg,"Gespeichert","Der Text wurde gespeichert.")
+        def do_all():
+            todo=[it for it in items if not load_text(it)]
+            if not todo: return QMessageBox.information(dlg,"Alle umwandeln","Alle Handschriften haben bereits einen Text.")
+            if QMessageBox.question(dlg,"Alle umwandeln",f"{len(todo)} Handschrift(en) ohne Text jetzt automatisch umwandeln und speichern? Die Handschrift bleibt erhalten; den Text können Sie danach einzeln prüfen.")!=QMessageBox.Yes: return
+            ok=0; QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                for it in todo:
+                    text,err=convert_item(it); QApplication.processEvents()
+                    if not err and text.strip(): persist(it,text); ok+=1
+            finally: QApplication.restoreOverrideCursor()
+            for i in range(lst.count()):
+                q=lst.item(i); it=items[q.data(Qt.UserRole)]; q.setText(("✓ " if it.get("text") else "")+it["label"])
+            show(); QMessageBox.information(dlg,"Alle umwandeln",f"{ok} von {len(todo)} Handschriften wurden in Text umgewandelt.")
+        def to_note():
+            if not txt.toPlainText().strip(): return QMessageBox.information(dlg,"Sitzungsnotiz","Es gibt noch keinen Text.")
+            if not hasattr(self,"notes"): return
+            ex=self.notes.toPlainText().rstrip(); self.notes.setPlainText((ex+"\n\n" if ex else "")+txt.toPlainText().strip()); QMessageBox.information(dlg,"Sitzungsnotiz","Der Text wurde in die aktuelle Sitzungsnotiz übernommen.")
+        bar=QWidget(); bl=FlowLayout(bar,8,8); bl.setContentsMargins(0,0,0,0)
+        b1=QPushButton("⌨ Handschrift → Text"); b2=QPushButton("💾 Text speichern"); b3=QPushButton("⌨ Alle ohne Text umwandeln"); b4=QPushButton("In aktuelle Sitzungsnotiz übernehmen"); b5=QPushButton("Schließen")
+        for b_,fn in ((b1,do_convert),(b2,do_save),(b3,do_all),(b4,to_note),(b5,dlg.accept)): b_.setMinimumHeight(40); b_.clicked.connect(fn); bl.addWidget(b_)
+        v.addWidget(bar); lst.setCurrentRow(0); dlg.exec()
     def manual_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,24,28,28); v.setSpacing(12)
         title=QLabel("Hilfe · FAQ · Info"); title.setObjectName("pageTitle"); v.addWidget(title)
