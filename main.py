@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.14.0"
+APP_VERSION = "0.14.2"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -695,6 +695,7 @@ def init_sqlite():
     if "recovery_answer_hash" not in ucols: con.execute("ALTER TABLE users ADD COLUMN recovery_answer_hash TEXT")
     if "failed_attempts" not in ucols: con.execute("ALTER TABLE users ADD COLUMN failed_attempts INTEGER DEFAULT 0")
     if "locked_until" not in ucols: con.execute("ALTER TABLE users ADD COLUMN locked_until TEXT")
+    if "pin_hash" not in ucols: con.execute("ALTER TABLE users ADD COLUMN pin_hash TEXT")
     cols=[r[1] for r in con.execute("PRAGMA table_info(clients)").fetchall()]
     if "client_key" not in cols: con.execute("ALTER TABLE clients ADD COLUMN client_key TEXT")
     if "phone" not in cols: con.execute("ALTER TABLE clients ADD COLUMN phone TEXT")
@@ -766,6 +767,20 @@ def verify_password(password,stored):
         got=hashlib.pbkdf2_hmac("sha256",password.encode("utf-8"),salt,310000)
         import hmac; return hmac.compare_digest(got,expected)
     except:return False
+
+def user_pin_set(username):
+    try:
+        con=sqlite3.connect(DBFILE); r=con.execute("SELECT pin_hash FROM users WHERE username=?",(username,)).fetchone(); con.close(); return bool(r and r[0])
+    except Exception: return False
+
+def set_user_pin(username,pin):
+    con=sqlite3.connect(DBFILE); con.execute("UPDATE users SET pin_hash=? WHERE username=?",(password_hash("pin:"+pin) if pin else None,username)); con.commit(); con.close()
+
+def check_user_pin(username,pin):
+    try:
+        con=sqlite3.connect(DBFILE); r=con.execute("SELECT pin_hash FROM users WHERE username=?",(username,)).fetchone(); con.close()
+        return bool(r and r[0] and verify_password("pin:"+pin,r[0]))
+    except Exception: return False
 
 def audit(action,details="",username=""):
     con=sqlite3.connect(DBFILE); con.execute("INSERT INTO audit_log(created_at,username,action,details) VALUES(?,?,?,?)",(datetime.now().isoformat(timespec="seconds"),username,action,details)); con.commit(); con.close()
@@ -942,10 +957,51 @@ def ensure_first_user():
     buttons.accepted.connect(create); buttons.rejected.connect(d.reject)
     return d.exec()==QDialog.Accepted
 
+class PinPad(QDialog):
+    """Großes Zahlenfeld für eine 4-stellige PIN (touch-tauglich). check(pin) -> Fehlertext oder '' (= ok)."""
+    def __init__(self,parent,title,prompt,check=None,cancel=True,alt_text=None):
+        super().__init__(parent); self.setWindowTitle(title); self.setModal(True); self.pin=""; self.check=check; self.alt_used=False; self._cancel=cancel; self.setMinimumWidth(340)
+        v=QVBoxLayout(self); v.setSpacing(10); v.setContentsMargins(24,20,24,20)
+        t=QLabel(title); t.setAlignment(Qt.AlignCenter); t.setStyleSheet("font-size:22px;font-weight:800;color:#17324d"); v.addWidget(t)
+        self.prompt=QLabel(prompt); self.prompt.setAlignment(Qt.AlignCenter); self.prompt.setWordWrap(True); v.addWidget(self.prompt)
+        self.dots=QLabel("○ ○ ○ ○"); self.dots.setAlignment(Qt.AlignCenter); self.dots.setStyleSheet("font-size:34px;letter-spacing:4px;color:#17324d"); v.addWidget(self.dots)
+        self.msg=QLabel(""); self.msg.setAlignment(Qt.AlignCenter); self.msg.setWordWrap(True); self.msg.setStyleSheet("color:#b3261e;font-weight:600"); v.addWidget(self.msg)
+        g=QGridLayout(); g.setSpacing(8)
+        def mk(txt,fn):
+            b=QPushButton(txt); b.setMinimumSize(86,60); b.setStyleSheet("font-size:24px;font-weight:700"); b.setFocusPolicy(Qt.NoFocus); b.clicked.connect(fn); return b
+        for i in range(1,10): g.addWidget(mk(str(i),lambda _=False,d=str(i):self.press(d)),(i-1)//3,(i-1)%3)
+        self.back=mk("⌫",lambda _=False:self.erase()); g.addWidget(self.back,3,0); g.addWidget(mk("0",lambda _=False:self.press("0")),3,1)
+        if cancel: g.addWidget(mk("✕",lambda _=False:self.reject()),3,2)
+        v.addLayout(g)
+        if alt_text:
+            alt=QPushButton(alt_text); alt.setFlat(True); alt.setFocusPolicy(Qt.NoFocus); alt.clicked.connect(self.use_alt); v.addWidget(alt)
+    def use_alt(self): self.alt_used=True; self.done(2)
+    def refresh(self): self.dots.setText(" ".join("●" if i<len(self.pin) else "○" for i in range(4)))
+    def erase(self): self.pin=self.pin[:-1]; self.refresh()
+    def disable_pad(self):
+        for b in self.findChildren(QPushButton):
+            if b.text()!="✕" and not b.isFlat(): b.setEnabled(False)
+    def press(self,d):
+        if len(self.pin)>=4: return
+        self.pin+=d; self.refresh(); self.msg.setText("")
+        if len(self.pin)==4: QTimer.singleShot(120,self.finish)
+    def finish(self):
+        err=self.check(self.pin) if self.check else ""
+        if err: self.msg.setText(err); self.pin=""; self.refresh(); return
+        self.accept()
+    def keyPressEvent(self,e):
+        if e.text().isdigit() and len(e.text())==1: self.press(e.text()); return
+        if e.key() in (Qt.Key_Backspace,Qt.Key_Delete): self.erase(); return
+        if e.key()==Qt.Key_Escape and not self._cancel: return
+        super().keyPressEvent(e)
+    def reject(self):
+        if self._cancel: super().reject()
+
 class Main(QMainWindow):
     def __init__(self):
         super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle(f"PraxisPro v{APP_VERSION} – Erdoğan Kulanoğlu"); self.resize(1280,820); self.setMinimumSize(480,520)
         self.started=None; self.acc=0; self.running=False; self.restore_draft_pending=True
+        if get_setting("auto_lock_v2","")!="1": set_setting("auto_lock_minutes","0"); set_setting("auto_lock_v2","1")
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(235); self.sidebar=sidebar; sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
         brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand); self.brand_label=brand
@@ -960,7 +1016,7 @@ class Main(QMainWindow):
         if logo_path:
             px=QPixmap(str(logo_path))
             if not px.isNull(): self.top_logo.setPixmap(px.scaled(220,46,Qt.KeepAspectRatio,Qt.SmoothTransformation))
-        lockbtn=QPushButton("🔒 Bildschirm sperren"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_screen); tb.insertWidget(0,lockbtn); self.lockbtn=lockbtn
+        lockbtn=QPushButton("🔒 Sperren"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_clicked); tb.insertWidget(0,lockbtn); self.lockbtn=lockbtn
         tb.addWidget(self.top_logo); contentv.addWidget(topbar)
         self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
         self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
@@ -1021,7 +1077,7 @@ class Main(QMainWindow):
         QStatusBar QLabel { color:white; font-weight:700; padding:4px 10px; }
         """)
         self.apply_appearance()
-        QShortcut(QKeySequence("Ctrl+L"),self,activated=self.lock_screen)
+        QShortcut(QKeySequence("Ctrl+L"),self,activated=self.lock_clicked)
         self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(10000)
         QTimer.singleShot(500,self.restore_draft)
     def apply_appearance(self):
@@ -1088,35 +1144,70 @@ class Main(QMainWindow):
         if e.type() in (QEvent.MouseButtonPress,QEvent.MouseButtonDblClick,QEvent.KeyPress,QEvent.TouchBegin,QEvent.Wheel):
             self.last_activity=datetime.now()
         return super().event(e)
+    def lock_clicked(self):
+        """Manuell sperren. Ohne PIN wird zuerst eine 4-stellige PIN angeboten."""
+        user=(self.current_user or {}).get("username","")
+        if user and not user_pin_set(user):
+            if QMessageBox.question(self,"PIN festlegen","Für schnelles Sperren und Entsperren brauchen Sie eine 4-stellige PIN. Jetzt festlegen?")==QMessageBox.Yes:
+                if not self.set_pin_flow(): return
+        self.lock_screen()
+    def set_pin_flow(self):
+        user=(self.current_user or {}).get("username","")
+        pw,ok=QInputDialog.getText(self,"PIN festlegen","Zur Bestätigung bitte Ihr Passwort eingeben:",QLineEdit.Password)
+        if not ok: return False
+        con=sqlite3.connect(DBFILE); row=con.execute("SELECT password_hash FROM users WHERE username=?",(user,)).fetchone(); con.close()
+        if not row or not verify_password(pw,row[0]): QMessageBox.warning(self,"PIN","Das Passwort ist nicht korrekt."); return False
+        first=PinPad(self,"Neue PIN","Bitte eine 4-stellige PIN eingeben.")
+        if first.exec()!=QDialog.Accepted: return False
+        pin=first.pin
+        again=PinPad(self,"PIN bestätigen","Bitte dieselbe PIN noch einmal eingeben.",check=lambda p:"" if p==pin else "Die PINs stimmen nicht überein.")
+        if again.exec()!=QDialog.Accepted: return False
+        set_user_pin(user,pin); audit("PIN_SET","PIN festgelegt/geändert",user); QMessageBox.information(self,"PIN","Die PIN wurde gespeichert."); return True
     def lock_screen(self):
-        """PraxisPro sofort verdecken und erst nach erneuter Anmeldung freigeben."""
+        """PraxisPro sofort verdecken; Entsperren per PIN (oder alternativ Passwort)."""
         if getattr(self,"_screen_locked",False): return
         self._screen_locked=True
         self.locktimer.stop()
-        audit("LOCK","Bildschirm manuell gesperrt",(self.current_user or {}).get("username",""))
-        # Patientendaten während der Sperre vollständig ausblenden.
-        central=self.centralWidget()
-        old_title=self.windowTitle()
+        user=(self.current_user or {}).get("username","")
+        audit("LOCK","Bildschirm gesperrt",user)
+        central=self.centralWidget(); old_title=self.windowTitle()
         if central: central.setVisible(False)
-        self.setWindowTitle("PraxisPro – Bildschirm gesperrt")
-        dlg=LoginDialog(); dlg.setWindowTitle("PraxisPro – Bildschirm gesperrt"); dlg.setModal(True)
-        if dlg.exec()!=QDialog.Accepted:
-            QApplication.quit(); return
-        # Sperre ist kein Benutzerwechsel: standardmäßig denselben Benutzer verlangen.
-        locked_user=(self.current_user or {}).get("username","")
-        if locked_user and (dlg.user or {}).get("username","")!=locked_user:
-            if central: central.setVisible(True)
-            self.setWindowTitle(old_title)
-            self._screen_locked=False; self.locktimer.start(30000)
-            return QMessageBox.warning(self,"Bildschirm gesperrt","Bitte mit demselben Benutzer entsperren. Für einen Benutzerwechsel PraxisPro regulär neu anmelden.")
-        self.current_user=dlg.user
+        self.setWindowTitle("PraxisPro – gesperrt")
+        unlocked=False
+        if user and user_pin_set(user):
+            fails=[0]; display=(self.current_user or {}).get("display_name",user)
+            def check(pin):
+                if fails[0]>=5: return "Zu viele Fehlversuche – bitte mit Passwort entsperren."
+                if check_user_pin(user,pin): return ""
+                fails[0]+=1; audit("UNLOCK_FAILED","Falsche PIN",user)
+                return "PIN nicht korrekt." if fails[0]<5 else "Zu viele Fehlversuche – bitte mit Passwort entsperren."
+            while not unlocked:
+                pad=PinPad(self,"Gesperrt","PIN eingeben – "+display,check=check,cancel=False,alt_text="Mit Passwort entsperren")
+                if fails[0]>=5: pad.disable_pad()
+                r=pad.exec()
+                if r==QDialog.Accepted: unlocked=True; break
+                if r==2 or pad.alt_used: unlocked=self._unlock_with_password(user)
+        else:
+            unlocked=self._unlock_with_password(user,must=True)
+        if not unlocked: QApplication.quit(); return
         if central: central.setVisible(True)
-        self.setWindowTitle(old_title)
-        self.update_user_badge(); self.last_activity=datetime.now(); self._screen_locked=False; self.locktimer.start(30000)
-        audit("UNLOCK","Bildschirm entsperrt",self.current_user.get("username",""))
+        self.setWindowTitle(old_title); self.update_user_badge(); self.last_activity=datetime.now(); self._screen_locked=False; self.locktimer.start(30000)
+        audit("UNLOCK","Bildschirm entsperrt",user)
+    def _unlock_with_password(self,user,must=False):
+        while True:
+            dlg=LoginDialog(); dlg.setWindowTitle("PraxisPro – Bildschirm gesperrt"); dlg.setModal(True)
+            if dlg.exec()!=QDialog.Accepted:
+                if must: return False
+                return False if False else self._cancel_pw()
+            if user and (dlg.user or {}).get("username","")!=user:
+                QMessageBox.warning(self,"Bildschirm gesperrt","Bitte mit demselben Benutzer entsperren."); continue
+            self.current_user=dlg.user; return True
+    def _cancel_pw(self): return False
 
     def check_autolock(self):
-        mins=int(get_setting("auto_lock_minutes","15") or 15)
+        try: mins=int(get_setting("auto_lock_minutes","0") or 0)
+        except ValueError: mins=0
+        if self.running or getattr(self,"_screen_locked",False) or QApplication.activeModalWidget() is not None: self.last_activity=datetime.now(); return
         if mins>0 and (datetime.now()-self.last_activity).total_seconds()>=mins*60:
             self.lock_screen()
 
@@ -1156,7 +1247,7 @@ class Main(QMainWindow):
                 it.setText(full.split()[0].replace("＋","+") if compact else full); it.setTextAlignment(Qt.AlignCenter if compact else Qt.AlignLeft|Qt.AlignVCenter)
             self.nav.setIconSize(QSize(24,24)) if compact else None
         if getattr(self,"_tiny",None)!=tiny:
-            self._tiny=tiny; self.top_logo.setVisible(not tiny); self.lockbtn.setText("🔒" if tiny else "🔒 Bildschirm sperren")
+            self._tiny=tiny; self.top_logo.setVisible(not tiny); self.lockbtn.setText("🔒" if tiny else "🔒 Sperren")
     def navigate(self,index):
         # Einstellungen mit Benutzer-/Sicherheitsverwaltung nur für Administratoren.
         if index==9 and not self.is_admin():
@@ -2470,6 +2561,8 @@ Write-Output ($lines -join "`n")
         rec={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"last":last,"first":first,"dob":self.s_dob.text(),"date":note_date,"note_date":note_date,"saved_at":note_timestamp,"start":self.s_start.time().toString("HH:mm"),"end":self.s_end.time().toString("HH:mm"),"minutes":mins,"type":self.s_type.currentText(),"reduced":self.s_red.isChecked(),"suspected_diagnosis":self.session_diag.text().strip(),"notes":self.notes.toPlainText(),"homework":self.session_homework.toPlainText().strip(),"billed":False}
         if partner: rec["partner"]={"last":partner.get("last",""),"first":partner.get("first",""),"dob":partner.get("dob","")}
         d=client_dir(c)/"Sitzungen"; inkfile=d/f"{rec['date']}_{rec['id']}_Handschrift.png"; self.ink.save_png(inkfile,f"{last}, {first}  –  {rec['date']} {datetime.now().strftime('%H:%M')} Uhr"); rec["ink_file"]=encrypt_file(inkfile)
+        _sd=self.ink.stroke_data()
+        if _sd: rec["ink_strokes"]=_sd
         rec["ocr_text"]=self.current_ocr_text.strip()
         if rec["ocr_text"]:
             ocrfile=d/(rec["date"]+"_"+rec["id"]+"_OCR.txt.enc")
@@ -3017,27 +3110,49 @@ Write-Output ($lines -join "`n")
                 date=st.item(rr,0).text(); start=st.item(rr,1).text()
                 s=next((x for x in rows if x.get("date")==date and x.get("start")==start),None)
                 if not s:return
-                nd=QDialog(dlg); nd.setWindowTitle(f"Sitzungsnotiz {date}"); nd.resize(900,700); nv=QVBoxLayout(nd)
+                nd=QDialog(dlg); nd.setWindowTitle(f"Sitzungsnotiz {date} {start}"); nd.resize(940,780); nv=QVBoxLayout(nd)
+                hint=QLabel("Alle Texte sind nachträglich bearbeitbar. Änderungen werden erst mit „Änderungen speichern“ übernommen."); hint.setWordWrap(True); nv.addWidget(hint)
                 tabs=QTabWidget()
-                tx=QTextEdit()
-                tx.setReadOnly(True)
-                tx.setPlainText(s.get("notes",""))
-                tabs.addTab(tx,"Therapienotiz")
+                tx=QTextEdit(); tx.setPlainText(s.get("notes","")); tabs.addTab(tx,"Therapienotiz")
+                hw=QTextEdit(); hw.setPlainText(s.get("homework","")); tabs.addTab(hw,"Hausaufgaben")
                 ocr=QTextEdit()
-                ocr.setReadOnly(True)
                 ocr_text=s.get("ocr_text","")
                 if not ocr_text and s.get("ocr_file") and Path(s.get("ocr_file")).exists():
-                    try:
-                        ocr_text=decrypt_text(Path(s.get("ocr_file")).read_text(encoding="utf-8"))
-                    except Exception:
-                        ocr_text=""
-                ocr.setPlainText(ocr_text or "Für diese Sitzung ist kein geprüfter OCR-Text gespeichert.")
-                tabs.addTab(ocr,"OCR-Text")
+                    try: ocr_text=decrypt_text(Path(s.get("ocr_file")).read_text(encoding="utf-8"))
+                    except Exception: ocr_text=""
+                ocr.setPlainText(ocr_text); ocr.setPlaceholderText("Hier steht der aus der Handschrift erkannte Text (bearbeitbar)."); tabs.addTab(ocr,"Erkannter Text")
                 nv.addWidget(tabs,1)
-                ink=s.get("ink_file","")
+                ink=s.get("ink_file",""); ink_img=None
                 if ink and Path(ink).exists():
-                    lab=QLabel(); pix=QPixmap(); pix.loadFromData(decrypt_file_bytes(ink)); lab.setPixmap(pix.scaled(820,380,Qt.KeepAspectRatio,Qt.SmoothTransformation)); lab.setAlignment(Qt.AlignCenter); nv.addWidget(lab)
-                buttons=QDialogButtonBox(QDialogButtonBox.Close); buttons.rejected.connect(nd.reject); nv.addWidget(buttons); nd.exec()
+                    raw=decrypt_file_bytes(ink); pix=QPixmap(); pix.loadFromData(raw)
+                    if not pix.isNull():
+                        ink_img=pix.toImage(); lab=QLabel(); lab.setPixmap(pix.scaledToWidth(min(880,pix.width()),Qt.SmoothTransformation)); lab.setAlignment(Qt.AlignCenter)
+                        sc=QScrollArea(); sc.setWidgetResizable(True); sc.setWidget(lab); sc.setMinimumHeight(180); sc.setMaximumHeight(300); nv.addWidget(sc)
+                bar=QWidget(); bl=FlowLayout(bar,8,8); bl.setContentsMargins(0,0,0,0)
+                savebtn=QPushButton("💾 Änderungen speichern"); convbtn=QPushButton("⌨ Handschrift → Text"); convbtn.setEnabled(ink_img is not None); closebtn=QPushButton("Schließen")
+                for bb_ in (savebtn,convbtn,closebtn): bb_.setMinimumHeight(40); bl.addWidget(bb_)
+                nv.addWidget(bar)
+                def convert():
+                    lang=OCR_LANGS.get(get_setting("ocr_lang","Deutsch"),"de-DE")
+                    QApplication.setOverrideCursor(Qt.WaitCursor)
+                    try: text,err=run_windows_ocr(ink_img,lang,s.get("ink_strokes"))
+                    finally: QApplication.restoreOverrideCursor()
+                    if err in ("LEER","KEIN_TEXT"): return QMessageBox.information(nd,"Handschrift → Text","Es wurde keine Schrift erkannt.")
+                    if err: return QMessageBox.warning(nd,"Handschrift → Text","Die Handschrift konnte nicht erkannt werden.\n\n"+err)
+                    stamp=datetime.now().strftime("%d.%m.%Y %H:%M")
+                    ocr.setPlainText(text.strip()); tx.setPlainText((tx.toPlainText().rstrip()+"\n\n" if tx.toPlainText().strip() else "")+"[Handschrift, umgewandelt "+stamp+"]\n"+text.strip()); tabs.setCurrentIndex(0)
+                    QMessageBox.information(nd,"Handschrift → Text","Der erkannte Text wurde in die Therapienotiz eingefügt. Bitte prüfen, ggf. korrigieren und speichern. Die Handschrift bleibt erhalten.")
+                def save_changes():
+                    s["notes"]=tx.toPlainText(); s["homework"]=hw.toPlainText(); s["ocr_text"]=ocr.toPlainText().strip(); s["corrected_at"]=datetime.now().isoformat(timespec="seconds")
+                    try:
+                        d_=client_dir({"last":last,"first":first})/"Sitzungen"; d_.mkdir(parents=True,exist_ok=True)
+                        if s["ocr_text"]:
+                            of=d_/(s.get("date","")+"_"+s.get("id","Sitzung")+"_OCR.txt.enc"); of.write_text(encrypt_text(s["ocr_text"]),encoding="utf-8"); s["ocr_file"]=str(of)
+                        jf=d_/f'{s.get("date","")}_{s.get("id","Sitzung")}_Sitzung.json.enc'; jf.write_text(encrypt_text(json.dumps(s,ensure_ascii=False,indent=2)),encoding="utf-8")
+                    except Exception: pass
+                    save_data(); audit("SESSION_NOTE_EDITED",f"Sitzungsnotiz bearbeitet: {last}, {first} {date}",self.current_user.get("username","") if self.current_user else "")
+                    QMessageBox.information(nd,"Gespeichert","Die Änderungen wurden gespeichert.")
+                savebtn.clicked.connect(save_changes); convbtn.clicked.connect(convert); closebtn.clicked.connect(nd.reject); nd.exec()
             view.clicked.connect(open_selected)
             invoice=QPushButton("Neue Rechnung für diesen Klienten")
             def invoice_from_record():
@@ -3713,7 +3828,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         bf=QFormLayout(); bf.setHorizontalSpacing(18); bf.setVerticalSpacing(8)
         for key,label in [("tax_number","Steuernummer"),("iban","IBAN"),("bic","BIC"),("paypal","PayPal (E-Mail)"),("paypal_me","PayPal.Me-Name oder -Link (für QR-Code)")]:
             ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(32); fields[key]=ed; bf.addRow(label,ed)
-        lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(1,120); lock.setValue(int(get_setting("auto_lock_minutes","15"))); lock.setSuffix(" Minuten"); lockrow.addWidget(lock); lockrow.addStretch(); bf.addRow("Automatische Sperre",lockrow)
+        lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(0,120); lock.setSpecialValueText("Aus"); lock.setValue(int(get_setting("auto_lock_minutes","0") or 0)); lock.setSuffix(" Minuten"); lock.setToolTip("0 = aus. Während einer laufenden Sitzung wird nie automatisch gesperrt."); lockrow.addWidget(lock); pinbtn=QPushButton("PIN festlegen / ändern …"); pinbtn.setMinimumHeight(34); pinbtn.clicked.connect(self.set_pin_flow); lockrow.addWidget(pinbtn); lockrow.addStretch(); bf.addRow("Sperre (automatisch / PIN)",lockrow)
         travel=QDoubleSpinBox(); travel.setRange(0,500); travel.setDecimals(2); travel.setValue(float(get_setting("travel_surcharge","25"))); travel.setSuffix(" €"); bf.addRow("Hausbesuch Anfahrt",travel)
         bv.addLayout(bf); bv.addWidget(self.backup_box()); save2=QPushButton("Abrechnung & Sicherheit speichern"); save2.setMinimumHeight(38); save2.clicked.connect(save_settings); bv.addWidget(save2); bv.addStretch(); tabs.addTab(billing,"Abrechnung & Bank")
         ratespage=QWidget(); rv=QVBoxLayout(ratespage); rv.setContentsMargins(12,10,12,12); rv.setSpacing(7)
@@ -3831,7 +3946,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             showoverdue.clicked.connect(go_overdue); ah.addWidget(showoverdue); av.addLayout(ah)
             preview=[]
             for days,inv in overdue[:3]:
-                preview.append(f'{inv.get("number","")} · {inv.get("client","")} · {float(inv.get("amount",0) or 0):.2f} € · {days} Tage')
+                preview.append(f'Rechnung {inv.get("number","")} · {float(inv.get("amount",0) or 0):.2f} € · {days} Tage offen')
             ap=QLabel("\n".join(preview)); ap.setObjectName("pageSub"); ap.setWordWrap(True); av.addWidget(ap); v.addWidget(alert)
         quick=QLabel("Schnellzugriff"); quick.setObjectName("sectionTitle"); v.addWidget(quick)
         actions=QHBoxLayout(); new_session=QPushButton("＋  Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("▤  Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(5)); clients=QPushButton("♙  Klienten verwalten"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
