@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.14.6"
+APP_VERSION = "0.14.7"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -204,7 +204,12 @@ function Recognize-Ink($path,$pref){
   $out=@(); $line=''; $lastY=$null
   foreach($r in $res){
     $c=@($r.GetTextCandidates()); if($c.Count -eq 0){ continue }
-    $t=[string]$c[0]; $b=$r.BoundingRect
+    $t=[string]$c[0]; $best=-1000
+    foreach($cand in $c){
+      $cs=[string]$cand; $letters=([regex]::Matches($cs,'[\p{L}]')).Count; $odd=([regex]::Matches($cs,'[^\p{L}\p{N}\s\.,\-:;!\?\(\)/]')).Count
+      $sc=$letters-(3*$odd); if($sc -gt $best){ $best=$sc; $t=$cs }
+    }
+    $b=$r.BoundingRect
     if($null -ne $lastY -and ([math]::Abs($b.Y-$lastY) -gt [math]::Max(25,$b.Height*0.8))){ $out+=$line; $line=$t } else { $line=($line+' '+$t).Trim() }
     $lastY=$b.Y
   }
@@ -894,7 +899,21 @@ def image_to_strokes(image):
                     for pt in rem: fg.discard(pt)
             if not changed: break
         if len(fg)<4: return None
-        adj={pt:[(pt[0]+dx,pt[1]+dy) for dx,dy in nb if (pt[0]+dx,pt[1]+dy) in fg] for pt in fg}
+        def build_adj(): return {pt:[(pt[0]+dx,pt[1]+dy) for dx,dy in nb if (pt[0]+dx,pt[1]+dy) in fg] for pt in fg}
+        adj=build_adj()
+        # kurze Seitenäste (Skelett-Stacheln) entfernen
+        for e0 in [pt for pt,a in adj.items() if len(a)==1]:
+            path=[e0]; prev=None; cur=e0; hit=False
+            for _ in range(5):
+                nx=[q for q in adj.get(cur,[]) if q!=prev and q not in path]
+                if len(nx)!=1:
+                    hit=len(nx)>=2; break
+                prev=cur; cur=nx[0]
+                if len(adj.get(cur,[]))>=3: hit=True; break
+                path.append(cur)
+            if hit and len(path)<=4:
+                for q in path: fg.discard(q)
+        adj=build_adj()
         ends=sorted([pt for pt,a in adj.items() if len(a)==1])
         visited=set(); strokes=[]
         def walk(start):
@@ -932,7 +951,14 @@ def image_to_strokes(image):
             ym=sorted(q[1] for q in pth)[len(pth)//2]
             idx=min(range(len(bands)),key=lambda i:0 if bands[i][0]<=ym<=bands[i][1] else min(abs(ym-bands[i][0]),abs(ym-bands[i][1])))
             groups[idx].append(pth)
-        def conv(p): return [[round(q[0]*k,1),round(q[1]*k,1)] for q in (p[::2]+([p[-1]] if len(p)%2==0 else []))]
+        def smooth(p):
+            if len(p)<5: return p
+            o=[p[0]]
+            for i in range(1,len(p)-1): o.append((sum(p[j][0] for j in range(i-1,i+2))/3.0,sum(p[j][1] for j in range(i-1,i+2))/3.0))
+            o.append(p[-1]); return o
+        def conv(p):
+            p=smooth(p); q2=p[::2]+([p[-1]] if len(p)%2==0 else [])
+            return [[round(q[0]*k,1),round(q[1]*k,1)] for q in q2]
         lines=[]; allst=[]
         for b,gr in zip(bands,groups):
             gr.sort(key=lambda p:min(q[0] for q in p)); cs=[c for c in (conv(p) for p in gr) if len(c)>=2]
