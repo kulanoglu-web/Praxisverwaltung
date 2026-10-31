@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.14.5"
+APP_VERSION = "0.14.6"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -3230,7 +3230,8 @@ Write-Output ($lines -join "`n")
                 date=st.item(rr,0).text(); start=st.item(rr,1).text()
                 s=next((x for x in rows if x.get("date")==date and x.get("start")==start),None)
                 if not s:return
-                nd=QDialog(dlg); nd.setWindowTitle(f"Sitzungsnotiz {date} {start}"); nd.resize(940,780); nv=QVBoxLayout(nd)
+                nd=QDialog(dlg); nd.setWindowTitle(f"Sitzungsnotiz {date} {start}"); nv=QVBoxLayout(nd)
+                _ag=QApplication.primaryScreen().availableGeometry(); nd.resize(min(940,int(_ag.width()*0.92)),min(780,int(_ag.height()*0.85))); nd.move(_ag.x()+max(0,(_ag.width()-nd.width())//2),_ag.y()+max(0,(_ag.height()-nd.height())//3))
                 hint=QLabel("Alle Texte sind nachträglich bearbeitbar. Änderungen werden erst mit „Änderungen speichern“ übernommen."); hint.setWordWrap(True); nv.addWidget(hint)
                 tabs=QTabWidget()
                 tx=QTextEdit(); tx.setPlainText(s.get("notes","")); tabs.addTab(tx,"Therapienotiz")
@@ -3251,7 +3252,7 @@ Write-Output ($lines -join "`n")
                 bar=QWidget(); bl=FlowLayout(bar,8,8); bl.setContentsMargins(0,0,0,0)
                 savebtn=QPushButton("💾 Änderungen speichern"); convbtn=QPushButton("⌨ Handschrift → Text"); convbtn.setEnabled(ink_img is not None); closebtn=QPushButton("Schließen")
                 for bb_ in (savebtn,convbtn,closebtn): bb_.setMinimumHeight(40); bl.addWidget(bb_)
-                nv.addWidget(bar)
+                nv.insertWidget(1,bar)
                 def convert():
                     lang=OCR_LANGS.get(get_setting("ocr_lang","Deutsch"),"de-DE")
                     QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -3805,7 +3806,8 @@ Write-Output ($lines -join "`n")
                 if not txt and sidecar(it).exists(): txt=decrypt_text(sidecar(it).read_text(encoding="utf-8"))
             except Exception: txt=""
             it["text"]=txt; return txt
-        dlg=QDialog(self); dlg.setWindowTitle(f"Handschriften – {last}, {first}"); dlg.resize(1000,760); v=QVBoxLayout(dlg)
+        dlg=QDialog(self); dlg.setWindowTitle(f"Handschriften – {last}, {first}"); v=QVBoxLayout(dlg)
+        _ag=QApplication.primaryScreen().availableGeometry(); dlg.resize(min(1000,int(_ag.width()*0.92)),min(760,int(_ag.height()*0.82))); dlg.move(_ag.x()+max(0,(_ag.width()-dlg.width())//2),_ag.y()+max(0,(_ag.height()-dlg.height())//3))
         info=QLabel("Links eine Handschrift wählen, dann „Handschrift → Text“. Der Text ist bearbeitbar; die Handschrift bleibt immer erhalten."); info.setWordWrap(True); v.addWidget(info)
         langrow=QHBoxLayout(); langrow.addWidget(QLabel("Sprache der Handschrift:")); langbox=QComboBox(); langbox.addItems(list(OCR_LANGS.keys())); langbox.setCurrentText(get_setting("ocr_lang","Deutsch")); langbox.setMinimumHeight(34); langrow.addWidget(langbox); langrow.addStretch(); v.addLayout(langrow)
         split=QSplitter(Qt.Horizontal); lst=QListWidget(); lst.setMinimumWidth(300)
@@ -3880,7 +3882,7 @@ Write-Output ($lines -join "`n")
         bar=QWidget(); bl=FlowLayout(bar,8,8); bl.setContentsMargins(0,0,0,0)
         b1=QPushButton("⌨ Handschrift → Text"); b2=QPushButton("💾 Text speichern"); b3=QPushButton("⌨ Alle ohne Text umwandeln"); b4=QPushButton("In aktuelle Sitzungsnotiz übernehmen"); b5=QPushButton("Schließen")
         for b_,fn in ((b1,do_convert),(b2,do_save),(b3,do_all),(b4,to_note),(b5,dlg.accept)): b_.setMinimumHeight(40); b_.clicked.connect(fn); bl.addWidget(b_)
-        v.addWidget(bar); lst.setCurrentRow(0); dlg.exec()
+        v.insertWidget(2,bar); lst.setCurrentRow(0); dlg.exec()
     def manual_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,24,28,28); v.setSpacing(12)
         title=QLabel("Hilfe · FAQ · Info"); title.setObjectName("pageTitle"); v.addWidget(title)
