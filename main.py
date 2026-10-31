@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.14.4"
+APP_VERSION = "0.14.5"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -912,9 +912,33 @@ def image_to_strokes(image):
             path=walk(st)
             strokes.append(path if len(path)>=2 else [path[0],(path[0][0]+1,path[0][1]+1)])
         if not strokes: return None
-        strokes.sort(key=lambda p:(min(q[0] for q in p)))
-        out=[[[round(q[0]*k,1),round(q[1]*k,1)] for q in p[::2]+([p[-1]] if len(p)%2==0 else [])] for p in strokes]
-        return {"w":W,"h":H,"strokes":[o for o in out if len(o)>=2]}
+        # Zeilen bestimmen (Zeilenprofil der Mittellinien), je Zeile von links nach rechts sortieren
+        hist={}
+        for (x,y) in set(q for pth in strokes for q in pth): hist[y]=hist.get(y,0)+1
+        ymax=max(hist); sm=[sum(hist.get(y+d,0) for d in (-1,0,1))/3.0 for y in range(ymax+2)]
+        thr=0.12*max(sm); bands=[]; cur=None
+        for y,v in enumerate(sm):
+            if v>=thr:
+                if cur is None: cur=[y,y]
+                else: cur[1]=y
+            elif cur is not None:
+                if bands and cur[0]-bands[-1][1]<=3: bands[-1][1]=cur[1]
+                else: bands.append(cur)
+                cur=None
+        if cur is not None: bands.append(cur)
+        bands=[b for b in bands if b[1]-b[0]>=3] or [[0,ymax]]
+        groups=[[] for _ in bands]
+        for pth in strokes:
+            ym=sorted(q[1] for q in pth)[len(pth)//2]
+            idx=min(range(len(bands)),key=lambda i:0 if bands[i][0]<=ym<=bands[i][1] else min(abs(ym-bands[i][0]),abs(ym-bands[i][1])))
+            groups[idx].append(pth)
+        def conv(p): return [[round(q[0]*k,1),round(q[1]*k,1)] for q in (p[::2]+([p[-1]] if len(p)%2==0 else []))]
+        lines=[]; allst=[]
+        for b,gr in zip(bands,groups):
+            gr.sort(key=lambda p:min(q[0] for q in p)); cs=[c for c in (conv(p) for p in gr) if len(c)>=2]
+            if cs: lines.append({"y0":b[0]*k,"y1":(b[1]+1)*k,"strokes":cs}); allst+=cs
+        if not allst: return None
+        return {"w":W,"h":H,"strokes":allst,"lines":lines}
     except Exception:
         return None
 
@@ -927,7 +951,15 @@ def recognize_saved_handwriting(image,lang,strokes=None):
         if text and text.strip(): return text,err
     rec=image_to_strokes(img)
     if rec:
-        text,err=run_windows_ocr(img,lang,rec)
+        texts=[]
+        for ln in rec.get("lines") or []:
+            y0=max(0,int(ln["y0"])-12); y1=min(img.height(),int(ln["y1"])+12)
+            if y1-y0<8: continue
+            sub={"w":rec["w"],"h":y1-y0,"strokes":ln["strokes"]}
+            t,e=run_windows_ocr(img.copy(0,y0,img.width(),y1-y0),lang,sub)
+            if t and t.strip(): texts.append(t.strip())
+        if texts: return "\n".join(texts),""
+        text,err=run_windows_ocr(img,lang,{"w":rec["w"],"h":rec["h"],"strokes":rec["strokes"]})
         if text and text.strip(): return text,""
     return run_windows_ocr(img,lang,None)
 
@@ -3775,7 +3807,8 @@ Write-Output ($lines -join "`n")
             it["text"]=txt; return txt
         dlg=QDialog(self); dlg.setWindowTitle(f"Handschriften – {last}, {first}"); dlg.resize(1000,760); v=QVBoxLayout(dlg)
         info=QLabel("Links eine Handschrift wählen, dann „Handschrift → Text“. Der Text ist bearbeitbar; die Handschrift bleibt immer erhalten."); info.setWordWrap(True); v.addWidget(info)
-        split=QSplitter(Qt.Horizontal); lst=QListWidget(); lst.setMinimumWidth(240)
+        langrow=QHBoxLayout(); langrow.addWidget(QLabel("Sprache der Handschrift:")); langbox=QComboBox(); langbox.addItems(list(OCR_LANGS.keys())); langbox.setCurrentText(get_setting("ocr_lang","Deutsch")); langbox.setMinimumHeight(34); langrow.addWidget(langbox); langrow.addStretch(); v.addLayout(langrow)
+        split=QSplitter(Qt.Horizontal); lst=QListWidget(); lst.setMinimumWidth(300)
         right=QWidget(); rv=QVBoxLayout(right); rv.setContentsMargins(0,0,0,0)
         lab=QLabel("Bitte links eine Handschrift wählen."); lab.setAlignment(Qt.AlignCenter); sc=QScrollArea(); sc.setWidgetResizable(True); sc.setWidget(lab); sc.setMinimumHeight(200); rv.addWidget(sc,3)
         txt=QTextEdit(); txt.setPlaceholderText("Hier erscheint der erkannte Text (bearbeitbar)."); rv.addWidget(txt,2)
@@ -3800,7 +3833,7 @@ Write-Output ($lines -join "`n")
             if strokes is None:
                 try: strokes=json.loads(decrypt_text(Path(str(it["path"])+".strokes.enc").read_text(encoding="utf-8")))
                 except Exception: strokes=None
-            return recognize_saved_handwriting(im,OCR_LANGS.get(get_setting("ocr_lang","Deutsch"),"de-DE"),strokes)
+            return recognize_saved_handwriting(im,OCR_LANGS.get(langbox.currentText(),"de-DE"),strokes)
         def persist(it,text):
             it["text"]=text.strip()
             user=self.current_user.get("username","") if self.current_user else ""
@@ -3819,10 +3852,10 @@ Write-Output ($lines -join "`n")
             QApplication.setOverrideCursor(Qt.WaitCursor)
             try: text,err=convert_item(it)
             finally: QApplication.restoreOverrideCursor()
-            if err in ("LEER","KEIN_TEXT"): return QMessageBox.information(dlg,"Handschrift → Text","Es wurde keine Schrift erkannt.")
+            if err in ("LEER","KEIN_TEXT") or (not err and not text.strip()): return QMessageBox.information(dlg,"Handschrift → Text","Es wurde keine Schrift erkannt.\n\nHinweis: "+(OCR_LAST_INK_NOTE or "Bitte die richtige Sprache oben wählen. Für Türkisch muss in Windows das Türkische Handschrift-Paket installiert sein (Einstellungen → Zeit & Sprache → Sprache & Region → Türkisch → Sprachoptionen → Handschrift)."))
             if err: return QMessageBox.warning(dlg,"Handschrift → Text","Die Handschrift konnte nicht erkannt werden.\n\n"+err)
-            txt.setPlainText(text.strip())
-            QMessageBox.information(dlg,"Handschrift → Text","Text erkannt. Bitte prüfen/korrigieren und dann „Text speichern“ drücken.")
+            txt.setPlainText(text.strip()); persist(it,text.strip()); q=lst.currentItem(); q.setText("✓ "+it["label"])
+            QMessageBox.information(dlg,"Handschrift → Text","Text erkannt und gespeichert. Bitte prüfen, bei Bedarf korrigieren und erneut mit „Text speichern“ sichern.")
         def do_save():
             it=cur()
             if not it: return
