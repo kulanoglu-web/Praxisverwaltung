@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.14.3"
+APP_VERSION = "0.14.4"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -779,7 +779,9 @@ def set_user_pin(username,pin):
 def check_user_pin(username,pin):
     try:
         con=sqlite3.connect(DBFILE); r=con.execute("SELECT pin_hash FROM users WHERE username=?",(username,)).fetchone(); con.close()
-        return bool(r and r[0] and verify_password("pin:"+pin,r[0]))
+        if r is None: return False
+        if not r[0]: return pin=="0000"   # Standard-PIN, solange keine eigene gesetzt ist
+        return verify_password("pin:"+pin,r[0])
     except Exception: return False
 
 def audit(action,details="",username=""):
@@ -855,6 +857,79 @@ def strip_ink_header(img):
             if abs(c.red()-184)<14 and abs(c.green()-199)<14 and abs(c.blue()-212)<14: return img.copy(0,64,img.width(),img.height()-64)
     except Exception: pass
     return img
+
+
+def image_to_strokes(image):
+    """Aus einem gespeicherten Handschrift-Bild näherungsweise Striche rekonstruieren (Mittellinien), damit auch ältere
+    Notizen ohne gespeicherte Strichdaten mit dem Windows-Handschrifterkenner gelesen werden können."""
+    try:
+        if image is None or image.isNull(): return None
+        k=2; W=image.width(); H=image.height()
+        g=image.convertToFormat(QImage.Format_Grayscale8).scaled(max(1,W//k),max(1,H//k),Qt.IgnoreAspectRatio,Qt.SmoothTransformation)
+        fg=set()
+        for y in range(g.height()):
+            for x in range(g.width()):
+                if g.pixelColor(x,y).red()<170: fg.add((x,y))
+        if len(fg)<8 or len(fg)>250000: return None
+        nb=[(0,-1),(1,-1),(1,0),(1,1),(0,1),(-1,1),(-1,0),(-1,-1)]
+        def neigh(pt,S): return [(pt[0]+dx,pt[1]+dy) in S for dx,dy in nb]
+        for _ in range(60):
+            changed=False
+            for step in (0,1):
+                rem=[]
+                for pt in fg:
+                    p=neigh(pt,fg); n=sum(p)
+                    if n<2 or n>6: continue
+                    a=sum(1 for i in range(8) if (not p[i]) and p[(i+1)%8])
+                    if a!=1: continue
+                    if step==0:
+                        if p[0] and p[2] and p[4]: continue
+                        if p[2] and p[4] and p[6]: continue
+                    else:
+                        if p[0] and p[2] and p[6]: continue
+                        if p[0] and p[4] and p[6]: continue
+                    rem.append(pt)
+                if rem:
+                    changed=True
+                    for pt in rem: fg.discard(pt)
+            if not changed: break
+        if len(fg)<4: return None
+        adj={pt:[(pt[0]+dx,pt[1]+dy) for dx,dy in nb if (pt[0]+dx,pt[1]+dy) in fg] for pt in fg}
+        ends=sorted([pt for pt,a in adj.items() if len(a)==1])
+        visited=set(); strokes=[]
+        def walk(start):
+            path=[start]; visited.add(start); cur=start
+            while True:
+                nxt=[q for q in adj[cur] if q not in visited]
+                if not nxt: break
+                if len(path)>=2:
+                    dx=cur[0]-path[-2][0]; dy=cur[1]-path[-2][1]
+                    nxt.sort(key=lambda q:-((q[0]-cur[0])*dx+(q[1]-cur[1])*dy))
+                cur=nxt[0]; path.append(cur); visited.add(cur)
+            return path
+        for st in ends+sorted(fg):
+            if st in visited: continue
+            path=walk(st)
+            strokes.append(path if len(path)>=2 else [path[0],(path[0][0]+1,path[0][1]+1)])
+        if not strokes: return None
+        strokes.sort(key=lambda p:(min(q[0] for q in p)))
+        out=[[[round(q[0]*k,1),round(q[1]*k,1)] for q in p[::2]+([p[-1]] if len(p)%2==0 else [])] for p in strokes]
+        return {"w":W,"h":H,"strokes":[o for o in out if len(o)>=2]}
+    except Exception:
+        return None
+
+def recognize_saved_handwriting(image,lang,strokes=None):
+    """Gespeicherte Handschrift in Text umwandeln: mit gespeicherten Strichen, sonst aus dem Bild rekonstruierten Strichen,
+    zuletzt reine Bild-Texterkennung. Gibt (text, fehler) zurück."""
+    img=strip_ink_header(image)
+    if strokes:
+        text,err=run_windows_ocr(img,lang,strokes)
+        if text and text.strip(): return text,err
+    rec=image_to_strokes(img)
+    if rec:
+        text,err=run_windows_ocr(img,lang,rec)
+        if text and text.strip(): return text,""
+    return run_windows_ocr(img,lang,None)
 
 def next_no():
     y=str(datetime.now().year); nums=[]
@@ -1092,7 +1167,6 @@ class Main(QMainWindow):
         self.apply_appearance()
         QShortcut(QKeySequence("Ctrl+L"),self,activated=self.lock_clicked)
         self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(10000)
-        QTimer.singleShot(500,self.restore_draft)
     def apply_appearance(self):
         theme=get_setting("ui_theme","PraxisPro Blau")
         if get_setting("ui_migrated_v13","0")!="1":
@@ -1159,18 +1233,14 @@ class Main(QMainWindow):
         return super().event(e)
     def lock_clicked(self):
         """Manuell sperren. Ohne PIN wird zuerst eine 4-stellige PIN angeboten."""
-        user=(self.current_user or {}).get("username","")
-        if user and not user_pin_set(user):
-            if QMessageBox.question(self,"PIN festlegen","Für schnelles Sperren und Entsperren brauchen Sie eine 4-stellige PIN. Jetzt festlegen?")==QMessageBox.Yes:
-                if not self.set_pin_flow(): return
         self.lock_screen()
     def set_pin_flow(self):
         user=(self.current_user or {}).get("username","")
-        pw,ok=QInputDialog.getText(self,"PIN festlegen","Zur Bestätigung bitte Ihr Passwort eingeben:",QLineEdit.Password)
+        pw,ok=QInputDialog.getText(self,"PIN festlegen","Zum Ändern der PIN bitte Ihr Anmelde-Passwort eingeben:",QLineEdit.Password)
         if not ok: return False
         con=sqlite3.connect(DBFILE); row=con.execute("SELECT password_hash FROM users WHERE username=?",(user,)).fetchone(); con.close()
         if not row or not verify_password(pw,row[0]): QMessageBox.warning(self,"PIN","Das Passwort ist nicht korrekt."); return False
-        first=PinPad(self,"Neue PIN","Bitte eine 4-stellige PIN eingeben.")
+        first=PinPad(self,"Neue PIN","Bitte die neue 4-stellige PIN eingeben.")
         if first.exec()!=QDialog.Accepted: return False
         pin=first.pin
         again=PinPad(self,"PIN bestätigen","Bitte dieselbe PIN noch einmal eingeben.",check=lambda p:"" if p==pin else "Die PINs stimmen nicht überein.")
@@ -1187,7 +1257,7 @@ class Main(QMainWindow):
         if central: central.setVisible(False)
         self.setWindowTitle("PraxisPro – gesperrt")
         unlocked=False
-        if user and user_pin_set(user):
+        if user:
             fails=[0]; display=(self.current_user or {}).get("display_name",user)
             def check(pin):
                 if fails[0]>=5: return "Zu viele Fehlversuche – bitte mit Passwort entsperren."
@@ -1707,7 +1777,12 @@ class Main(QMainWindow):
         stamp=datetime.now().strftime("%Y%m%d_%H%M%S"); tmp=folder/f"Freihand_{stamp}.png"
         now_=datetime.now(); if_stamp=f"{last}, {first}  –  {now_.strftime('%d.%m.%Y')}, {now_.strftime('%H:%M')} Uhr"
         if not self.ink.save_png(tmp,if_stamp): return QMessageBox.warning(self,"Freihand-Notiz","Die Notiz konnte nicht gespeichert werden.")
-        enc=encrypt_file(tmp); self.current_ink_file=enc; audit("INK_NOTE_SAVED",f"Freihand-Notiz gespeichert: {last}, {first}",self.current_user.get("username","") if self.current_user else "")
+        enc=encrypt_file(tmp); self.current_ink_file=enc
+        try:
+            sd=self.ink.stroke_data()
+            if sd: Path(enc+".strokes.enc").write_text(encrypt_text(json.dumps(sd)),encoding="utf-8")
+        except Exception: pass
+        audit("INK_NOTE_SAVED",f"Freihand-Notiz gespeichert: {last}, {first}",self.current_user.get("username","") if self.current_user else "")
         QMessageBox.information(self,"Freihand-Notiz","Die Freihand-Notiz wurde verschlüsselt beim Klienten gespeichert.\n\n"+str(Path(enc).name))
 
     def ocr_system_test(self):
@@ -2471,7 +2546,7 @@ Write-Output ($lines -join "`n")
         scroll.setWidget(body); outer.addWidget(scroll)
         return w
 
-    def restore_draft(self):
+    def restore_draft(self,ask=True):
         p=ROOT/"Sitzung_Autosave.json.enc"
         legacy=ROOT/"Sitzung_Autosave.json"
         if not p.exists() and not legacy.exists(): return
@@ -2479,7 +2554,7 @@ Write-Output ($lines -join "`n")
             if p.exists(): d=json.loads(decrypt_text(p.read_text(encoding="utf-8")))
             else:
                 d=json.loads(legacy.read_text(encoding="utf-8")); p.write_text(encrypt_text(json.dumps(d,ensure_ascii=False)),encoding="utf-8"); legacy.unlink()
-            if QMessageBox.question(self,"Sitzung wiederherstellen","Es gibt eine automatisch gespeicherte Sitzung. Wiederherstellen?")==QMessageBox.Yes:
+            if (not ask) or QMessageBox.question(self,"Sitzung wiederherstellen","Es gibt eine automatisch gespeicherte Sitzung. Wiederherstellen?")==QMessageBox.Yes:
                 self.s_last.setText(d.get("last","")); self.s_first.setText(d.get("first","")); self.s_dob.setText(d.get("dob",""))
                 qd=QDate.fromString(d.get("date",""),"yyyy-MM-dd")
                 if qd.isValid(): self.s_date.setDate(qd)
@@ -3148,7 +3223,7 @@ Write-Output ($lines -join "`n")
                 def convert():
                     lang=OCR_LANGS.get(get_setting("ocr_lang","Deutsch"),"de-DE")
                     QApplication.setOverrideCursor(Qt.WaitCursor)
-                    try: text,err=run_windows_ocr(strip_ink_header(ink_img),lang,s.get("ink_strokes"))
+                    try: text,err=recognize_saved_handwriting(ink_img,lang,s.get("ink_strokes"))
                     finally: QApplication.restoreOverrideCursor()
                     if err in ("LEER","KEIN_TEXT"): return QMessageBox.information(nd,"Handschrift → Text","Es wurde keine Schrift erkannt.")
                     if err: return QMessageBox.warning(nd,"Handschrift → Text","Die Handschrift konnte nicht erkannt werden.\n\n"+err)
@@ -3722,7 +3797,10 @@ Write-Output ($lines -join "`n")
             im=image_of(it)
             if im.isNull(): return "","Bild nicht lesbar"
             strokes=it["session"].get("ink_strokes") if it["session"] is not None else None
-            return run_windows_ocr(strip_ink_header(im),OCR_LANGS.get(get_setting("ocr_lang","Deutsch"),"de-DE"),strokes)
+            if strokes is None:
+                try: strokes=json.loads(decrypt_text(Path(str(it["path"])+".strokes.enc").read_text(encoding="utf-8")))
+                except Exception: strokes=None
+            return recognize_saved_handwriting(im,OCR_LANGS.get(get_setting("ocr_lang","Deutsch"),"de-DE"),strokes)
         def persist(it,text):
             it["text"]=text.strip()
             user=self.current_user.get("username","") if self.current_user else ""
@@ -3933,7 +4011,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         bf=QFormLayout(); bf.setHorizontalSpacing(18); bf.setVerticalSpacing(8)
         for key,label in [("tax_number","Steuernummer"),("iban","IBAN"),("bic","BIC"),("paypal","PayPal (E-Mail)"),("paypal_me","PayPal.Me-Name oder -Link (für QR-Code)")]:
             ed=QLineEdit(get_setting(key)); ed.setMinimumHeight(32); fields[key]=ed; bf.addRow(label,ed)
-        lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(0,120); lock.setSpecialValueText("Aus"); lock.setValue(int(get_setting("auto_lock_minutes","0") or 0)); lock.setSuffix(" Minuten"); lock.setToolTip("0 = aus. Während einer laufenden Sitzung wird nie automatisch gesperrt."); lockrow.addWidget(lock); pinbtn=QPushButton("PIN festlegen / ändern …"); pinbtn.setMinimumHeight(34); pinbtn.clicked.connect(self.set_pin_flow); lockrow.addWidget(pinbtn); lockrow.addStretch(); bf.addRow("Sperre (automatisch / PIN)",lockrow)
+        lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(0,120); lock.setSpecialValueText("Aus"); lock.setValue(int(get_setting("auto_lock_minutes","0") or 0)); lock.setSuffix(" Minuten"); lock.setToolTip("0 = aus. Während einer laufenden Sitzung wird nie automatisch gesperrt."); lockrow.addWidget(lock); pinbtn=QPushButton("PIN ändern … (Standard: 0000)"); pinbtn.setMinimumHeight(34); pinbtn.clicked.connect(self.set_pin_flow); lockrow.addWidget(pinbtn); lockrow.addStretch(); bf.addRow("Sperre (automatisch / PIN)",lockrow)
         travel=QDoubleSpinBox(); travel.setRange(0,500); travel.setDecimals(2); travel.setValue(float(get_setting("travel_surcharge","25"))); travel.setSuffix(" €"); bf.addRow("Hausbesuch Anfahrt",travel)
         bv.addLayout(bf); bv.addWidget(self.backup_box()); save2=QPushButton("Abrechnung & Sicherheit speichern"); save2.setMinimumHeight(38); save2.clicked.connect(save_settings); bv.addWidget(save2); bv.addStretch(); tabs.addTab(billing,"Abrechnung & Bank")
         ratespage=QWidget(); rv=QVBoxLayout(ratespage); rv.setContentsMargins(12,10,12,12); rv.setSpacing(7)
@@ -4053,6 +4131,18 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             for days,inv in overdue[:3]:
                 preview.append(f'Rechnung {inv.get("number","")} · {float(inv.get("amount",0) or 0):.2f} € · {days} Tage offen')
             ap=QLabel("\n".join(preview)); ap.setObjectName("pageSub"); ap.setWordWrap(True); av.addWidget(ap); v.addWidget(alert)
+        if any((ROOT/n).exists() for n in ("Sitzung_Autosave.json.enc","Sitzung_Autosave.json")):
+            dr=QFrame(); dr.setObjectName("formCard"); dh=QHBoxLayout(dr); dl=QLabel("Es gibt eine nicht abgeschlossene Sitzung (automatisch gespeichert)."); dl.setWordWrap(True); dh.addWidget(dl,1)
+            b_res=QPushButton("Wiederherstellen"); b_dis=QPushButton("Verwerfen")
+            for b_ in (b_res,b_dis): b_.setMinimumHeight(40); dh.addWidget(b_)
+            def do_restore(): dr.hide(); self.restore_draft(ask=False)
+            def do_discard():
+                if QMessageBox.question(self,"Verwerfen","Die automatisch gespeicherte Sitzung wirklich verwerfen?")!=QMessageBox.Yes: return
+                for n in ("Sitzung_Autosave.json.enc","Sitzung_Autosave.json","Sitzung_Autosave_Handschrift.png","Sitzung_Autosave_Handschrift.png.enc"):
+                    try: (ROOT/n).unlink()
+                    except Exception: pass
+                dr.hide()
+            b_res.clicked.connect(do_restore); b_dis.clicked.connect(do_discard); v.addWidget(dr)
         quick=QLabel("Schnellzugriff"); quick.setObjectName("sectionTitle"); v.addWidget(quick)
         actions=QHBoxLayout(); new_session=QPushButton("＋  Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("▤  Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(5)); clients=QPushButton("♙  Klienten verwalten"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
         info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch()
