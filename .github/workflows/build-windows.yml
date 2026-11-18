@@ -119,17 +119,27 @@ jobs:
           $uninst = Join-Path $target "unins000.exe"
           if (-not (Test-Path $uninst)) { throw "Uninstaller missing: $uninst" }
           # Absichtlich NICHT vorher alle Prozesse beenden: der Deinstaller muss ein noch laufendes PraxisPro selbst schließen.
-          Start-Process -FilePath $uninst -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
-          if (-not (Wait-Gone $exe)) { throw "Uninstall (keep data) did not remove the program" }
+          function Show-Diag($log) {
+            Write-Host "--- Prozesse:"; Get-Process | Where-Object { $_.Name -match 'Praxis|unins|_iu' } | Format-Table Id,Name,Path -AutoSize | Out-String | Write-Host
+            Write-Host "--- Programmordner:"; if (Test-Path $target) { Get-ChildItem $target | Format-Table Name,Length -AutoSize | Out-String | Write-Host }
+            Write-Host "--- Deinstaller-Protokoll:"; if (Test-Path $log) { Get-Content $log | Write-Host } else { Write-Host "(kein Protokoll)" }
+          }
+          Write-Host "--- vor Deinstallation laufende Prozesse:"; Get-Process | Where-Object { $_.Name -match 'Praxis' } | Format-Table Id,Name -AutoSize | Out-String | Write-Host
+          $log1 = Join-Path $env:RUNNER_TEMP "uninstall1.log"
+          $u = Start-Process -FilePath $uninst -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=`"$log1`"" -PassThru
+          $u.WaitForExit(); Write-Host "Uninstaller exit code: $($u.ExitCode)"
+          if (-not (Wait-Gone $exe)) { Show-Diag $log1; throw "Uninstall (keep data) did not remove the program" }
           if (-not (Test-Path (Join-Path $data "uninstall_test_marker.txt"))) { throw "Uninstall (keep data) deleted the practice data!" }
           Write-Host "Uninstall test 1 passed: program removed, practice data kept."
 
           # Deinstallation 2: neu installieren, dann still mit /DELETEDATA=1 -> Praxisdaten werden gelöscht.
           $p = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/DIR=$target" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Reinstall exit code $($p.ExitCode)" }
-          Start-Process -FilePath $uninst -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DELETEDATA=1" -Wait
-          if (-not (Wait-Gone $exe)) { throw "Uninstall (delete data) did not remove the program" }
-          if (-not (Wait-Gone $data)) { throw "Uninstall with /DELETEDATA=1 did not delete the practice data" }
+          $log2 = Join-Path $env:RUNNER_TEMP "uninstall2.log"
+          $u = Start-Process -FilePath $uninst -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DELETEDATA=1","/LOG=`"$log2`"" -PassThru
+          $u.WaitForExit(); Write-Host "Uninstaller exit code: $($u.ExitCode)"
+          if (-not (Wait-Gone $exe)) { Show-Diag $log2; throw "Uninstall (delete data) did not remove the program" }
+          if (-not (Wait-Gone $data)) { Show-Diag $log2; throw "Uninstall with /DELETEDATA=1 did not delete the practice data" }
           Write-Host "Uninstall test 2 passed: program and practice data removed."
       - name: Sign installer
         if: ${{ env.HAS_SIGNING_CERT == 'true' }}
