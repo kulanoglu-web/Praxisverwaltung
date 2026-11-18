@@ -20,6 +20,15 @@ Drei PDF-Varianten aus demselben Modul (`invoice_pdf.py`):
 
 Die ursprüngliche Rechnung wird nie überschrieben; Dankes- und Erinnerungs-PDFs liegen als eigene Dateien daneben.
 
+## Therapieverlauf (Menü Therapie)
+- **Anamnese**: strukturiert (Anlass, Beschwerden, Biografie, Gesundheit/Medikation, Ressourcen,
+  Risikoeinschätzung inkl. Suizidalität, Befund/Hypothese/Plan); Export als PDF – verschlüsselt in der Akte
+- **Therapieziele** mit Methoden, Status und Fortschrittsbewertung 0–10 samt Verlaufskurve
+- **Fragebögen PHQ-9 und GAD-7** (`questionnaires.py`): automatische Summe und Einstufung, Großansicht zum
+  Ausfüllen durch Klient/in, Verlaufskurve mit Schweregrad-Bereichen. Lizenzpflichtige Tests (BDI-II, SCL-90-R)
+  sind bewusst nicht enthalten.
+- **Risikohinweis** oben auf der Seite bei Suizidalitätsangaben in der Anamnese oder positivem PHQ-9-Item 9
+
 ## Klientenakte & Warteliste
 - Stammdaten in Bereichen: Person (inkl. Geschlecht für die Anrede), Kostenträger (Selbstzahler, PKV, Beihilfe,
   Zusatzversicherung), Notfallkontakt, ärztliche Versorgung/Vorbehandlung, Klinisches

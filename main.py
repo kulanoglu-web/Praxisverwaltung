@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.17.0"
+APP_VERSION = "0.18.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -913,6 +913,15 @@ CLIENT_FIELDS=[
 ]
 CLIENT_KEYS=[k for _,fields in CLIENT_FIELDS for k,_,_ in fields]
 
+def resolve_client(d):
+    """Auswahllisten (QComboBox.itemData) liefern nur eine KOPIE des Klienten-Datensatzes.
+    Vor jeder Änderung muss deshalb das Original aus DB["clients"] verwendet werden."""
+    if not isinstance(d,dict): return None
+    for c in DB["clients"]:
+        if c is d: return c
+    key=lambda x:(str(x.get("last","")).strip().lower(),str(x.get("first","")).strip().lower(),str(x.get("dob","")).strip())
+    return next((c for c in DB["clients"] if key(c)==key(d)),None)
+
 def salutation_for(c):
     g=str((c or {}).get("gender","")).lower()
     if g.startswith("w"): return "Sehr geehrte Frau"
@@ -1372,6 +1381,104 @@ class SignaturePad(QWidget):
         w,h=900,300; img=QImage(w,h,QImage.Format_ARGB32); img.fill(Qt.transparent)
         p=QPainter(img); self._draw(p,w,h,5); p.end(); return img.save(str(path),"PNG")
 
+class ScoreChart(QWidget):
+    """Verlaufskurve (eine Reihe): Werte über die Zeit, optional mit beschrifteten Bereichen (z. B. Schweregrade).
+    points: [(Datumstext, Wert, Tooltip)], bands: [(Obergrenze, Bezeichnung)]."""
+    def __init__(self,title=""):
+        super().__init__(); self.title=title; self.points=[]; self.bands=[]; self.vmax=10; self._xy=[]
+        self.setMinimumHeight(230); self.setMouseTracking(True)
+    def set_data(self,points,vmax,bands=None,title=None):
+        self.points=list(points); self.vmax=max(1,vmax); self.bands=bands or []
+        if title is not None: self.title=title
+        self.update()
+    def paintEvent(self,e):
+        p=QPainter(self); p.setRenderHint(QPainter.Antialiasing); r=self.rect()
+        p.fillRect(r,QColor("white"))
+        ink=QColor("#26322c"); muted=QColor("#6b7a72"); grid=QColor("#e3e9e5"); line=QColor("#4c735d")
+        f=QFont(self.font()); f.setPointSizeF(max(8.0,f.pointSizeF()-1)); p.setFont(f); fm=p.fontMetrics()
+        L,R,T,B=44,(110 if self.bands else 18),28 if self.title else 12,30
+        w=max(10,r.width()-L-R); h=max(10,r.height()-T-B)
+        if self.title:
+            tf=QFont(f); tf.setBold(True); p.setFont(tf); p.setPen(ink); p.drawText(L,18,self.title); p.setFont(f)
+        y_of=lambda v: T+h-(v/self.vmax)*h
+        # Bereiche: eine Farbe, von hell (gering) nach etwas kräftiger (schwer), mit Text rechts
+        lo=0
+        tints=["#f6f8f6","#eef3ef","#e3ebe5","#d6e2da","#c9d9cf","#bccfc3"]
+        for i,(upper,label) in enumerate(self.bands):
+            top=y_of(min(upper+1,self.vmax)) if i<len(self.bands)-1 else y_of(self.vmax); bot=y_of(lo)
+            p.fillRect(QRect(L,int(top),w,int(bot-top)),QColor(tints[min(i,len(tints)-1)]))
+            p.setPen(muted); p.drawText(QRect(L+w+8,int(top),R-10,int(bot-top)),Qt.AlignVCenter|Qt.AlignLeft,f"{label} ({lo}–{upper})")
+            lo=upper+1
+        # Raster und y-Achse (zurückhaltend)
+        steps=[x for x in range(0,int(self.vmax)+1) if x%(5 if self.vmax>12 else 2)==0]
+        for v in steps:
+            y=int(y_of(v)); p.setPen(QPen(grid,1)); p.drawLine(L,y,L+w,y)
+            p.setPen(muted); p.drawText(QRect(0,y-9,L-8,18),Qt.AlignRight|Qt.AlignVCenter,str(v))
+        self._xy=[]
+        if not self.points:
+            p.setPen(muted); p.drawText(QRect(L,T,w,h),Qt.AlignCenter,"Noch keine Werte"); p.end(); return
+        n=len(self.points)
+        xs=[L+w/2] if n==1 else [L+12+i*(w-24)/(n-1) for i in range(n)]
+        pts=[(xs[i],y_of(v)) for i,(_,v,_) in enumerate(self.points)]
+        p.setPen(QPen(line,2,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin))
+        for a,b in zip(pts,pts[1:]): p.drawLine(QPoint(int(a[0]),int(a[1])),QPoint(int(b[0]),int(b[1])))
+        every=max(1,int(n/max(1,w//70)))
+        for i,((x,y),(lab,v,tip)) in enumerate(zip(pts,self.points)):
+            p.setPen(QPen(QColor("white"),2)); p.setBrush(line); p.drawEllipse(QPoint(int(x),int(y)),5,5)
+            if i%every==0 or i==n-1:
+                p.setPen(muted); p.drawText(QRect(int(x)-40,T+h+6,80,18),Qt.AlignHCenter|Qt.AlignTop,lab)
+            self._xy.append((x,y,tip))
+        # letzter Wert direkt beschriftet
+        x,y,_=self._xy[-1]; p.setPen(ink); bf=QFont(f); bf.setBold(True); p.setFont(bf)
+        p.drawText(QRect(int(x)-30,int(y)-26,60,18),Qt.AlignCenter,str(self.points[-1][1]))
+        p.end()
+    def mouseMoveEvent(self,e):
+        from PySide6.QtWidgets import QToolTip
+        pos=e.position()
+        best=min(self._xy,key=lambda t:(t[0]-pos.x())**2+(t[1]-pos.y())**2,default=None)
+        if best and (best[0]-pos.x())**2+(best[1]-pos.y())**2<26**2: QToolTip.showText(e.globalPosition().toPoint(),best[2],self)
+        else: QToolTip.hideText()
+
+class QuestionnaireForm(QWidget):
+    """Fragebogen mit Antwortknöpfen 0–3 je Item. large=True: große Ansicht zum Ausfüllen durch Klient/in am Tablet."""
+    changed=Signal()
+    def __init__(self,kind,large=False):
+        super().__init__(); import questionnaires as Q
+        from PySide6.QtWidgets import QButtonGroup, QRadioButton
+        self.kind=kind; q=Q.QUESTIONNAIRES[kind]; self.groups=[]
+        v=QVBoxLayout(self); v.setContentsMargins(0,0,0,0); v.setSpacing(10 if large else 6)
+        stem=QLabel(q["stem"]); stem.setWordWrap(True); stem.setStyleSheet(f"font-weight:700;font-size:{22 if large else 14}px"); v.addWidget(stem)
+        for i,text in enumerate(q["items"]):
+            box=QFrame(); box.setObjectName("formCard"); bv=QVBoxLayout(box); bv.setContentsMargins(12,8,12,8); bv.setSpacing(6)
+            lab=QLabel(f"{i+1}. {text}"); lab.setWordWrap(True); lab.setStyleSheet(f"font-size:{20 if large else 13}px"); bv.addWidget(lab)
+            row=QWidget(); rl=FlowLayout(row,hspacing=14,vspacing=6); rl.setContentsMargins(0,0,0,0); grp=QButtonGroup(self)
+            for val,ans in enumerate(Q.ANSWERS):
+                rb=QRadioButton(f"{ans} ({val})" if not large else ans); rb.setStyleSheet(f"font-size:{19 if large else 13}px;padding:{8 if large else 2}px")
+                grp.addButton(rb,val); rl.addWidget(rb)
+            grp.idClicked.connect(lambda *_: self.changed.emit()); bv.addWidget(row); v.addWidget(box); self.groups.append(grp)
+    def answers(self): return [g.checkedId() if g.checkedId()>=0 else None for g in self.groups]
+    def set_answers(self,ans):
+        for g,a in zip(self.groups,ans):
+            g.setExclusive(False)
+            for b in g.buttons(): b.setChecked(False)
+            g.setExclusive(True)
+            if a is not None and g.button(int(a)): g.button(int(a)).setChecked(True)
+        self.changed.emit()
+
+ANAMNESIS_FIELDS=[
+    ("Anlass & Anliegen",[("first_contact","Datum Erstgespräch","line"),("reason","Vorstellungsanlass","multi"),("goal","Anliegen / Auftrag","multi"),("onset","Beginn und Verlauf der Beschwerden","multi")]),
+    ("Aktuelle Beschwerden",[("symptoms","Beschwerdebild / Symptomatik","multi"),("impact","Beeinträchtigung in Alltag, Arbeit, Beziehungen","multi")]),
+    ("Biografie & Lebenssituation",[("family_origin","Herkunftsfamilie","multi"),("childhood","Kindheit und Jugend","multi"),("education","Schule, Ausbildung, Beruf","multi"),("relationships","Partnerschaft, Kinder, Familie","multi"),("living","Aktuelle Lebenssituation (Wohnen, Finanzen, Belastungen)","multi")]),
+    ("Gesundheit",[("somatic","Körperliche Erkrankungen","multi"),("medication","Medikation (Präparat, Dosis, verordnet von)","multi"),("substances","Alkohol, Nikotin, Drogen, Medikamentenmissbrauch","multi"),("prior_psych","Psychiatrische / psychotherapeutische Vorbehandlung","multi")]),
+    ("Ressourcen",[("resources","Stärken, Ressourcen, Interessen","multi"),("network","Soziales Netz / Unterstützung","multi")]),
+    ("Risikoeinschätzung",[("suicidality","Suizidalität",["nicht erfragt","kein Hinweis","passive Todeswünsche","Suizidgedanken ohne Plan","Suizidgedanken mit Plan oder Absicht"]),
+                           ("suicide_attempts","Frühere Suizidversuche",["nicht erfragt","nein","ja"]),
+                           ("harm_others","Fremdgefährdung",["nicht erfragt","kein Hinweis","Hinweise vorhanden"]),
+                           ("safety_plan","Absprachen / Krisenplan","multi")]),
+    ("Befund & Einschätzung",[("findings","Psychischer Befund (Kurzform)","multi"),("hypothesis","Arbeitshypothese / Fallverständnis","multi"),("diagnosis","Diagnose(n) ICD-10 (Verdacht/gesichert)","line"),("plan","Vorgehen / nächste Schritte","multi")]),
+]
+RISK_LEVELS={"passive Todeswünsche","Suizidgedanken ohne Plan","Suizidgedanken mit Plan oder Absicht"}
+
 # Farbschemata: Seitenleiste, Seitenleistentext, Auswahl, Auswahltext, Hover, Schaltfläche,
 # Schaltfläche-Hover, Akzent (Überschriften), Hintergrund, Kopfleiste, Rahmen
 THEMES={
@@ -1394,10 +1501,11 @@ class Main(QMainWindow):
         brandsub=QLabel("Version "+APP_VERSION); brandsub.setObjectName("brandSub"); sv.addWidget(brandsub); self.brand_sub=brandsub
         self.nav=NavList(); self.nav.setObjectName("nav"); self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         # Menü nach Arbeitsbereichen geordnet. Zahl = Seite im Seitenstapel (Reihenfolge unten bei self.pages).
-        menu=[("Praxisalltag",[("⌂","Tagesübersicht",0),("✎","Sitzung dokumentieren",1),("▦","Terminkalender",6)]),
+        menu=[("Praxisalltag",[("⌂","Tagesübersicht",0),("▦","Terminkalender",6)]),
+              ("Therapie",[("✎","Sitzung dokumentieren",1),("◔","Therapieverlauf",14),("✦","Sitzungsassistent",2)]),
               ("Klienten",[("♙","Klientenakten",3),("＋","Neuer Klient",4),("♥","Paarakte",5),("⏳","Warteliste",13),("✉","Formulare & Briefe",12)]),
               ("Abrechnung",[("€","Neue Rechnung",7),("▤","Rechnungen",8)]),
-              ("Wissen & Hilfe",[("✦","Sitzungsassistent",2),("📖","Glossar",10),("?","Hilfe · FAQ · Info",11)]),
+              ("Wissen & Hilfe",[("📖","Glossar",10),("?","Hilfe · FAQ · Info",11)]),
               ("System",[("⚙","Praxiseinstellungen",9)])]
         for section,items in menu:
             self.nav.add_section(section)
@@ -1416,7 +1524,7 @@ class Main(QMainWindow):
         tb.addWidget(self.top_logo)
         lockbtn=QPushButton("🔒 Sperren"); lockbtn.setObjectName("lockBtn"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_clicked); tb.addWidget(lockbtn); self.lockbtn=lockbtn
         contentv.addWidget(topbar)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.pages.addWidget(self.documents_ui()); self.pages.addWidget(self.waitlist_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.pages.addWidget(self.documents_ui()); self.pages.addWidget(self.waitlist_ui()); self.pages.addWidget(self.therapy_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
         self.nav.pageChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(content,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -1542,6 +1650,9 @@ class Main(QMainWindow):
         QScrollBar::handle:horizontal {{ background:#c3cec7; min-width:38px; border-radius:5px; }}
         QScrollBar::add-line,QScrollBar::sub-line {{ width:0; height:0; }}
         QSplitter::handle {{ background:{t['border']}; }}
+        QSlider::groove:horizontal {{ height:6px; background:{t['border']}; border-radius:3px; }}
+        QSlider::sub-page:horizontal {{ background:{t['sel']}; border-radius:3px; }}
+        QSlider::handle:horizontal {{ background:{t['button']}; width:18px; height:18px; margin:-7px 0; border-radius:9px; border:2px solid white; }}
         QStatusBar {{ background:{t['top']}; color:{t['accent']}; border-top:1px solid {t['border']}; }} QStatusBar QLabel {{ color:{t['accent']}; font-weight:600; padding:3px 10px; }}
         """)
         QApplication.instance().setFont(QFont(QApplication.instance().font().family(),font_size))
@@ -1665,6 +1776,7 @@ class Main(QMainWindow):
         if index==12 and hasattr(self,"refresh_document_clients"): self.refresh_document_clients()
         if index==3 and hasattr(self,"refresh_clients_table"): self.refresh_clients_table()
         if index==13 and hasattr(self,"refresh_waitlist"): self.refresh_waitlist()
+        if index==14 and hasattr(self,"refresh_therapy"): self.refresh_therapy()
     def require_edit(self):
         if self.can_edit(): return True
         QMessageBox.warning(self,"Nur Lesen","Dieser Benutzer hat nur Leserechte und kann keine Daten verändern.")
@@ -1925,6 +2037,254 @@ class Main(QMainWindow):
         refresh()
         return page
 
+    def therapy_ui(self):
+        """Therapieverlauf je Klient: Anamnese, Therapieziele mit Fortschritt, Fragebögen (PHQ-9, GAD-7) mit Verlauf."""
+        import questionnaires as Q
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
+        title=QLabel("Therapieverlauf"); title.setObjectName("pageTitle"); v.addWidget(title)
+        top=QHBoxLayout(); top.addWidget(QLabel("Klient"))
+        pick=QComboBox(); pick.setEditable(True); pick.setInsertPolicy(QComboBox.NoInsert); pick.setMinimumHeight(34); pick.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon); pick.setMinimumContentsLength(24)
+        pick.completer().setCompletionMode(QCompleter.PopupCompletion); pick.completer().setFilterMode(Qt.MatchContains); pick.completer().setCaseSensitivity(Qt.CaseInsensitive)
+        top.addWidget(pick,1); self.therapy_pick=pick
+        self.therapy_alert=QLabel(""); self.therapy_alert.setWordWrap(True); self.therapy_alert.setStyleSheet("background:#fbecea;color:#8a2f28;border:1px solid #e3b4ae;border-radius:8px;padding:6px 10px;font-weight:600"); self.therapy_alert.setVisible(False)
+        v.addLayout(top); v.addWidget(self.therapy_alert)
+        tabs=QTabWidget(); tabs.setDocumentMode(True); v.addWidget(tabs,1); self.therapy_tabs=tabs
+        state={"cc":None,"loading":False}
+        user=lambda: (self.current_user or {}).get("username","")
+
+        # ------------------------------------------------------------ Anamnese
+        an_page=QWidget(); av=QVBoxLayout(an_page); av.setContentsMargins(0,8,0,0)
+        an_body=QWidget(); ag=QGridLayout(an_body); ag.setContentsMargins(0,0,0,0); ag.setHorizontalSpacing(12); ag.setVerticalSpacing(12); an_fields={}
+        for i,(section,items) in enumerate(ANAMNESIS_FIELDS):
+            box=QFrame(); box.setObjectName("formCard"); bv=QVBoxLayout(box); bv.setContentsMargins(14,10,14,12); bv.setSpacing(6)
+            st=QLabel(section); st.setObjectName("sectionTitle"); bv.addWidget(st)
+            for key,label,kind in items:
+                bv.addWidget(QLabel(label))
+                if isinstance(kind,list): ed=QComboBox(); ed.addItems(kind)
+                elif kind=="multi": ed=QTextEdit(); ed.setAcceptRichText(False); ed.setMinimumHeight(64); ed.setMaximumHeight(110)
+                else: ed=QLineEdit()
+                if key=="first_contact": ed.setPlaceholderText("TT.MM.JJJJ")
+                an_fields[key]=ed; bv.addWidget(ed)
+            ag.addWidget(box,i//2,i%2)
+        ag.setColumnStretch(0,1); ag.setColumnStretch(1,1)
+        sc=QScrollArea(); sc.setWidgetResizable(True); sc.setFrameShape(QFrame.NoFrame); sc.setWidget(an_body); av.addWidget(sc,1)
+        an_bar=QHBoxLayout(); an_info=QLabel(""); an_info.setObjectName("pageSub"); an_bar.addWidget(an_info,1)
+        an_pdf=QPushButton("📄 Als PDF (verschlüsselt in der Akte)"); an_save=QPushButton("💾 Anamnese speichern")
+        for b in (an_pdf,an_save): b.setMinimumHeight(38); an_bar.addWidget(b)
+        av.addLayout(an_bar); tabs.addTab(an_page,"Anamnese")
+        def an_value(ed):
+            if isinstance(ed,QComboBox): return ed.currentText()
+            if isinstance(ed,QTextEdit): return ed.toPlainText().strip()
+            return ed.text().strip()
+        def an_load(cc):
+            data=(cc or {}).get("anamnesis",{})
+            for k,ed in an_fields.items():
+                val=str(data.get(k,"") or "")
+                if k=="diagnosis" and not val: val=(cc or {}).get("diagnosis","")
+                if isinstance(ed,QComboBox): ed.setCurrentIndex(max(0,ed.findText(val)))
+                elif isinstance(ed,QTextEdit): ed.setPlainText(val)
+                else: ed.setText(val)
+            an_info.setText(("Zuletzt gespeichert: "+datetime.fromisoformat(data["updated"]).strftime("%d.%m.%Y %H:%M")) if data.get("updated") else "Noch nicht ausgefüllt.")
+        def an_save_fn(quiet=False):
+            cc=state["cc"]
+            if not cc: QMessageBox.information(self,"Anamnese","Bitte zuerst einen Klienten auswählen."); return False
+            if not self.require_edit(): return False
+            data={k:an_value(ed) for k,ed in an_fields.items()}; data["updated"]=datetime.now().isoformat(timespec="seconds")
+            cc["anamnesis"]=data
+            if data.get("diagnosis") and not cc.get("diagnosis"): cc["diagnosis"]=data["diagnosis"]
+            save_data(); audit("ANAMNESIS_SAVED",f"{cc.get('last','')}, {cc.get('first','')}",user()); an_load(cc); update_alert()
+            if not quiet: QMessageBox.information(self,"Anamnese","Die Anamnese wurde gespeichert.")
+            return True
+        def an_pdf_fn():
+            if not an_save_fn(quiet=True): return
+            cc=state["cc"]; data=cc["anamnesis"]; lines=[f"Klient/in: {cc.get('first','')} {cc.get('last','')}"+(f", geb. {cc.get('dob')}" if cc.get("dob") else ""),""]
+            for section,items in ANAMNESIS_FIELDS:
+                filled=[(label,data.get(k,"")) for k,label,_ in items if data.get(k,"") and data.get(k,"")!="nicht erfragt"]
+                if not filled: continue
+                lines.append("## "+section)
+                for label,val in filled:
+                    vals=str(val).splitlines()
+                    lines.append(f"{label}: {vals[0]}"); lines+=vals[1:]
+                lines.append("")
+            folder=client_dir(cc)/"Dokumente"; stamp=datetime.now()
+            tmp=Path(tempfile.mkdtemp(prefix="praxispro_an_"))/"Anamnese.pdf"
+            try:
+                document_pdf.render_document_pdf(tmp,"Anamnese",("\n".join(lines)),invoice_settings(),practice_logo_path(),None,[("Unterschrift Therapeut/in",None,invoice_settings().get("owner_name",""))],", ".join(x for x in (practice_city(),stamp.strftime("%d.%m.%Y")) if x),"",lambda c,t: audit(c,t,user()))
+                target=folder/f"{stamp.strftime('%Y-%m-%d_%H%M%S')}_Anamnese.pdf.enc"; target.write_bytes(Fernet(encryption_key()).encrypt(tmp.read_bytes()))
+            finally: shutil.rmtree(tmp.parent,ignore_errors=True)
+            audit("ANAMNESIS_PDF",f"{cc.get('last','')}, {cc.get('first','')}",user()); open_client_document(target)
+        an_save.clicked.connect(lambda: an_save_fn()); an_pdf.clicked.connect(an_pdf_fn)
+
+        # ------------------------------------------------------------ Therapieziele
+        go_page=QWidget(); gv=QVBoxLayout(go_page); gv.setContentsMargins(0,8,0,0)
+        gsplit=QSplitter(); gsplit.setChildrenCollapsible(False); self.responsive_split(gsplit,900)
+        gleft=QWidget(); glv=QVBoxLayout(gleft); glv.setContentsMargins(0,0,0,0)
+        gtable=QTableWidget(0,4); gtable.setHorizontalHeaderLabels(["Ziel","Status","Fortschritt","Zuletzt"]); gtable.verticalHeader().setVisible(False)
+        for col,mode in enumerate((QHeaderView.Stretch,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents)): gtable.horizontalHeader().setSectionResizeMode(col,mode)
+        gtable.setSelectionBehavior(QTableWidget.SelectRows); gtable.setSelectionMode(QTableWidget.SingleSelection); gtable.setEditTriggers(QTableWidget.NoEditTriggers); gtable.setMinimumHeight(120); gtable.setMaximumHeight(240); glv.addWidget(gtable)
+        gchart=ScoreChart("Fortschritt des gewählten Ziels (0 = noch gar nicht, 10 = vollständig erreicht)"); gchart.setMaximumHeight(300); glv.addWidget(gchart); glv.addStretch()
+        gcard=QFrame(); gcard.setObjectName("formCard"); gcv=QVBoxLayout(gcard); gcv.setContentsMargins(14,10,14,12); gcv.setSpacing(6)
+        gtitle=QLabel("Neues Ziel"); gtitle.setObjectName("sectionTitle"); gcv.addWidget(gtitle)
+        g_text=QTextEdit(); g_text.setAcceptRichText(False); g_text.setFixedHeight(70); g_text.setPlaceholderText("Ziel konkret und beobachtbar formulieren, z. B. „wieder zweimal pro Woche Freunde treffen“")
+        g_method=QTextEdit(); g_method.setAcceptRichText(False); g_method.setFixedHeight(60); g_method.setPlaceholderText("Methoden / Interventionen")
+        g_status=QComboBox(); g_status.addItems(["offen","in Arbeit","erreicht","verworfen"])
+        for lab,w_ in (("Ziel *",g_text),("Methoden / Interventionen",g_method),("Status",g_status)): gcv.addWidget(QLabel(lab)); gcv.addWidget(w_)
+        gb=QWidget(); gbl=FlowLayout(gb,hspacing=8,vspacing=8); gbl.setContentsMargins(0,2,0,6)
+        g_new=QPushButton("＋ Neues Ziel"); g_save=QPushButton("💾 Ziel speichern"); g_del=QPushButton("Löschen"); g_del.setStyleSheet("background:white;color:#b5534b;border:1px solid #d9a9a4")
+        for b in (g_new,g_save,g_del): b.setMinimumHeight(34); gbl.addWidget(b)
+        gcv.addWidget(gb)
+        rt=QLabel("Fortschritt bewerten"); rt.setObjectName("sectionTitle"); gcv.addWidget(rt)
+        rrow=QHBoxLayout(); g_slider=QSlider(Qt.Horizontal); g_slider.setRange(0,10); g_slider.setValue(5); g_slider.setTickPosition(QSlider.TicksBelow); g_slider.setTickInterval(1)
+        g_val=QLabel("5 / 10"); g_val.setMinimumWidth(56); g_slider.valueChanged.connect(lambda x: g_val.setText(f"{x} / 10")); rrow.addWidget(g_slider,1); rrow.addWidget(g_val); gcv.addLayout(rrow)
+        g_rnote=QLineEdit(); g_rnote.setPlaceholderText("Kurze Notiz zur Einschätzung (optional)"); gcv.addWidget(g_rnote)
+        g_rate=QPushButton("✓ Bewertung für heute hinzufügen"); g_rate.setMinimumHeight(34); gcv.addWidget(g_rate); gcv.addStretch()
+        gsplit.addWidget(gleft); gsplit.addWidget(gcard); gsplit.setStretchFactor(0,3); gsplit.setStretchFactor(1,2); gv.addWidget(gsplit,1)
+        tabs.addTab(go_page,"Therapieziele")
+        gstate={"id":None}
+        def goals(): return (state["cc"] or {}).setdefault("goals",[]) if state["cc"] else []
+        def g_current(): return next((g for g in goals() if g.get("id")==gstate["id"]),None)
+        def g_refresh():
+            gtable.setRowCount(0)
+            order={"in Arbeit":0,"offen":1,"erreicht":2,"verworfen":3}
+            for g in sorted(goals(),key=lambda g:(order.get(g.get("status"),9),g.get("created",""))):
+                r=gtable.rowCount(); gtable.insertRow(r); last=(g.get("ratings") or [{}])[-1]
+                vals=[g.get("text","").replace("\n"," "),g.get("status",""),(f"{last['value']} / 10" if "value" in last else "–"),(_de_date(last.get("date","")) if last.get("date") else "–")]
+                for j,val in enumerate(vals):
+                    it=QTableWidgetItem(val); it.setData(Qt.UserRole,g.get("id"))
+                    if g.get("status") in ("erreicht","verworfen"): it.setForeground(QColor("#7d8a83"))
+                    gtable.setItem(r,j,it)
+            g_chart()
+        def g_chart():
+            g=g_current()
+            pts=[(_de_date(x["date"])[:6],x["value"],f"{_de_date(x['date'])}: {x['value']} / 10"+(f"\n{x['note']}" if x.get("note") else "")) for x in (g or {}).get("ratings",[])]
+            gchart.set_data(pts,10)
+        def g_load(g):
+            gstate["id"]=g.get("id") if g else None
+            g_text.setPlainText(g.get("text","") if g else ""); g_method.setPlainText(g.get("methods","") if g else ""); g_status.setCurrentText(g.get("status","offen") if g else "offen")
+            gtitle.setText("Ziel bearbeiten" if g else "Neues Ziel"); g_rate.setEnabled(bool(g)); g_del.setEnabled(bool(g)); g_chart()
+        def g_select():
+            r=gtable.currentRow()
+            if r>=0: gid=gtable.item(r,0).data(Qt.UserRole); g_load(next((g for g in goals() if g.get("id")==gid),None))
+        def g_save_fn():
+            if not state["cc"]: return QMessageBox.information(self,"Therapieziele","Bitte zuerst einen Klienten auswählen.")
+            if not self.require_edit(): return
+            if not g_text.toPlainText().strip(): return QMessageBox.warning(self,"Therapieziele","Bitte das Ziel beschreiben.")
+            g=g_current()
+            if g is None:
+                g={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"created":date.today().isoformat(),"ratings":[]}; goals().append(g); gstate["id"]=g["id"]
+            g.update({"text":g_text.toPlainText().strip(),"methods":g_method.toPlainText().strip(),"status":g_status.currentText()})
+            save_data(); audit("GOAL_SAVED",f"{state['cc'].get('last','')}, {state['cc'].get('first','')}",user()); g_refresh(); g_load(g)
+        def g_rate_fn():
+            g=g_current()
+            if not g or not self.require_edit(): return
+            today=date.today().isoformat(); entry={"date":today,"value":g_slider.value(),"note":g_rnote.text().strip()}
+            g["ratings"]=[x for x in g.get("ratings",[]) if x.get("date")!=today]+[entry]   # pro Tag eine Bewertung
+            if g.get("status")=="offen": g["status"]="in Arbeit"
+            save_data(); g_rnote.clear(); g_refresh(); g_load(g)
+        def g_del_fn():
+            g=g_current()
+            if not g or not self.require_edit(): return
+            if QMessageBox.question(self,"Ziel löschen",f"Ziel „{g.get('text','')[:60]}“ mit allen Bewertungen löschen?\n\nTipp: Statt zu löschen kann der Status auf „verworfen“ gesetzt werden – dann bleibt der Verlauf dokumentiert.",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            goals().remove(g); save_data(); audit("GOAL_DELETED",f"{state['cc'].get('last','')}, {state['cc'].get('first','')}",user()); g_load(None); g_refresh()
+        gtable.itemSelectionChanged.connect(g_select); g_new.clicked.connect(lambda: (gtable.clearSelection(),g_load(None),g_text.setFocus())); g_save.clicked.connect(g_save_fn); g_rate.clicked.connect(g_rate_fn); g_del.clicked.connect(g_del_fn)
+
+        # ------------------------------------------------------------ Fragebögen
+        qu_page=QWidget(); qv=QVBoxLayout(qu_page); qv.setContentsMargins(0,8,0,0)
+        qsplit=QSplitter(); qsplit.setChildrenCollapsible(False); self.responsive_split(qsplit,820)
+        qleft=QWidget(); qlv=QVBoxLayout(qleft); qlv.setContentsMargins(0,0,0,0)
+        qtop=QHBoxLayout(); q_kind=QComboBox(); q_kind.addItems(list(Q.QUESTIONNAIRES.keys())); q_date=FlexDateEdit(QDate.currentDate()); q_date.setCalendarPopup(True); q_date.setDisplayFormat("dd.MM.yyyy")
+        qtop.addWidget(QLabel("Fragebogen")); qtop.addWidget(q_kind); qtop.addWidget(QLabel("Datum")); qtop.addWidget(q_date); qtop.addStretch(); qlv.addLayout(qtop)
+        q_stack=QStackedWidget(); q_stack.setMinimumHeight(320); q_forms={}
+        for kind in Q.QUESTIONNAIRES:
+            fw=QuestionnaireForm(kind); q_forms[kind]=fw; s2=QScrollArea(); s2.setWidgetResizable(True); s2.setFrameShape(QFrame.NoFrame); s2.setWidget(fw); q_stack.addWidget(s2)
+        qlv.addWidget(q_stack,1)
+        q_result=QLabel(""); q_result.setWordWrap(True); q_result.setStyleSheet("font-weight:700;padding:6px 0"); qlv.addWidget(q_result)
+        qbar=QWidget(); qbl=FlowLayout(qbar,hspacing=8,vspacing=8); qbl.setContentsMargins(0,0,0,0)
+        q_big=QPushButton("⛶ Großansicht für Klient/in"); q_save=QPushButton("💾 Ergebnis speichern"); q_clear=QPushButton("Leeren")
+        for b in (q_big,q_save,q_clear): b.setMinimumHeight(36); qbl.addWidget(b)
+        qlv.addWidget(qbar)
+        qright=QWidget(); qrv=QVBoxLayout(qright); qrv.setContentsMargins(0,0,0,0)
+        qchart=ScoreChart(); qrv.addWidget(qchart)
+        qhist=QTableWidget(0,4); qhist.setHorizontalHeaderLabels(["Datum","Fragebogen","Summe","Einstufung"]); qhist.verticalHeader().setVisible(False); qhist.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        qhist.setSelectionBehavior(QTableWidget.SelectRows); qhist.setEditTriggers(QTableWidget.NoEditTriggers); qrv.addWidget(qhist,1)
+        q_hdel=QPushButton("Ausgewähltes Ergebnis löschen"); q_hdel.setMinimumHeight(32); q_hdel.setStyleSheet("background:white;color:#b5534b;border:1px solid #d9a9a4"); qrv.addWidget(q_hdel)
+        note=QLabel("PHQ-9 und GAD-7 sind frei verwendbare Screening-Instrumente. Ergebnisse ersetzen keine Diagnose."); note.setWordWrap(True); note.setObjectName("pageSub"); qrv.addWidget(note)
+        qsplit.addWidget(qleft); qsplit.addWidget(qright); qsplit.setStretchFactor(0,3); qsplit.setStretchFactor(1,2); qv.addWidget(qsplit,1)
+        tabs.addTab(qu_page,"Fragebögen")
+        def q_results(): return (state["cc"] or {}).setdefault("questionnaires",[]) if state["cc"] else []
+        def q_live():
+            kind=q_kind.currentText(); res=Q.score(kind,q_forms[kind].answers()); answered=len(Q.QUESTIONNAIRES[kind]["items"])-len(res["missing"])
+            q_result.setText(f"{kind}: {res['score']} von {res['max']} Punkten – {res['severity']}  ·  {answered}/{len(Q.QUESTIONNAIRES[kind]['items'])} beantwortet"+("".join("\n⚠ "+n for n in res["notes"] if "Item 9" in n)))
+            q_result.setStyleSheet("font-weight:700;padding:6px 0;"+("color:#8a2f28" if any("Item 9" in n for n in res["notes"]) else ""))
+        def q_hist_refresh():
+            kind=q_kind.currentText(); qhist.setRowCount(0)
+            for x in sorted(q_results(),key=lambda x:(x.get("date",""),x.get("saved","")),reverse=True):
+                r=qhist.rowCount(); qhist.insertRow(r)
+                for j,val in enumerate((_de_date(x.get("date","")),x.get("kind",""),f"{x.get('score')} / {Q.QUESTIONNAIRES.get(x.get('kind'),{}).get('max','')}",x.get("severity",""))):
+                    it=QTableWidgetItem(str(val)); it.setData(Qt.UserRole,x.get("id")); qhist.setItem(r,j,it)
+            series=sorted([x for x in q_results() if x.get("kind")==kind],key=lambda x:x.get("date",""))
+            pts=[(_de_date(x["date"])[:6]+_de_date(x["date"])[8:10],x["score"],f"{_de_date(x['date'])}: {x['score']} Punkte – {x.get('severity','')}") for x in series]
+            qchart.set_data(pts,Q.QUESTIONNAIRES[kind]["max"],Q.QUESTIONNAIRES[kind]["bands"],f"{Q.QUESTIONNAIRES[kind]['name']} – Verlauf")
+        def q_kind_changed():
+            q_stack.setCurrentIndex(q_kind.currentIndex()); q_live(); q_hist_refresh()
+        def q_save_fn():
+            if not state["cc"]: return QMessageBox.information(self,"Fragebogen","Bitte zuerst einen Klienten auswählen.")
+            if not self.require_edit(): return
+            kind=q_kind.currentText(); ans=q_forms[kind].answers(); res=Q.score(kind,ans)
+            if res["missing"] and QMessageBox.question(self,"Fragebogen",f"Nicht alle Fragen sind beantwortet (Item {', '.join(map(str,res['missing']))}). Trotzdem speichern?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            entry={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"kind":kind,"date":q_date.date().toString("yyyy-MM-dd"),"answers":ans,"score":res["score"],"severity":res["severity"],"notes":res["notes"],"saved":datetime.now().isoformat(timespec="seconds")}
+            q_results().append(entry); save_data(); audit("QUESTIONNAIRE_SAVED",f"{kind} {res['score']}: {state['cc'].get('last','')}, {state['cc'].get('first','')}",user())
+            q_forms[kind].set_answers([None]*len(ans)); q_hist_refresh(); update_alert()
+            msg=f"{kind} gespeichert: {res['score']} von {res['max']} Punkten ({res['severity']})."+("".join("\n\n"+n for n in res["notes"]))
+            (QMessageBox.warning if any("Item 9" in n for n in res["notes"]) else QMessageBox.information)(self,"Fragebogen",msg)
+        def q_big_fn():
+            kind=q_kind.currentText(); dlg=QDialog(self); dlg.setWindowTitle(Q.QUESTIONNAIRES[kind]["name"]); dv=QVBoxLayout(dlg)
+            big=QuestionnaireForm(kind,large=True); big.set_answers(q_forms[kind].answers()); s3=QScrollArea(); s3.setWidgetResizable(True); s3.setFrameShape(QFrame.NoFrame); s3.setWidget(big); dv.addWidget(s3,1)
+            done=QPushButton("Fertig – zurück an die Praxis"); done.setMinimumHeight(56); done.setStyleSheet("font-size:20px;font-weight:700"); done.clicked.connect(dlg.accept); dv.addWidget(done)
+            # Ergebnis wird der Klientin/dem Klienten nicht angezeigt; Übernahme erst nach „Fertig“.
+            dlg.setWindowState(Qt.WindowMaximized)
+            if dlg.exec()==QDialog.Accepted: q_forms[kind].set_answers(big.answers())
+        def q_hdel_fn():
+            r=qhist.currentRow()
+            if r<0 or not self.require_edit(): return
+            xid=qhist.item(r,0).data(Qt.UserRole); x=next((y for y in q_results() if y.get("id")==xid),None)
+            if not x: return
+            if QMessageBox.question(self,"Ergebnis löschen",f"{x.get('kind')} vom {_de_date(x.get('date',''))} ({x.get('score')} Punkte) löschen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            q_results().remove(x); save_data(); audit("QUESTIONNAIRE_DELETED",f"{x.get('kind')} {x.get('date')}",user()); q_hist_refresh()
+        for fw in q_forms.values(): fw.changed.connect(q_live)
+        q_kind.currentIndexChanged.connect(lambda *_: q_kind_changed()); q_save.clicked.connect(q_save_fn); q_big.clicked.connect(q_big_fn); q_hdel.clicked.connect(q_hdel_fn)
+        q_clear.clicked.connect(lambda: q_forms[q_kind.currentText()].set_answers([None]*len(Q.QUESTIONNAIRES[q_kind.currentText()]["items"])))
+
+        # ------------------------------------------------------------ Klientenwahl und Warnhinweis
+        def update_alert():
+            cc=state["cc"] or {}; msgs=[]
+            s=(cc.get("anamnesis") or {}).get("suicidality","")
+            if s in RISK_LEVELS: msgs.append(f"Anamnese: {s}")
+            last_phq=sorted([x for x in cc.get("questionnaires",[]) if x.get("kind")=="PHQ-9"],key=lambda x:x.get("date",""))
+            if last_phq and (last_phq[-1].get("answers") or [0]*9)[8] not in (None,0): msgs.append(f"PHQ-9 vom {_de_date(last_phq[-1]['date'])}: Item 9 (Suizidgedanken) positiv")
+            self.therapy_alert.setText("⚠ Risikohinweis – "+" · ".join(msgs)+". Bitte im Gespräch aktiv abklären und Absprachen dokumentieren." if msgs else "")
+            self.therapy_alert.setVisible(bool(msgs))
+        def select_client():
+            state["cc"]=resolve_client(pick.currentData())   # Original, nicht die Kopie aus der Auswahlliste
+            for w_ in (an_page,go_page,qu_page): w_.setEnabled(state["cc"] is not None)
+            an_load(state["cc"]); g_load(None); g_refresh(); q_hist_refresh(); q_live(); update_alert()
+        def refresh_clients():
+            old=pick.currentData(); pick.blockSignals(True); pick.clear(); pick.addItem("Klient auswählen …",None)
+            for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())):
+                pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}"+(f"  (geb. {cc.get('dob')})" if cc.get("dob") else ""),cc)
+            i=next((k for k in range(pick.count()) if resolve_client(pick.itemData(k)) is resolve_client(old)),-1) if isinstance(old,dict) else -1
+            pick.setCurrentIndex(max(0,i)); pick.blockSignals(False)
+            if not (state["cc"] is not None and resolve_client(pick.currentData()) is state["cc"]): select_client()   # ungespeicherte Eingaben beim Zurückkehren behalten
+        self.refresh_therapy=refresh_clients
+        def open_for(cc):
+            refresh_clients(); same=lambda d: isinstance(d,dict) and all(d.get(x,"")==cc.get(x,"") for x in ("last","first","dob"))
+            i=next((k for k in range(pick.count()) if same(pick.itemData(k))),-1)
+            if i>=0: pick.setCurrentIndex(i)
+        self.open_therapy_for=open_for
+        pick.currentIndexChanged.connect(lambda *_: select_client())
+        refresh_clients(); q_kind_changed()
+        return page
+
     def documents_ui(self):
         """Formulare & Briefe: Vorlagen mit Klientendaten befüllen, bearbeiten, unterschreiben lassen, als PDF ablegen."""
         T=document_templates.TEMPLATES
@@ -1982,7 +2342,7 @@ class Main(QMainWindow):
             it=self.doc_list.currentItem(); return it.data(Qt.UserRole) if it else document_templates.ORDER[0]
         def current_client():
             c=self.doc_client.currentData()
-            if isinstance(c,dict) and self.doc_client.currentText().strip()==self.doc_client.itemText(self.doc_client.currentIndex()): return c
+            if isinstance(c,dict) and self.doc_client.currentText().strip()==self.doc_client.itemText(self.doc_client.currentIndex()): return resolve_client(c) or c
             return None
         def refill_body(ask=True):
             if ask and self.doc_body.document().isModified() and self.doc_body.toPlainText().strip():
@@ -2429,9 +2789,10 @@ class Main(QMainWindow):
         return True
 
     def edit_session_client(self):
-        cc=self.client_pick.currentData() if hasattr(self,"client_pick") else None
+        cc=resolve_client(self.client_pick.currentData()) if hasattr(self,"client_pick") else None
         if not isinstance(cc,dict): return QMessageBox.information(self,"Klient","Bitte zuerst einen Klienten auswählen.")
         if self.edit_client_record(cc):
+            self.client_pick.setItemData(self.client_pick.currentIndex(),cc)
             self.s_last.setText(cc.get("last","")); self.s_first.setText(cc.get("first","")); self.s_dob.setText(cc.get("dob","")); self.s_phone.setText(cc.get("phone","")); self.s_email.setText(cc.get("email",""))
             idx=self.client_pick.currentIndex(); self.client_pick.setItemText(idx,f'{cc.get("last","")}, {cc.get("first","")}')
 

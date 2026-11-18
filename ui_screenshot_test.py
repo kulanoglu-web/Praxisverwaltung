@@ -58,6 +58,7 @@ pages=[
     (10,"Benutzerhandbuch"),
     (12,"Formulare-Briefe"),
     (13,"Warteliste"),
+    (14,"Therapieverlauf"),
 ]
 saved=0
 # Mehrere typische Desktop-/Notebook-Auflösungen prüfen. Damit fallen starre,
@@ -165,6 +166,38 @@ wt=[x for x in page.findChildren(_QT)][0]
 if wt.rowCount()!=1 or wt.item(0,1).text()!="Erika Wartend": raise SystemExit("Warteliste filtert offene Einträge nicht korrekt")
 if "(1)" not in win.nav.item(win.nav._row_of_page[13]).text(): raise SystemExit("Wartelisten-Zähler im Menü fehlt")
 print("Waitlist functional test OK")
+
+# Therapieverlauf: Auswertung PHQ-9/GAD-7, Speichern, Verlauf, Therapieziel, Risikohinweis.
+import questionnaires as Q
+r=Q.score("PHQ-9",[1,1,1,1,1,1,1,1,0])
+if r["score"]!=8 or r["severity"]!="leicht" or r["notes"]: raise SystemExit("PHQ-9-Auswertung falsch")
+r=Q.score("PHQ-9",[3,3,3,3,3,3,3,3,1])
+if r["score"]!=25 or r["severity"]!="schwer" or not any("Item 9" in n for n in r["notes"]): raise SystemExit("PHQ-9: Item-9-Hinweis oder Einstufung fehlt")
+if Q.score("GAD-7",[2,2,2,2,2,0,0])["severity"]!="mittelgradig" or Q.score("GAD-7",[None]*7)["missing"]!=list(range(1,8)): raise SystemExit("GAD-7-Auswertung falsch")
+from PySide6.QtWidgets import QMessageBox as _MB, QPushButton as _PB
+_MB.information=staticmethod(lambda *a,**k: _MB.Ok); _MB.warning=staticmethod(lambda *a,**k: _MB.Ok); _MB.question=staticmethod(lambda *a,**k: _MB.Yes)
+win.nav.setCurrentRow(14); app.processEvents()
+tc=next(c for c in main.DB["clients"] if c.get("last")=="Mustermann")
+win.open_therapy_for(tc); app.processEvents()
+tpage=win.pages.currentWidget()
+btn=lambda text: next(b for b in tpage.findChildren(_PB) if b.text()==text)
+win.therapy_tabs.setCurrentIndex(2); app.processEvents()
+form=next(w_ for w_ in tpage.findChildren(main.QuestionnaireForm) if w_.kind=="PHQ-9")
+form.set_answers([2,2,1,1,1,1,1,1,1]); app.processEvents()
+btn("💾 Ergebnis speichern").click(); app.processEvents()
+saved=[x for x in tc.get("questionnaires",[]) if x["kind"]=="PHQ-9"]
+if not saved or saved[-1]["score"]!=11 or saved[-1]["severity"]!="mittelgradig": raise SystemExit("PHQ-9-Ergebnis wurde nicht korrekt gespeichert")
+if not win.therapy_alert.isVisible() or "Item 9" not in win.therapy_alert.text(): raise SystemExit("Risikohinweis bei positivem Item 9 fehlt")
+chart=next(w_ for w_ in tpage.findChildren(main.ScoreChart) if w_.vmax==27)
+if len(chart.points)!=1 or chart.points[0][1]!=11: raise SystemExit("Verlaufskurve zeigt das Ergebnis nicht")
+win.therapy_tabs.setCurrentIndex(1); app.processEvents()
+gtext=[w_ for w_ in tpage.findChildren(main.QTextEdit) if "beobachtbar" in w_.placeholderText()][0]
+gtext.setPlainText("Wieder zweimal pro Woche Freunde treffen"); btn("💾 Ziel speichern").click(); app.processEvents()
+btn("✓ Bewertung für heute hinzufügen").click(); app.processEvents()
+g=tc.get("goals",[])
+if len(g)!=1 or g[0]["status"]!="in Arbeit" or len(g[0]["ratings"])!=1: raise SystemExit("Therapieziel/Bewertung wurde nicht gespeichert")
+win.therapy_tabs.setCurrentIndex(0); app.processEvents()
+print("Therapy record functional test OK")
 
 # Echte Rechnung im isolierten Windows-Test erzeugen.
 # Sie wird ausschließlich durch PraxisPro selbst erstellt, nicht extern nachgebaut.
