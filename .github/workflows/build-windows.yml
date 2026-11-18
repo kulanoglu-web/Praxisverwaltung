@@ -131,10 +131,16 @@ jobs:
           if (-not (Wait-Gone $exe)) { Show-Diag $log1; throw "Uninstall (keep data) did not remove the program" }
           if (-not (Test-Path (Join-Path $data "uninstall_test_marker.txt"))) { throw "Uninstall (keep data) deleted the practice data!" }
           Write-Host "Uninstall test 1 passed: program removed, practice data kept."
+          # Der Deinstaller entfernt sich am Ende selbst (zweite Phase) – erst danach neu installieren.
+          if (-not (Wait-Gone $uninst)) { Write-Host "Hinweis: unins000.exe nach 90 s noch vorhanden" }
+          if (-not (Wait-Gone $target)) { Write-Host "Hinweis: Programmordner nach 90 s noch vorhanden" }
+          Start-Sleep -Seconds 3
 
           # Deinstallation 2: neu installieren, dann still mit /DELETEDATA=1 -> Praxisdaten werden gelöscht.
           $p = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/DIR=$target" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Reinstall exit code $($p.ExitCode)" }
+          for ($i=0; $i -lt 30 -and -not (Test-Path $uninst); $i++) { Start-Sleep -Seconds 1 }
+          if (-not (Test-Path $uninst)) { throw "Uninstaller missing after reinstall: $uninst" }
           $log2 = Join-Path $env:RUNNER_TEMP "uninstall2.log"
           $u = Start-Process -FilePath $uninst -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DELETEDATA=1","/LOG=`"$log2`"" -PassThru
           $u.WaitForExit(); Write-Host "Uninstaller exit code: $($u.ExitCode)"
