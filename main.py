@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.14.7"
+APP_VERSION = "0.15.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1143,6 +1143,50 @@ class PinPad(QDialog):
     def reject(self):
         if self._cancel: super().reject()
 
+class NavList(QListWidget):
+    """Seitenmenü mit Bereichsüberschriften. Nach außen arbeitet es mit Seitennummern
+    (Index im QStackedWidget): setCurrentRow(seite), currentRowChanged -> seite, count() = Anzahl Seiten.
+    Überschriften sind nicht auswählbar; die Reihenfolge im Menü ist unabhängig von den Seitennummern."""
+    pageChanged=Signal(int)
+    def __init__(self):
+        super().__init__(); self._page_of_row={}; self._row_of_page={}; self.entries=[]
+        super().currentRowChanged.connect(self._row_changed)
+    def add_section(self,title):
+        it=QListWidgetItem(title.upper()); it.setFlags(Qt.NoItemFlags); it.setData(Qt.UserRole,"section")
+        f=it.font(); f.setBold(True); f.setLetterSpacing(QFont.PercentageSpacing,108); it.setFont(f)
+        it.setSizeHint(QSize(10,28)); self.addItem(it)
+    def add_page(self,icon,label,page):
+        it=QListWidgetItem(f"{icon}   {label}"); it.setData(Qt.UserRole,page); it.setSizeHint(QSize(10,33)); self.addItem(it)
+        row=super().count()-1; self._page_of_row[row]=page; self._row_of_page[page]=row; self.entries.append((row,icon,label))
+    def count(self): return len(self._row_of_page)
+    def page_label(self,page):
+        row=self._row_of_page.get(page)
+        return next((lab for r,_,lab in self.entries if r==row),"")
+    def setCurrentRow(self,page):
+        row=self._row_of_page.get(page)
+        if row is not None: super().setCurrentRow(row)
+    def currentPage(self): return self._page_of_row.get(super().currentRow(),-1)
+    def _row_changed(self,row):
+        if row in self._page_of_row: self.pageChanged.emit(self._page_of_row[row])
+    def set_compact(self,compact):
+        for i in range(super().count()):
+            it=self.item(i)
+            if it.data(Qt.UserRole)=="section": it.setHidden(compact); continue
+        for row,icon,label in self.entries:
+            it=self.item(row); it.setToolTip(label)
+            it.setText(icon if compact else f"{icon}   {label}"); it.setTextAlignment(Qt.AlignCenter if compact else Qt.AlignLeft|Qt.AlignVCenter)
+
+# Farbschemata: Seitenleiste, Seitenleistentext, Auswahl, Auswahltext, Hover, Schaltfläche,
+# Schaltfläche-Hover, Akzent (Überschriften), Hintergrund, Kopfleiste, Rahmen
+THEMES={
+    "Salbei":dict(side="#eef2ef",side_text="#33443b",sel="#7d9a88",sel_text="#ffffff",hover="#dde6e0",button="#5f8a72",button_hover="#4c735d",accent="#2c3b33",bg="#f6f8f6",top="#e3ebe5",border="#dbe3dd",section="#8a9a90"),
+    "PraxisPro Blau":dict(side="#132f47",side_text="#e5edf3",sel="#2f7de1",sel_text="#ffffff",hover="#244d70",button="#1f6fb2",button_hover="#17324d",accent="#17324d",bg="#f4f6f8",top="#ffffff",border="#d4e0ea",section="#8fa6ba"),
+    "Petrol":dict(side="#123c3d",side_text="#e3efef",sel="#22999b",sel_text="#ffffff",hover="#174b4d",button="#177b7d",button_hover="#174b4d",accent="#174b4d",bg="#f2f7f7",top="#ffffff",border="#d2e2e2",section="#86aeae"),
+    "Grün":dict(side="#183d2b",side_text="#e3efe7",sel="#3f9b65",sel_text="#ffffff",hover="#205b39",button="#2e7d4f",button_hover="#205b39",accent="#205b39",bg="#f3f7f4",top="#ffffff",border="#d3e2d8",section="#8db39b"),
+    "Gold":dict(side="#493b18",side_text="#f3ecd9",sel="#c59a2c",sel_text="#ffffff",hover="#6f5314",button="#9a7417",button_hover="#6f5314",accent="#6f5314",bg="#faf8f2",top="#ffffff",border="#e6dcc4",section="#b9a36f"),
+    "Violett":dict(side="#34234d",side_text="#ece5f5",sel="#8b5fc1",sel_text="#ffffff",hover="#513373",button="#7048a3",button_hover="#513373",accent="#513373",bg="#f7f4fa",top="#ffffff",border="#e0d6ec",section="#a58fc2"),
+}
+
 class Main(QMainWindow):
     def __init__(self):
         super().__init__(); self.current_user={}; self.last_activity=datetime.now(); self.setWindowTitle(f"PraxisPro v{APP_VERSION} – Erdoğan Kulanoğlu"); self.resize(1280,820); self.setMinimumSize(480,520)
@@ -1150,26 +1194,38 @@ class Main(QMainWindow):
         if get_setting("auto_lock_v2","")!="1": set_setting("auto_lock_minutes","0"); set_setting("auto_lock_v2","1")
         shell=QWidget(); root=QHBoxLayout(shell); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         sidebar=QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(235); self.sidebar=sidebar; sv=QVBoxLayout(sidebar); sv.setContentsMargins(12,14,12,14)
-        brand=QLabel("PRAXISPRO  v"+APP_VERSION+"\n"+get_setting("practice_name","Psychologische Privatpraxis")); brand.setObjectName("brand"); brand.setWordWrap(True); sv.addWidget(brand); self.brand_label=brand
-        self.nav=QListWidget(); self.nav.setObjectName("nav"); self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        for x in ["⌂  Dashboard","＋  Sitzung","✦  Sitzungsassistent","♙  Klienten","♙＋ Neuer Klient","♥  Paarakte","▦  Terminkalender","▤  Neue Rechnung","▣  Rechnungen","⚙  Praxiseinstellungen","📖  Glossar","?  Hilfe · FAQ · Info"]: self.nav.addItem(x)
+        brand=QLabel("PraxisPro"); brand.setObjectName("brand"); sv.addWidget(brand); self.brand_label=brand
+        brandsub=QLabel("Version "+APP_VERSION); brandsub.setObjectName("brandSub"); sv.addWidget(brandsub); self.brand_sub=brandsub
+        self.nav=NavList(); self.nav.setObjectName("nav"); self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Menü nach Arbeitsbereichen geordnet. Zahl = Seite im Seitenstapel (Reihenfolge unten bei self.pages).
+        menu=[("Praxisalltag",[("⌂","Tagesübersicht",0),("✎","Sitzung dokumentieren",1),("▦","Terminkalender",6)]),
+              ("Klienten",[("♙","Klientenakten",3),("＋","Neuer Klient",4),("♥","Paarakte",5)]),
+              ("Abrechnung",[("€","Neue Rechnung",7),("▤","Rechnungen",8)]),
+              ("Wissen & Hilfe",[("✦","Sitzungsassistent",2),("📖","Glossar",10),("?","Hilfe · FAQ · Info",11)]),
+              ("System",[("⚙","Praxiseinstellungen",9)])]
+        for section,items in menu:
+            self.nav.add_section(section)
+            for icon,label,page in items: self.nav.add_page(icon,label,page)
         sv.addWidget(self.nav,1)
-        foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); foot.setWordWrap(True); sv.addWidget(foot); self.side_foot=foot; self.nav_full=[self.nav.item(i).text() for i in range(self.nav.count())]
+        # Copyright steht unten in der Statusleiste, damit das Menü auch auf kleinen Bildschirmen ganz sichtbar bleibt.
+        foot=QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); foot.setObjectName("sidefoot"); self.side_foot=foot; self.nav_full=True
         content=QWidget(); contentv=QVBoxLayout(content); contentv.setContentsMargins(0,0,0,0); contentv.setSpacing(0)
-        topbar=QFrame(); topbar.setObjectName("topBrandBar"); topbar.setFixedHeight(62); tb=QHBoxLayout(topbar); tb.setContentsMargins(16,5,18,5); tb.addStretch()
+        topbar=QFrame(); topbar.setObjectName("topBrandBar"); topbar.setFixedHeight(58); tb=QHBoxLayout(topbar); tb.setContentsMargins(22,5,18,5); tb.setSpacing(12)
+        self.top_title=QLabel("Praxisverwaltung · "+get_setting("practice_name","Psychologische Privatpraxis")); self.top_title.setObjectName("topTitle"); tb.addWidget(self.top_title); tb.addStretch()
         self.top_logo=QLabel(); self.top_logo.setAlignment(Qt.AlignRight|Qt.AlignVCenter); self.top_logo.setMinimumWidth(0)
         logo_path=practice_logo_path()
         if logo_path:
             px=QPixmap(str(logo_path))
-            if not px.isNull(): self.top_logo.setPixmap(px.scaled(220,46,Qt.KeepAspectRatio,Qt.SmoothTransformation))
-        lockbtn=QPushButton("🔒 Sperren"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_clicked); tb.insertWidget(0,lockbtn); self.lockbtn=lockbtn
-        tb.addWidget(self.top_logo); contentv.addWidget(topbar)
+            if not px.isNull(): self.top_logo.setPixmap(px.scaled(200,40,Qt.KeepAspectRatio,Qt.SmoothTransformation))
+        tb.addWidget(self.top_logo)
+        lockbtn=QPushButton("🔒 Sperren"); lockbtn.setObjectName("lockBtn"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_clicked); tb.addWidget(lockbtn); self.lockbtn=lockbtn
+        contentv.addWidget(topbar)
         self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
-        self.nav.currentRowChanged.connect(self.navigate); self.nav.setCurrentRow(0)
+        self.nav.pageChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(content,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
         self.wallclock=QLabel(); self.userbadge=QLabel()
-        self.statusBar().addWidget(self.userbadge); self.statusBar().addPermanentWidget(self.wallclock)
+        self.statusBar().addWidget(self.userbadge); self.statusBar().addPermanentWidget(self.side_foot); self.statusBar().addPermanentWidget(self.wallclock)
         self.update_user_badge()
         self.walltimer=QTimer(self); self.walltimer.timeout.connect(self.update_wallclock); self.walltimer.start(250); self.update_wallclock(); self.locktimer=QTimer(self); self.locktimer.timeout.connect(self.check_autolock); self.locktimer.start(30000)
         self.setStyleSheet("""
@@ -1226,7 +1282,10 @@ class Main(QMainWindow):
         QShortcut(QKeySequence("Ctrl+L"),self,activated=self.lock_clicked)
         self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(10000)
     def apply_appearance(self):
-        theme=get_setting("ui_theme","PraxisPro Blau")
+        if get_setting("ui_migrated_v15","0")!="1":
+            # Einmalig: neues ruhiges Standard-Farbschema „Salbei“ (in den Einstellungen umstellbar).
+            set_setting("ui_theme","Salbei"); set_setting("ui_migrated_v15","1")
+        theme=get_setting("ui_theme","Salbei")
         if get_setting("ui_migrated_v13","0")!="1":
             # Einmalig: zu kleine Schrift / zu enge Darstellung aus früheren Versionen anheben.
             try: set_setting("ui_font_size",max(14,int(get_setting("ui_font_size","14") or 14)))
@@ -1235,46 +1294,59 @@ class Main(QMainWindow):
             set_setting("ui_migrated_v13","1")
         font_size=max(12,min(20,int(get_setting("ui_font_size","14") or 14)))
         density=get_setting("ui_density","Normal")
-        palettes={
-            "PraxisPro Blau":("#132f47","#1f6fb2","#2f7de1","#17324d","#f4f6f8"),
-            "Petrol":("#123c3d","#177b7d","#22999b","#174b4d","#f2f7f7"),
-            "Grün":("#183d2b","#2e7d4f","#3f9b65","#205b39","#f3f7f4"),
-            "Gold":("#493b18","#9a7417","#c59a2c","#6f5314","#faf8f2"),
-            "Violett":("#34234d","#7048a3","#8b5fc1","#513373","#f7f4fa")}
-        side,button,selected,dark,bg=palettes.get(theme,palettes["PraxisPro Blau"])
-        if density=="Groß": pad,minh,navpad=8,26,9
-        elif density=="Normal": pad,minh,navpad=6,20,5
-        else: pad,minh,navpad=4,18,5
+        t=THEMES.get(theme,THEMES["Salbei"])
+        if density=="Groß": pad,minh,navpad=8,26,8
+        elif density=="Normal": pad,minh,navpad=6,20,4
+        else: pad,minh,navpad=4,18,3
+        nav_font=max(12,font_size-1)
         self.setStyleSheet(f"""
-        QMainWindow {{ background:{bg}; }}
-        #sidebar {{ background:{side}; border:0; }}
-        #brand {{ color:white; font-size:{font_size+5}px; font-weight:800; padding:5px 8px 12px 8px; }}
-        #sidefoot {{ color:#d5dde5; font-size:{max(9,font_size-1)}px; padding:10px; }}
-        #nav {{ background:transparent; border:0; outline:0; color:#e5edf3; font-size:{font_size}px; }}
-        #nav::item {{ padding:{navpad}px 8px; margin:1px 0; border-radius:8px; min-height:{minh}px; }}
-        #nav::item:selected {{ background:{selected}; color:white; font-weight:700; }}
-        #nav::item:hover:!selected {{ background:{dark}; color:white; }}
-        QStackedWidget,#sessionScroll,#sessionScroll > QWidget > QWidget {{ background:{bg}; }}
-        #topBrandBar {{ background:white; border-bottom:1px solid #dce3e9; }}
-        #pageTitle {{ font-size:{font_size+11}px; font-weight:800; color:{dark}; }}
-        #pageSub {{ font-size:{font_size}px; color:#607080; padding-bottom:8px; }}
-        #statCard,#formCard,#clientHeader {{ background:white; border:1px solid #d4e0ea; border-radius:10px; padding:{pad+2}px; }}
-        #cardCaption {{ color:#5b6b78; font-size:{max(11,font_size-1)}px; font-weight:700; }}
-        #cardValue {{ color:#17324d; font-size:{font_size+12}px; font-weight:800; }}
-        #infoBox {{ background:white; border:1px solid #d4e0ea; border-radius:10px; padding:12px; color:#607080; font-size:{max(11,font_size-1)}px; }}
-        #sectionTitle {{ color:{dark}; font-size:{font_size+2}px; font-weight:800; }}
-        QLabel,QCheckBox {{ color:#1f2933; font-size:{font_size}px; }}
+        QMainWindow {{ background:{t['bg']}; }}
+        #sidebar {{ background:{t['side']}; border:0; border-right:1px solid {t['border']}; }}
+        #brand {{ color:{t['side_text']}; font-size:{font_size+6}px; font-weight:800; padding:4px 10px 0 10px; }}
+        #brandSub {{ color:{t['section']}; font-size:{max(11,font_size-2)}px; padding:0 10px 10px 10px; }}
+        #sidefoot {{ color:{t['section']}; font-size:{max(10,font_size-3)}px; padding:8px 10px; }}
+        #nav {{ background:transparent; border:0; outline:0; color:{t['side_text']}; font-size:{nav_font}px; }}
+        #nav::item {{ padding:0 10px; margin:1px 0; border-radius:8px; }}
+        #nav::item:disabled {{ color:{t['section']}; background:transparent; padding:8px 10px 0 10px; }}
+        #nav::item:selected {{ background:{t['sel']}; color:{t['sel_text']}; font-weight:700; }}
+        #nav::item:hover:!selected:enabled {{ background:{t['hover']}; }}
+        QStackedWidget,#sessionScroll,#sessionScroll > QWidget > QWidget {{ background:{t['bg']}; }}
+        QScrollArea {{ background:{t['bg']}; }}
+        #topBrandBar {{ background:{t['top']}; border-bottom:1px solid {t['border']}; }}
+        #topTitle {{ color:{t['accent']}; font-size:{font_size+6}px; font-weight:700; }}
+        #lockBtn {{ background:white; color:{t['accent']}; border:1px solid {t['border']}; }}
+        #lockBtn:hover {{ background:{t['hover']}; }}
+        #pageTitle {{ font-size:{font_size+10}px; font-weight:800; color:{t['accent']}; }}
+        #pageSub {{ font-size:{font_size}px; color:#6b7a72; padding-bottom:8px; }}
+        #statCard,#formCard,#clientHeader {{ background:white; border:1px solid {t['border']}; border-radius:12px; padding:{pad+2}px; }}
+        #cardCaption {{ color:#6b7a72; font-size:{max(11,font_size-2)}px; font-weight:700; letter-spacing:.5px; }}
+        #cardValue {{ color:{t['accent']}; font-size:{font_size+12}px; font-weight:800; }}
+        #infoBox {{ background:white; border:1px solid {t['border']}; border-radius:12px; padding:12px; color:#6b7a72; font-size:{max(11,font_size-1)}px; }}
+        #sectionTitle {{ color:{t['accent']}; font-size:{font_size+2}px; font-weight:800; }}
+        #clientName {{ color:{t['accent']}; }}
+        QLabel,QCheckBox {{ color:#26322c; font-size:{font_size}px; }}
         QLineEdit,QTextEdit,QComboBox,QDateEdit,QTimeEdit,QSpinBox,QDoubleSpinBox {{
-          background:white; border:2px solid #b8c7d4; border-radius:9px; padding:{pad}px 7px; min-height:{minh}px; font-size:{font_size}px; selection-background-color:{dark};
+          background:white; border:1px solid #c5d0c9; border-radius:8px; padding:{pad}px 8px; min-height:{minh}px; font-size:{font_size}px; selection-background-color:{t['sel']};
         }}
-        QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QDateEdit:focus,QTimeEdit:focus,QSpinBox:focus {{ border:2px solid {selected}; }}
-        QPushButton {{ background:{button}; color:white; border:0; border-radius:9px; padding:{pad+2}px 10px; font-size:{font_size}px; font-weight:600; }}
-        QPushButton:hover {{ background:{dark}; }} QPushButton:pressed {{ background:{side}; }}
-        QTabBar::tab {{ background:#e9eef3; padding:{pad+6}px 18px; margin:2px; border-radius:8px; font-size:{font_size+1}px; }}
-        QTabBar::tab:selected {{ background:{dark}; color:white; font-weight:700; }}
-        QTableWidget {{ background:white; alternate-background-color:#f6f8fa; border:1px solid #d8e0e7; border-radius:8px; gridline-color:#e6ebef; font-size:{font_size}px; }}
-        QHeaderView::section {{ background:#edf2f6; color:#243746; padding:{pad+2}px; border:0; border-bottom:1px solid #ccd6df; font-weight:700; }}
-        QStatusBar {{ background:{dark}; color:white; }} QStatusBar QLabel {{ color:white; font-weight:700; padding:4px 10px; }}
+        QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QDateEdit:focus,QTimeEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus {{ border:2px solid {t['sel']}; }}
+        QLineEdit[readOnly="true"] {{ background:#f3f6f4; color:#5d6b63; }}
+        QPushButton {{ background:{t['button']}; color:white; border:0; border-radius:8px; padding:{pad+2}px 12px; font-size:{font_size}px; font-weight:600; }}
+        QPushButton:hover {{ background:{t['button_hover']}; }} QPushButton:pressed {{ background:{t['accent']}; }}
+        QPushButton:disabled {{ background:#d3dbd6; color:#7d8a83; }}
+        QTabWidget::pane {{ border:0; background:white; border-radius:12px; }}
+        QTabBar::tab {{ background:{t['hover']}; color:{t['accent']}; padding:{pad+5}px 16px; margin:2px; border-radius:8px; font-size:{font_size}px; }}
+        QTabBar::tab:selected {{ background:{t['sel']}; color:{t['sel_text']}; font-weight:700; }}
+        QTableWidget,QListWidget {{ background:white; alternate-background-color:{t['bg']}; border:1px solid {t['border']}; border-radius:10px; gridline-color:{t['border']}; font-size:{font_size}px; }}
+        QHeaderView::section {{ background:{t['top']}; color:{t['accent']}; padding:{pad+2}px; border:0; border-bottom:1px solid {t['border']}; font-weight:700; }}
+        QGroupBox {{ background:white; border:1px solid {t['border']}; border-radius:12px; margin-top:14px; padding-top:10px; font-weight:700; color:{t['accent']}; }}
+        QGroupBox::title {{ subcontrol-origin:margin; left:12px; padding:0 4px; }}
+        QScrollBar:vertical {{ background:transparent; width:11px; margin:2px; }}
+        QScrollBar::handle:vertical {{ background:#c3cec7; min-height:38px; border-radius:5px; }}
+        QScrollBar:horizontal {{ background:transparent; height:11px; margin:2px; }}
+        QScrollBar::handle:horizontal {{ background:#c3cec7; min-width:38px; border-radius:5px; }}
+        QScrollBar::add-line,QScrollBar::sub-line {{ width:0; height:0; }}
+        QSplitter::handle {{ background:{t['border']}; }}
+        QStatusBar {{ background:{t['top']}; color:{t['accent']}; border-top:1px solid {t['border']}; }} QStatusBar QLabel {{ color:{t['accent']}; font-weight:600; padding:3px 10px; }}
         """)
         QApplication.instance().setFont(QFont(QApplication.instance().font().family(),font_size))
 
@@ -1381,14 +1453,13 @@ class Main(QMainWindow):
         w=self.width(); compact=w<900; tiny=w<640
         if getattr(self,"_compact",None)!=compact:
             self._compact=compact
-            self.sidebar.setFixedWidth(66 if compact else 235)
-            self.brand_label.setVisible(not compact); self.side_foot.setVisible(not compact)
-            for i,full in enumerate(self.nav_full):
-                it=self.nav.item(i); it.setToolTip(full.strip())
-                it.setText(full.split()[0].replace("＋","+") if compact else full); it.setTextAlignment(Qt.AlignCenter if compact else Qt.AlignLeft|Qt.AlignVCenter)
-            self.nav.setIconSize(QSize(24,24)) if compact else None
+            self.sidebar.setFixedWidth(66 if compact else 250)
+            self.brand_label.setVisible(not compact); self.brand_sub.setVisible(not compact); self.side_foot.setVisible(not compact)
+            self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.nav.set_compact(compact)
         if getattr(self,"_tiny",None)!=tiny:
             self._tiny=tiny; self.top_logo.setVisible(not tiny); self.lockbtn.setText("🔒" if tiny else "🔒 Sperren")
+        if hasattr(self,"top_logo"): self.top_logo.setVisible(not tiny and w>=1100)
     def navigate(self,index):
         # Einstellungen mit Benutzer-/Sicherheitsverwaltung nur für Administratoren.
         if index==9 and not self.is_admin():
@@ -1660,13 +1731,19 @@ class Main(QMainWindow):
         page=QWidget(); outer=QVBoxLayout(page); outer.setContentsMargins(0,0,0,0)
         scroll=QScrollArea(); scroll.setObjectName("sessionScroll"); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         body=QWidget(); body.setMinimumWidth(0); v=QVBoxLayout(body); v.setContentsMargins(16,10,16,12); v.setSpacing(8)
-        top=QHBoxLayout(); head=QVBoxLayout(); title=QLabel("▣  Sitzungsnotiz"); title.setObjectName("pageTitle"); subtitle=QLabel("Sitzung dokumentieren · Klientendaten · Notizen · Handschrift · Speichern"); subtitle.setObjectName("pageSub"); head.addWidget(title); head.addWidget(subtitle)
-        self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setFixedSize(118,36); self.clock.setStyleSheet("font-size:20px;font-weight:800;border:2px solid #8091a1;border-radius:10px;background:white")
-        timerbtn=QPushButton("▶  Timer starten"); timerbtn.setFixedHeight(36); timerbtn.setMinimumWidth(118); timerbtn.setStyleSheet("background:#16a34a;color:white;font-weight:800;font-size:14px"); timerbtn.clicked.connect(self.start_session)
-        self.session_live_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.session_live_clock.setAlignment(Qt.AlignCenter); self.session_live_clock.setFixedSize(94,36); self.session_live_clock.setToolTip("Aktuelle Uhrzeit – live"); self.session_live_clock.setStyleSheet("font-size:16px;font-weight:800;color:#17324d;background:#e8f0f6;border-radius:10px")
-        top.addLayout(head); top.addStretch(); top.addWidget(self.session_live_clock); top.addWidget(self.clock); top.addWidget(timerbtn); v.addLayout(top)
+        head=QVBoxLayout(); head.setSpacing(0); title=QLabel("Sitzung dokumentieren"); title.setObjectName("pageTitle"); subtitle=QLabel("① Klient & Sitzungsdaten  ·  ② Notizen & Hausaufgaben  ·  ③ Handschrift  ·  ④ Speichern"); subtitle.setObjectName("pageSub"); head.addWidget(title); head.addWidget(subtitle); v.addLayout(head)
+        # Steuerleiste: Uhr, Sitzungsdauer und alle Sitzungsaktionen an einer Stelle (früher oben UND unten verteilt).
+        control=QFrame(); control.setObjectName("formCard"); control_l=FlowLayout(control,hspacing=8,vspacing=8); control_l.setContentsMargins(12,8,12,8)
+        self.session_live_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.session_live_clock.setAlignment(Qt.AlignCenter); self.session_live_clock.setMinimumWidth(90); self.session_live_clock.setFixedHeight(38); self.session_live_clock.setToolTip("Aktuelle Uhrzeit – live"); self.session_live_clock.setStyleSheet("font-size:15px;font-weight:700;color:#4b5b52")
+        self.clock=QLabel("00:00:00"); self.clock.setAlignment(Qt.AlignCenter); self.clock.setMinimumWidth(110); self.clock.setFixedHeight(38); self.clock.setToolTip("Sitzungsdauer"); self.clock.setStyleSheet("font-size:20px;font-weight:800;color:#2c3b33;border:1px solid #c5d0c9;border-radius:8px;background:#f6f8f6")
+        for caption,widget in (("Uhrzeit",self.session_live_clock),("Dauer",self.clock)):
+            lab=QLabel(caption); lab.setFixedHeight(38); lab.setAlignment(Qt.AlignVCenter|Qt.AlignLeft); lab.setStyleSheet("color:#6b7a72"); control_l.addWidget(lab); control_l.addWidget(widget)
+        gap=QWidget(); gap.setFixedWidth(16); control_l.addWidget(gap)
+        for text_,fn,style in [("▶ Start",self.start_session,"background:#5f8a72"),("⏸ Pause",self.pause,"background:#6f8796"),("■ Beenden",self.end_session,"background:#b5534b"),("💾 Sitzung speichern",self.save_session,"background:white;color:#2c3b33;border:1px solid #9fb3a6")]:
+            b=QPushButton(text_); b.setMinimumHeight(38); b.setStyleSheet(style+";font-weight:700"); b.clicked.connect(fn); control_l.addWidget(b)
+        v.addWidget(control)
 
-        row=QHBoxLayout(); row.setSpacing(6); row.setContentsMargins(0,0,0,0)
+        row=QSplitter(); row.setChildrenCollapsible(False); row.setHandleWidth(8); self.responsive_split(row,1000)
         session=QFrame(); session.setObjectName("formCard"); sg=QGridLayout(session); sg.setContentsMargins(10,8,10,10); sg.setHorizontalSpacing(7); sg.setVerticalSpacing(6)
         st=QLabel("▤  Sitzungsdaten"); st.setObjectName("sectionTitle"); sg.addWidget(st,0,0,1,3)
         self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("Klient auswählen …",None)
@@ -1686,7 +1763,7 @@ class Main(QMainWindow):
         sg.addWidget(QLabel("Klient *"),1,0); sg.addWidget(self.client_pick,1,1); sg.addWidget(newclient,1,2)
         for rr,(lab,field) in enumerate([("Datum *",self.s_date),("Beginn *",self.s_start),("Ende *",self.s_end),("Art *",self.s_type)],2): sg.addWidget(QLabel(lab),rr,0); sg.addWidget(field,rr,1,1,2)
         sg.addWidget(self.partner_label,6,0); sg.addWidget(self.partner_pick,6,1,1,2)
-        sg.addWidget(self.s_red,7,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(0); session.setMaximumWidth(410); session.setMinimumHeight(270); row.addWidget(session,4)
+        sg.addWidget(self.s_red,7,1,1,2); sg.setColumnStretch(1,2); sg.setColumnStretch(2,1); session.setMinimumWidth(0); session.setMaximumWidth(410); session.setMinimumHeight(270); row.addWidget(session)
 
         details=QFrame(); details.setObjectName("formCard"); dg=QGridLayout(details); dg.setContentsMargins(10,8,10,10); dg.setHorizontalSpacing(7); dg.setVerticalSpacing(6)
         dt=QLabel("●  Klientendaten"); dt.setObjectName("sectionTitle"); dg.addWidget(dt,0,0,1,2)
@@ -1695,7 +1772,7 @@ class Main(QMainWindow):
         self.s_phone=QLineEdit(); self.s_email=QLineEdit()
         for x in (self.s_phone,self.s_email): x.setMinimumHeight(30); x.setReadOnly(True); x.setPlaceholderText("–")
         for rr,(lab,field) in enumerate([("Nachname",self.s_last),("Vorname",self.s_first),("Geburtsdatum",self.s_dob),("Telefon",self.s_phone),("E-Mail",self.s_email)],1): dg.addWidget(QLabel(lab),rr,0); dg.addWidget(field,rr,1)
-        details.setMinimumWidth(0); details.setMaximumWidth(330); details.setMinimumHeight(270); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(30); dg.addWidget(editclient,6,0,1,2); row.addWidget(details,3)
+        details.setMinimumWidth(0); details.setMaximumWidth(330); details.setMinimumHeight(270); editclient=QPushButton("♙ Klientendaten bearbeiten"); editclient.setFixedHeight(30); dg.addWidget(editclient,6,0,1,2); row.addWidget(details)
 
         quick=QFrame(); quick.setObjectName("formCard"); qg=QGridLayout(quick); qg.setContentsMargins(10,8,10,10); qg.setHorizontalSpacing(7); qg.setVerticalSpacing(6)
         qt=QLabel("♙＋  Klient schnell anlegen"); qt.setObjectName("sectionTitle"); qg.addWidget(qt,0,0,1,2)
@@ -1703,7 +1780,10 @@ class Main(QMainWindow):
         for x in (qlast,qfirst,qdob,qphone,qmail): x.setMinimumHeight(30)
         qg.addWidget(QLabel("Nachname *"),1,0); qg.addWidget(QLabel("Vorname *"),1,1); qg.addWidget(qlast,2,0); qg.addWidget(qfirst,2,1)
         qg.addWidget(QLabel("Geburtsdatum"),3,0,1,2); qg.addWidget(qdob,4,0,1,2); qg.addWidget(QLabel("Telefon"),5,0); qg.addWidget(QLabel("E-Mail"),5,1); qg.addWidget(qphone,6,0); qg.addWidget(qmail,6,1)
-        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(30); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(0); quick.setMaximumWidth(330); quick.setMinimumHeight(270); row.addWidget(quick,3); v.addLayout(row)
+        qsave=QPushButton("Klient anlegen"); qsave.setFixedHeight(30); qg.addWidget(qsave,7,0,1,2); quick.setMinimumWidth(0); quick.setMaximumWidth(330); quick.setMinimumHeight(270); row.addWidget(quick); row.setStretchFactor(0,4); row.setStretchFactor(1,3); v.addWidget(row)
+        # Schnellanlage ausgeblendet: „＋ Neu“ öffnet denselben Vorgang als Dialog (mit Adresse und Diagnose).
+        quick.setVisible(False); newclient.setToolTip("Neuen Klienten anlegen")
+        details.setMaximumWidth(16777215); session.setMaximumWidth(16777215)
 
         def add_quick():
             if not self.require_edit(): return
@@ -1730,7 +1810,9 @@ class Main(QMainWindow):
         def use_fcode(text):
             if " – " in text: self.session_diag.setText(text)
         fquick.currentTextChanged.connect(use_fcode)
-        cg.addWidget(QLabel("Verdachtsdiagnose / ICD"),1,0); cg.addWidget(self.session_diag,1,1,1,2); cg.addWidget(fquick,1,3)
+        # Lange F-Code-Texte dürfen das Diagnosefeld nicht zusammendrücken.
+        fquick.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon); fquick.setMinimumContentsLength(16); self.session_diag.setMinimumWidth(180)
+        cg.addWidget(QLabel("Verdachtsdiagnose / ICD"),1,0); cg.addWidget(self.session_diag,1,1,1,2); cg.addWidget(fquick,1,3); cg.setColumnStretch(1,1); cg.setColumnStretch(3,1)
         self.session_diag.setToolTip("Arbeitsdiagnose/Verdacht; keine automatische gesicherte Diagnosestellung.")
         tip=QLabel("Verdachtsdiagnose ist optional und wird nicht automatisch als gesicherte Diagnose übernommen."); tip.setObjectName("pageSub"); tip.setWordWrap(True); cg.addWidget(tip,2,1,1,3); v.addWidget(clinical)
 
@@ -1752,9 +1834,11 @@ class Main(QMainWindow):
             if text in note_templates and (not self.notes.toPlainText().strip() or QMessageBox.question(self,"Vorlage einsetzen","Vorhandene Notiz durch die gewählte Vorlage ersetzen?")==QMessageBox.Yes): self.notes.setPlainText(note_templates[text])
             template.setCurrentIndex(0)
         template.currentTextChanged.connect(apply_note_template)
-        self.notes.setMinimumHeight(145); self.notes.setMaximumHeight(220); self.notes.setStyleSheet("font-size:13px"); nv.addWidget(self.notes); v.addWidget(notesbox)
-        homeworkbox=QFrame(); homeworkbox.setObjectName("formCard"); hv=QVBoxLayout(homeworkbox); hh=QLabel("✓ Hausaufgaben / Vereinbarungen bis zur nächsten Sitzung"); hh.setObjectName("sectionTitle"); hv.addWidget(hh)
-        self.session_homework=QTextEdit(); self.session_homework.setPlaceholderText("Hausaufgaben, Übungen, Beobachtungsaufträge oder konkrete Vereinbarungen …"); self.session_homework.setMinimumHeight(80); self.session_homework.setMaximumHeight(140)
+        self.notes.setMinimumHeight(180); self.notes.setMaximumHeight(320); nv.addWidget(self.notes)
+        # Therapienotiz und Hausaufgaben nebeneinander (bei schmalem Fenster untereinander).
+        textrow=QSplitter(); textrow.setChildrenCollapsible(False); textrow.addWidget(notesbox); self.responsive_split(textrow,1000); v.addWidget(textrow)
+        homeworkbox=QFrame(); homeworkbox.setObjectName("formCard"); hv=QVBoxLayout(homeworkbox); hv.setContentsMargins(16,12,16,14); hv.setSpacing(10); hh=QLabel("✓  Hausaufgaben / Vereinbarungen"); hh.setObjectName("sectionTitle"); hh.setToolTip("Bis zur nächsten Sitzung"); hv.addWidget(hh)
+        self.session_homework=QTextEdit(); self.session_homework.setPlaceholderText("Hausaufgaben, Übungen, Beobachtungsaufträge oder konkrete Vereinbarungen bis zur nächsten Sitzung …"); self.session_homework.setMinimumHeight(180); self.session_homework.setMaximumHeight(320)
         hwbar=QHBoxLayout(); hwgen=QPushButton("✦ Vorschläge aus Verdachtsdiagnose"); hwgen.setMinimumHeight(32); hwbar.addWidget(hwgen); hwbar.addStretch(); hv.addLayout(hwbar)
         def suggest_homework():
             d=self.session_diag.text().strip().upper()
@@ -1770,7 +1854,7 @@ class Main(QMainWindow):
             existing=self.session_homework.toPlainText().strip()
             self.session_homework.setPlainText((existing+"\n\n" if existing else "")+text)
         hwgen.clicked.connect(suggest_homework)
-        hv.addWidget(self.session_homework); v.addWidget(homeworkbox)
+        hv.addWidget(self.session_homework); textrow.addWidget(homeworkbox); textrow.setStretchFactor(0,3); textrow.setStretchFactor(1,2)
 
         self.ink=InkCanvas(); self.current_ink_file=""; self.current_ocr_text=""; inkhead=QHBoxLayout(); inklabel=QLabel("✎  Handschrift / Touch / Stift"); inklabel.setObjectName("sectionTitle"); inkhead.addWidget(inklabel); inkhead.addStretch(); self.ink_clock=QLabel(QTime.currentTime().toString("HH:mm:ss")); self.ink_clock.setStyleSheet("font-size:18px;font-weight:800"); inkhead.addWidget(self.ink_clock); self.ink_clock_timer=QTimer(self); self.ink_clock_timer.timeout.connect(lambda: (self.ink_clock.setText(QTime.currentTime().toString("HH:mm:ss")), self.ink.update())); self.ink_clock_timer.start(1000)
         eraser=QCheckBox("Radierer"); eraser.toggled.connect(self.ink.set_eraser)
@@ -1790,12 +1874,9 @@ class Main(QMainWindow):
         self.ink_live=QTextEdit(); self.ink_live.setPlaceholderText("Erkannter Text erscheint hier …"); self.ink_live.setFixedHeight(80); self.inkv.addWidget(self.ink_live)
         takebtn=QPushButton("↳ Erkannten Text in Therapienotiz übernehmen"); takebtn.clicked.connect(lambda: self.ink_commit_text(self.ink_live.toPlainText().strip(),clear_ink=False)); self.inkv.addWidget(takebtn)
         v.addWidget(self.inkbox,1)
-        h=QHBoxLayout()
-        buttons=[("▶ Sitzung starten",self.start_session,"background:#16a34a"),("⏸ Pause/Fortsetzen",self.pause,"background:#1683d8"),("■ Sitzung beenden",self.end_session,"background:#e11d48"),("💾 Als Sitzungsnotiz speichern",self.save_session,"background:#f8fafc;color:#1261a0;border:1px solid #9bb7cf")]
-        for text_,fn,style in buttons:
-            b=QPushButton(text_); b.setMinimumHeight(48); b.setStyleSheet(style+";font-weight:800;font-size:13px"); b.clicked.connect(fn); h.addWidget(b)
-        v.addLayout(h)
-        body.setMinimumWidth(0); body.setMaximumWidth(1180); scroll.setWidget(body); outer.addWidget(scroll); return page
+        # Speichern auch am Seitenende, damit man nach dem Schreiben nicht nach oben scrollen muss.
+        h=QHBoxLayout(); h.addStretch(); endsave=QPushButton("💾 Sitzung speichern"); endsave.setMinimumHeight(42); endsave.setMinimumWidth(220); endsave.setStyleSheet("font-weight:700"); endsave.clicked.connect(self.save_session); h.addWidget(endsave); v.addLayout(h)
+        body.setMinimumWidth(0); body.setMaximumWidth(1500); scroll.setWidget(body); outer.addWidget(scroll); return page
 
     def open_new_client_dialog(self):
         if not self.require_edit(): return
@@ -4056,7 +4137,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         appearance=QFrame(); appearance.setObjectName("formCard"); appearance.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); appearance.setMinimumWidth(0)
         # Darstellungsoptionen kompakt in einer Zeile: sie dürfen die Praxisdaten nicht überdecken.
         ar=QHBoxLayout(appearance); ar.setContentsMargins(14,10,14,10); ar.setSpacing(10)
-        theme=QComboBox(); theme.addItems(["PraxisPro Blau","Petrol","Grün","Gold","Violett"]); theme.setCurrentText(get_setting("ui_theme","PraxisPro Blau")); theme.setMinimumWidth(180); theme.setMaximumWidth(260)
+        theme=QComboBox(); theme.addItems(list(THEMES.keys())); theme.setCurrentText(get_setting("ui_theme","Salbei")); theme.setMinimumWidth(180); theme.setMaximumWidth(260)
         fontsize=QSpinBox(); fontsize.setRange(12,20); fontsize.setValue(max(12,int(get_setting("ui_font_size","14") or 14))); fontsize.setSuffix(" px"); fontsize.setMinimumWidth(110)
         density=QComboBox(); density.addItems(["Kompakt","Normal","Groß"]); density.setCurrentText(get_setting("ui_density","Normal")); density.setMinimumWidth(140); density.setMaximumWidth(200)
         ar.addWidget(QLabel("Farbschema")); ar.addWidget(theme); ar.addSpacing(8); ar.addWidget(QLabel("Schriftgröße")); ar.addWidget(fontsize); ar.addSpacing(8); ar.addWidget(QLabel("Darstellung")); ar.addWidget(density); ar.addStretch()
