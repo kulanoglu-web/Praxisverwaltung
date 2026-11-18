@@ -60,19 +60,33 @@ end;
 
 function PraxisProRunning: Boolean;
 var
-  Rc: Integer;
+  Locator, Service, Procs: Variant;
 begin
-  Result := Exec(ExpandConstant('{cmd}'), '/C tasklist /FI "IMAGENAME eq Praxisverwaltung.exe" /NH | find /I "Praxisverwaltung.exe" >nul',
-                 '', SW_HIDE, ewWaitUntilTerminated, Rc) and (Rc = 0);
+  // Zuverlässiger als tasklist: Windows-Prozessverwaltung (WMI) direkt abfragen.
+  Result := False;
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\CIMV2');
+    Procs := Service.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE Name = ''Praxisverwaltung.exe''');
+    Result := Procs.Count > 0;
+  except
+    Log('Prozesspruefung fehlgeschlagen: ' + GetExceptionMessage);
+  end;
+  Log('PraxisPro laeuft: ' + IntToStr(Ord(Result)));
 end;
 
 procedure ForceClosePraxisPro;
 var
-  Rc: Integer;
+  Rc, I: Integer;
 begin
   // /T beendet auch den eigentlichen Programmprozess (PyInstaller startet einen zweiten Prozess).
-  Exec(ExpandConstant('{sys}') + '	askkill.exe', '/F /T /IM Praxisverwaltung.exe', '', SW_HIDE, ewWaitUntilTerminated, Rc);
-  Sleep(2000);
+  Exec(ExpandConstant('{sys}') + '\taskkill.exe', '/F /T /IM Praxisverwaltung.exe', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  Log('taskkill Ergebnis: ' + IntToStr(Rc));
+  for I := 1 to 20 do
+  begin
+    if not PraxisProRunning then exit;
+    Sleep(500);
+  end;
 end;
 
 function InitializeUninstall: Boolean;
@@ -82,11 +96,11 @@ begin
   Result := True;
   DeleteData := False;
   // Laufendes PraxisPro hält die Programmdatei fest -> vorher schließen.
-  if PraxisProRunning then
+  if UninstallSilent then
+    // still: immer beenden (schadet nicht, falls PraxisPro gar nicht laeuft)
+    ForceClosePraxisPro
+  else if PraxisProRunning then
   begin
-    if UninstallSilent then
-      ForceClosePraxisPro
-    else
       while PraxisProRunning do
       begin
         Choice := TaskDialogMsgBox('PraxisPro ist noch geöffnet',
