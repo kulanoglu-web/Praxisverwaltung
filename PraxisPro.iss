@@ -58,12 +58,49 @@ begin
   Result := ExpandConstant('{%USERPROFILE}') + '\Documents\Praxisverwaltung';
 end;
 
+function PraxisProRunning: Boolean;
+var
+  Rc: Integer;
+begin
+  Result := Exec(ExpandConstant('{cmd}'), '/C tasklist /FI "IMAGENAME eq Praxisverwaltung.exe" /NH | find /I "Praxisverwaltung.exe" >nul',
+                 '', SW_HIDE, ewWaitUntilTerminated, Rc) and (Rc = 0);
+end;
+
+procedure ForceClosePraxisPro;
+var
+  Rc: Integer;
+begin
+  // /T beendet auch den eigentlichen Programmprozess (PyInstaller startet einen zweiten Prozess).
+  Exec(ExpandConstant('{sys}') + '	askkill.exe', '/F /T /IM Praxisverwaltung.exe', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  Sleep(2000);
+end;
+
 function InitializeUninstall: Boolean;
 var
   Choice: Integer;
 begin
   Result := True;
   DeleteData := False;
+  // Laufendes PraxisPro hält die Programmdatei fest -> vorher schließen.
+  if PraxisProRunning then
+  begin
+    if UninstallSilent then
+      ForceClosePraxisPro
+    else
+      while PraxisProRunning do
+      begin
+        Choice := TaskDialogMsgBox('PraxisPro ist noch geöffnet',
+          'Bitte PraxisPro schließen (vorher ungespeicherte Eingaben speichern) und dann „Erneut prüfen“ wählen.',
+          mbError, MB_YESNOCANCEL, ['&Erneut prüfen', 'PraxisPro &beenden (ungespeicherte Eingaben gehen verloren)'], 0);
+        if Choice = IDCANCEL then
+        begin
+          Result := False;
+          exit;
+        end;
+        if Choice = IDNO then
+          ForceClosePraxisPro;
+      end;
+  end;
   if UninstallSilent then
   begin
     DeleteData := ExpandConstant('{param:DELETEDATA|0}') = '1';
