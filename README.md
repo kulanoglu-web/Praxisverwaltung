@@ -20,6 +20,15 @@ Drei PDF-Varianten aus demselben Modul (`invoice_pdf.py`):
 
 Die ursprüngliche Rechnung wird nie überschrieben; Dankes- und Erinnerungs-PDFs liegen als eigene Dateien daneben.
 
+## Ausgaben & EÜR (Menü Abrechnung)
+- **Ausgaben** mit Kategorie, Zahlart und **verschlüsseltem Beleg** (Scan/PDF), Ablage unter `Ausgaben/Belege/<Jahr>`
+- **Kassenbuch (bar)** mit Anfangsbestand und laufendem Bestand; Bareinnahme mit Rechnungsnummer markiert die Rechnung als bezahlt
+- **EÜR-Auswertung** nach Zuflussprinzip (Monate, Kategorien, Ergebnis) und **Export für den Steuerberater**:
+  `Einnahmen/EUER_<Jahr>.xlsx` (Übersicht, Einnahmen, Ausgaben, Kassenbuch) und `Buchungen_<Jahr>.csv` –
+  standardmäßig ohne Klientennamen. Berechnung in `finance.py`. Arbeitshilfe, keine Steuerberatung.
+- **Ausfallhonorar**: im Kalender Termin wählen → „€ Ausfallhonorar abrechnen“ bereitet die Rechnung vor
+  (Betrag unter Praxiseinstellungen → Honorare → „Ausfallhonorar“)
+
 ## Startseite & Kalender
 - **Startseite** (aktualisiert sich bei jedem Aufruf): heutige Termine mit „Sitzung starten“, automatische
   Aufgaben (überfällige Rechnungen, nicht abgerechnete Sitzungen, Termine ohne Status, fehlender

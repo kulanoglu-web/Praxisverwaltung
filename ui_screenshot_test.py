@@ -59,6 +59,7 @@ pages=[
     (12,"Formulare-Briefe"),
     (13,"Warteliste"),
     (14,"Therapieverlauf"),
+    (15,"Ausgaben-EUER"),
 ]
 saved=0
 # Mehrere typische Desktop-/Notebook-Auflösungen prüfen. Damit fallen starre,
@@ -361,3 +362,31 @@ pix.save(str(invoice_png))
 doc.close()
 print("Invoice visual render OK", invoice_png)
 
+# Finanzen: EÜR (Zuflussprinzip, keine Doppelzählung), Kassenbuch, Export, Ausfallhonorar.
+import finance as F
+_inv=[{"number":"T-1","amount":70,"status":"bezahlt","paid_date":"2026-03-10","date":"2026-02-28","client":"Mustermann, Anna"},
+      {"number":"T-2","amount":90,"status":"offen","date":"2026-03-01"},
+      {"number":"T-3","amount":50,"status":"bezahlt","paid_date":"2025-12-30","date":"2025-12-20"}]
+_exp=[{"id":"e1","date":"2026-03-01","category":"Miete / Raumkosten","description":"Miete","amount":400,"payment":"Überweisung"},
+      {"id":"e2","date":"2026-03-05","category":"Fachliteratur","description":"Buch","amount":30,"payment":"Bar"}]
+_cash=[{"id":"k1","kind":"Einnahme","date":"2026-03-10","text":"bar zu T-1","amount":70,"invoice":"T-1"},
+       {"id":"k2","kind":"Einnahme","date":"2026-04-02","text":"Barzahlung ohne Rechnung","amount":20,"invoice":""},
+       {"id":"k3","kind":"Entnahme","date":"2026-04-03","text":"Einzahlung Bank","amount":50,"invoice":""}]
+su=F.euer_summary(_inv,_exp,_cash,2026)
+if su["income_total"]!=90 or su["expense_total"]!=430 or su["result"]!=-340: raise SystemExit(f"EÜR falsch: {su['income_total']} {su['expense_total']} {su['result']}")
+if su["months"][2]["income"]!=70 or su["months"][3]["income"]!=20: raise SystemExit("EÜR: Monatszuordnung falsch")
+rows_,bal=F.cash_book(_exp,_cash,2026,100)
+if bal!=110 or [r["balance"] for r in rows_]!=[70,140,160,110]: raise SystemExit(f"Kassenbuch falsch: {bal} {[r['balance'] for r in rows_]}")
+xl=F.export_xlsx(out/"euer-test.xlsx",su,False,rows_,100); F.export_csv(out/"buchungen-test.csv",su)
+from openpyxl import load_workbook as _lw
+_wb=_lw(xl)
+if set(_wb.sheetnames)!={"Übersicht","Einnahmen","Ausgaben","Kassenbuch"}: raise SystemExit("EÜR-Export: Blätter fehlen")
+if any("Mustermann" in str(c.value) for row in _wb["Einnahmen"].iter_rows() for c in row): raise SystemExit("EÜR-Export enthält Klientennamen, obwohl abgewählt")
+win.nav.setCurrentRow(15); app.processEvents()
+if win.finance_tabs.count()!=3: raise SystemExit("Seite Ausgaben & EÜR unvollständig")
+# Ausfallhonorar aus dem Kalender
+_con=_sq.connect(main.DBFILE); _cur=_con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,appointment_type,status,created_at) VALUES(?,?,?,?,?,?,?)",("2026-11-20","09:00",45,cid,"Einzeltherapie","abgesagt","x")); _aid=_cur.lastrowid; _con.commit(); _con.close()
+if not win.bill_cancellation_fee(_aid): raise SystemExit("Ausfallhonorar wurde nicht vorbereitet")
+if len(win.manual_items)!=1 or win.manual_items[0]["type"]!="Ausfallhonorar" or abs(win.manual_items[0]["amount"]-70)>0.01: raise SystemExit(f"Ausfallhonorar falsch: {win.manual_items}")
+if win.i_last.text()!="Mustermann" or win.pages.currentIndex()!=7: raise SystemExit("Ausfallhonorar: Rechnungsseite nicht vorbelegt")
+print("Finance functional test OK")

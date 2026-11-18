@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.19.0"
+APP_VERSION = "0.20.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -726,7 +726,7 @@ def init_sqlite():
     # Schon installierte Standardwerte behutsam auf den freigegebenen Rechnungsstand migrieren.
     con.execute("UPDATE settings SET value=? WHERE key=? AND (value IS NULL OR value='')",("030 12127420","landline"))
     con.execute("UPDATE settings SET value=? WHERE key=? AND value=?",("7","logo_y_mm","10"))
-    for name,mins,amount,reduced,mode in [("Einzeltherapie",45,70,60,"proportional"),("Paargespräch",45,70,60,"proportional"),("Onlinegespräch",45,70,60,"proportional"),("Notfalltelefonat",30,45,45,"started_unit"),("Hausbesuch",45,70,60,"proportional_plus_travel")]:
+    for name,mins,amount,reduced,mode in [("Einzeltherapie",45,70,60,"proportional"),("Paargespräch",45,70,60,"proportional"),("Onlinegespräch",45,70,60,"proportional"),("Notfalltelefonat",30,45,45,"started_unit"),("Hausbesuch",45,70,60,"proportional_plus_travel"),("Ausfallhonorar",45,70,70,"fixed")]:
         con.execute("INSERT OR IGNORE INTO fee_rates(name,minutes,amount,reduced_amount,billing_mode) VALUES(?,?,?,?,?)",(name,mins,amount,reduced,mode))
     con.commit(); con.close()
 
@@ -809,7 +809,7 @@ def load_data():
             legacy.unlink(); return d
         except:return {}
     return {}
-DB=load_data(); DB.setdefault("clients",[]); DB.setdefault("sessions",[]); DB.setdefault("invoices",[]); DB.setdefault("waitlist",[]); DB.setdefault("todos",[])
+DB=load_data(); DB.setdefault("clients",[]); DB.setdefault("sessions",[]); DB.setdefault("invoices",[]); DB.setdefault("waitlist",[]); DB.setdefault("todos",[]); DB.setdefault("expenses",[]); DB.setdefault("cash",[])
 init_sqlite(); sync_sqlite()
 
 def save_data():
@@ -1541,7 +1541,7 @@ class Main(QMainWindow):
         menu=[("Praxisalltag",[("⌂","Tagesübersicht",0),("▦","Terminkalender",6)]),
               ("Therapie",[("✎","Sitzung dokumentieren",1),("◔","Therapieverlauf",14),("✦","Sitzungsassistent",2)]),
               ("Klienten",[("♙","Klientenakten",3),("＋","Neuer Klient",4),("♥","Paarakte",5),("⏳","Warteliste",13),("✉","Formulare & Briefe",12)]),
-              ("Abrechnung",[("€","Neue Rechnung",7),("▤","Rechnungen",8)]),
+              ("Abrechnung",[("€","Neue Rechnung",7),("▤","Rechnungen",8),("▥","Ausgaben & EÜR",15)]),
               ("Wissen & Hilfe",[("📖","Glossar",10),("?","Hilfe · FAQ · Info",11)]),
               ("System",[("⚙","Praxiseinstellungen",9)])]
         for section,items in menu:
@@ -1561,7 +1561,7 @@ class Main(QMainWindow):
         tb.addWidget(self.top_logo)
         lockbtn=QPushButton("🔒 Sperren"); lockbtn.setObjectName("lockBtn"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_clicked); tb.addWidget(lockbtn); self.lockbtn=lockbtn
         contentv.addWidget(topbar)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.pages.addWidget(self.documents_ui()); self.pages.addWidget(self.waitlist_ui()); self.pages.addWidget(self.therapy_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.pages.addWidget(self.documents_ui()); self.pages.addWidget(self.waitlist_ui()); self.pages.addWidget(self.therapy_ui()); self.pages.addWidget(self.finance_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
         self.nav.pageChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(content,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -1813,6 +1813,7 @@ class Main(QMainWindow):
         if index==12 and hasattr(self,"refresh_document_clients"): self.refresh_document_clients()
         if index==3 and hasattr(self,"refresh_clients_table"): self.refresh_clients_table()
         if index==0 and hasattr(self,"dash_scroll"): self.refresh_dashboard()
+        if index==15 and hasattr(self,"refresh_finance"): self.refresh_finance()
         if index==13 and hasattr(self,"refresh_waitlist"): self.refresh_waitlist()
         if index==14 and hasattr(self,"refresh_therapy"): self.refresh_therapy()
     def require_edit(self):
@@ -1865,7 +1866,7 @@ class Main(QMainWindow):
         def show_stats(*_):
             c=client_for_sqlite_id(self.appt_client.currentData()); self.appt_stats.setText(session_stats_text(c) if c else "")
         self.appt_client.currentIndexChanged.connect(show_stats)
-        actions=FlowLayout(hspacing=8,vspacing=8); save=QPushButton("＋ Neuen Termin anlegen"); edit=QPushButton("✎ Termin ändern"); delete=QPushButton("Termin löschen"); start=QPushButton("▶ Sitzung starten"); save.setToolTip("Legt mit den Angaben oben einen neuen Termin an."); edit.setToolTip("Erst einen Termin in der Liste unten markieren, dann hier klicken. Danach Angaben ändern und erneut klicken."); actions.addWidget(save); actions.addWidget(edit); actions.addWidget(delete); actions.addWidget(start); rv.addLayout(actions)
+        actions=FlowLayout(hspacing=8,vspacing=8); save=QPushButton("＋ Neuen Termin anlegen"); edit=QPushButton("✎ Termin ändern"); delete=QPushButton("Termin löschen"); start=QPushButton("▶ Sitzung starten"); feebtn=QPushButton("€ Ausfallhonorar abrechnen"); feebtn.setToolTip("Für einen abgesagten oder nicht wahrgenommenen Termin eine Rechnung mit Ausfallhonorar vorbereiten"); save.setToolTip("Legt mit den Angaben oben einen neuen Termin an."); edit.setToolTip("Erst einen Termin in der Liste unten markieren, dann hier klicken. Danach Angaben ändern und erneut klicken."); actions.addWidget(save); actions.addWidget(edit); actions.addWidget(delete); actions.addWidget(start); actions.addWidget(feebtn); rv.addLayout(actions)
         self.responsive_split(split,880); split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); split.setChildrenCollapsible(False); left.setMinimumWidth(380); right.setMinimumWidth(430); v.addWidget(split,0)
         viewrow=QHBoxLayout(); self.appt_view=QComboBox(); self.appt_view.addItems(["Tag","Woche","Monat"]); viewrow.addWidget(QLabel("Ansicht")); viewrow.addWidget(self.appt_view); viewrow.addStretch(); v.addLayout(viewrow)
         self.appt_day_title=QLabel(); self.appt_day_title.setProperty("class","sectionTitle"); v.addWidget(self.appt_day_title)
@@ -1998,7 +1999,7 @@ class Main(QMainWindow):
                 if box.clickedButton()!=only: con.close(); return
             elif QMessageBox.question(self,"Termin löschen","Ausgewählten Termin wirklich löschen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: con.close(); return
             con.execute("DELETE FROM appointments WHERE id=?",(aid,)); con.commit(); con.close(); audit("APPOINTMENT_DELETE",str(aid),self.current_user.get("username","")); refresh()
-        save.clicked.connect(store); edit.clicked.connect(edit_selected); delete.clicked.connect(remove); start.clicked.connect(start_session); self.appt_calendar.selectionChanged.connect(refresh); self.appt_view.currentTextChanged.connect(lambda *_: refresh())
+        save.clicked.connect(store); edit.clicked.connect(edit_selected); delete.clicked.connect(remove); start.clicked.connect(start_session); feebtn.clicked.connect(lambda: (self.bill_cancellation_fee(selected_id()) if selected_id() else QMessageBox.information(self,"Ausfallhonorar","Bitte zuerst den Termin in der Liste auswählen."))); self.appt_calendar.selectionChanged.connect(refresh); self.appt_view.currentTextChanged.connect(lambda *_: refresh())
         today.clicked.connect(lambda: self.appt_calendar.setSelectedDate(QDate.currentDate())); prev.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(-1))); nxt.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(1)))
         refresh()
         for _w in (self.appt_date,self.appt_time,self.appt_minutes,self.appt_type,self.appt_client,self.appt_couple,self.appt_status,self.appt_note): _w.setMinimumHeight(38)
@@ -2016,6 +2017,30 @@ class Main(QMainWindow):
         if c and hasattr(self,"client_pick"):
             for n in range(self.client_pick.count()):
                 if resolve_client(self.client_pick.itemData(n)) is c: self.client_pick.setCurrentIndex(n); break
+
+    def bill_cancellation_fee(self,aid):
+        """Rechnung mit Ausfallhonorar für einen abgesagten / nicht wahrgenommenen Termin vorbereiten."""
+        if not self.require_edit(): return False
+        con=sqlite3.connect(DBFILE); row=con.execute("SELECT appointment_date,start_time,minutes,client_id,status FROM appointments WHERE id=?",(aid,)).fetchone(); con.close()
+        if not row: return False
+        d,t,m,cid,status=row; c=client_for_sqlite_id(cid)
+        if not c: QMessageBox.warning(self,"Ausfallhonorar","Dem Termin ist kein Klient zugeordnet."); return False
+        if status not in ("abgesagt","ausgefallen"):
+            if QMessageBox.question(self,"Ausfallhonorar",f"Der Termin ist als „{status}“ markiert.\n\nAls „ausgefallen“ markieren und Ausfallhonorar abrechnen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return False
+            con=sqlite3.connect(DBFILE); con.execute("UPDATE appointments SET status='ausgefallen' WHERE id=?",(aid,)); con.commit(); con.close()
+        folder=ROOT/"Klienten"/safe(f"{c.get('last','')}, {c.get('first','')}")/"Dokumente"
+        if not (folder.exists() and any("Behandlungsvertrag" in p.name for p in folder.iterdir())):
+            if QMessageBox.question(self,"Ausfallhonorar","Für diesen Klienten ist kein Behandlungsvertrag in der Akte abgelegt. Ein Ausfallhonorar setzt eine vorherige Vereinbarung voraus.\n\nTrotzdem fortfahren?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return False
+        amount=round(amount_for(int(m),"Ausfallhonorar",False),2)
+        end=(datetime.strptime(t,"%H:%M")+timedelta(minutes=int(m))).strftime("%H:%M")
+        self.nav.setCurrentRow(7); QApplication.processEvents()
+        self.i_first.setText(c.get("first","")); self.i_last.setText(c.get("last","")); self.i_addr.setText(c.get("address","")); self.i_diag.setText(c.get("diagnosis",""))
+        self.i_date.setDate(QDate.fromString(d,"yyyy-MM-dd")); self.i_type.setCurrentText("Ausfallhonorar")
+        self.pending_sessions=None; self.manual_items=[{"date":d,"start":t,"end":end,"minutes":int(m),"type":"Ausfallhonorar","reduced":False,"amount":amount}]
+        if hasattr(self,"refresh_invoice_items"): self.refresh_invoice_items()
+        audit("CANCELLATION_FEE_PREPARED",f"Termin {d} {t}: {amount:.2f}",(self.current_user or {}).get("username",""))
+        QMessageBox.information(self,"Ausfallhonorar",f"Die Rechnung ist vorbereitet: Ausfallhonorar für den Termin am {_de_date(d)} um {t} Uhr über {amount:.2f} €.\n\nBitte prüfen und dann wie gewohnt „Rechnung erstellen“. Den Betrag des Ausfallhonorars ändern Sie unter Praxiseinstellungen → Honorare.")
+        return True
 
     def couples_ui(self):
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
@@ -2374,6 +2399,190 @@ class Main(QMainWindow):
         self.open_therapy_for=open_for
         pick.currentIndexChanged.connect(lambda *_: select_client())
         refresh_clients(); q_kind_changed()
+        return page
+
+    def finance_ui(self):
+        """Ausgaben mit Belegen, Kassenbuch (bar) und EÜR-Auswertung mit Export für den Steuerberater."""
+        import finance as F
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
+        title=QLabel("Ausgaben & EÜR"); title.setObjectName("pageTitle"); v.addWidget(title)
+        top=QHBoxLayout(); top.addWidget(QLabel("Jahr")); year=QComboBox(); this=date.today().year
+        years=sorted({this}|{int(str(x.get("date",""))[:4]) for x in DB["expenses"]+DB["cash"] if str(x.get("date",""))[:4].isdigit()}|{int(str(i.get("paid_date",""))[:4]) for i in DB["invoices"] if str(i.get("paid_date",""))[:4].isdigit()},reverse=True)
+        year.addItems([str(y_) for y_ in years]); top.addWidget(year); top.addStretch(); v.addLayout(top)
+        tabs=QTabWidget(); tabs.setDocumentMode(True); v.addWidget(tabs,1); self.finance_tabs=tabs
+        user=lambda: (self.current_user or {}).get("username","")
+        Y=lambda: int(year.currentText())
+        eur=lambda x: f"{x:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")
+        def money_item(x):
+            it=QTableWidgetItem(eur(x) if x else ""); it.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter); return it
+
+        # ------------------------------------------------------------ Ausgaben
+        ex_page=QWidget(); ev=QVBoxLayout(ex_page); ev.setContentsMargins(0,8,0,0)
+        esplit=QSplitter(); esplit.setChildrenCollapsible(False); self.responsive_split(esplit,900)
+        etable=QTableWidget(0,6); etable.setHorizontalHeaderLabels(["Datum","Kategorie","Beschreibung","Zahlart","Beleg","Betrag"]); etable.verticalHeader().setVisible(False)
+        for col,mode in enumerate((QHeaderView.ResizeToContents,QHeaderView.ResizeToContents,QHeaderView.Stretch,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents)): etable.horizontalHeader().setSectionResizeMode(col,mode)
+        etable.setSelectionBehavior(QTableWidget.SelectRows); etable.setSelectionMode(QTableWidget.SingleSelection); etable.setEditTriggers(QTableWidget.NoEditTriggers)
+        eleft=QWidget(); elv=QVBoxLayout(eleft); elv.setContentsMargins(0,0,0,0); elv.addWidget(etable,1); esum=QLabel(""); esum.setStyleSheet("font-weight:700"); elv.addWidget(esum)
+        ecard=QFrame(); ecard.setObjectName("formCard"); ecv=QVBoxLayout(ecard); ecv.setContentsMargins(14,10,14,12)
+        etitle=QLabel("Neue Ausgabe"); etitle.setObjectName("sectionTitle"); ecv.addWidget(etitle)
+        ef=QFormLayout(); ef.setVerticalSpacing(8)
+        e_date=FlexDateEdit(QDate.currentDate()); e_date.setCalendarPopup(True); e_date.setDisplayFormat("dd.MM.yyyy")
+        e_cat=QComboBox(); e_cat.addItems(F.EXPENSE_CATEGORIES); e_desc=QLineEdit(); e_desc.setPlaceholderText("z. B. Miete Praxisraum November")
+        e_amt=QDoubleSpinBox(); e_amt.setRange(0,1000000); e_amt.setDecimals(2); e_amt.setSuffix(" €"); e_amt.setGroupSeparatorShown(True)
+        e_pay=QComboBox(); e_pay.addItems(F.PAYMENT_METHODS); e_rec=QLabel("kein Beleg"); e_rec.setObjectName("pageSub")
+        for lab,w_ in (("Datum",e_date),("Kategorie",e_cat),("Beschreibung",e_desc),("Betrag (brutto)",e_amt),("Zahlart",e_pay),("Beleg",e_rec)): ef.addRow(lab,w_)
+        ecv.addLayout(ef)
+        eb=QWidget(); ebl=FlowLayout(eb,hspacing=8,vspacing=8); ebl.setContentsMargins(0,4,0,0)
+        b_enew=QPushButton("＋ Neue Ausgabe"); b_esave=QPushButton("💾 Speichern"); b_erec=QPushButton("📎 Beleg anhängen"); b_eopen=QPushButton("Beleg öffnen"); b_edel=QPushButton("Löschen")
+        b_edel.setStyleSheet("background:white;color:#b5534b;border:1px solid #d9a9a4")
+        for b in (b_enew,b_esave,b_erec,b_eopen,b_edel): b.setMinimumHeight(34); ebl.addWidget(b)
+        ecv.addWidget(eb)
+        hint=QLabel("Beträge brutto erfassen – die Praxis ist nach § 4 Nr. 14 UStG umsatzsteuerfrei, ein Vorsteuerabzug entfällt. Barzahlungen erscheinen automatisch im Kassenbuch. Belege werden verschlüsselt gespeichert."); hint.setWordWrap(True); hint.setObjectName("pageSub"); ecv.addWidget(hint); ecv.addStretch()
+        esplit.addWidget(eleft); esplit.addWidget(ecard); esplit.setStretchFactor(0,3); esplit.setStretchFactor(1,2); ev.addWidget(esplit,1)
+        tabs.addTab(ex_page,"Ausgaben")
+        est={"id":None,"pending_receipt":None}
+        def e_current(): return next((e for e in DB["expenses"] if e.get("id")==est["id"]),None)
+        def e_refresh():
+            etable.setRowCount(0); rows=F.expense_entries(DB["expenses"],Y())
+            for e in reversed(rows):
+                r=etable.rowCount(); etable.insertRow(r)
+                for j,val in enumerate((_de_date(e.get("date","")),e.get("category",""),e.get("description",""),e.get("payment",""),"📎" if e.get("receipt") else "")):
+                    it=QTableWidgetItem(val); it.setData(Qt.UserRole,e.get("id")); etable.setItem(r,j,it)
+                etable.setItem(r,5,money_item(float(e.get("amount",0) or 0)))
+            esum.setText(f"{len(rows)} Ausgaben {Y()}  ·  Summe {eur(sum(float(e.get('amount',0) or 0) for e in rows))}")
+        def e_load(e):
+            est["id"]=e.get("id") if e else None; est["pending_receipt"]=None
+            if e: e_date.setDate(QDate.fromString(e.get("date",""),"yyyy-MM-dd"))
+            else: e_date.setDate(QDate.currentDate())
+            e_cat.setCurrentText(e.get("category",F.EXPENSE_CATEGORIES[0]) if e else F.EXPENSE_CATEGORIES[0]); e_desc.setText(e.get("description","") if e else "")
+            e_amt.setValue(float(e.get("amount",0) or 0) if e else 0); e_pay.setCurrentText(e.get("payment","Überweisung") if e else "Überweisung")
+            e_rec.setText(Path(e["receipt"]).name[:-4] if e and e.get("receipt") else "kein Beleg"); b_eopen.setEnabled(bool(e and e.get("receipt"))); b_edel.setEnabled(bool(e))
+            etitle.setText("Ausgabe bearbeiten" if e else "Neue Ausgabe")
+        def e_select():
+            r=etable.currentRow()
+            if r>=0: eid=etable.item(r,0).data(Qt.UserRole); e_load(next((x for x in DB["expenses"] if x.get("id")==eid),None))
+        def store_receipt(src,e):
+            folder=ROOT/"Ausgaben"/"Belege"/e["date"][:4]; folder.mkdir(parents=True,exist_ok=True)
+            src=Path(src); target=folder/f"{e['date']}_{safe(e.get('category','').split(' /')[0])}_{safe(src.stem)}{src.suffix.lower()}.enc"; n=2
+            while target.exists(): target=folder/f"{e['date']}_{safe(src.stem)}_{n}{src.suffix.lower()}.enc"; n+=1
+            target.write_bytes(Fernet(encryption_key()).encrypt(src.read_bytes())); return str(target)
+        def e_save():
+            if not self.require_edit(): return None
+            if e_amt.value()<=0: QMessageBox.warning(self,"Ausgabe","Bitte einen Betrag eingeben."); return None
+            if not e_desc.text().strip(): QMessageBox.warning(self,"Ausgabe","Bitte eine kurze Beschreibung eingeben."); return None
+            e=e_current()
+            if e is None:
+                e={"id":datetime.now().strftime("A%Y%m%d%H%M%S%f"),"created":datetime.now().isoformat(timespec="seconds")}; DB["expenses"].append(e); est["id"]=e["id"]
+            e.update({"date":e_date.date().toString("yyyy-MM-dd"),"category":e_cat.currentText(),"description":e_desc.text().strip(),"amount":round(e_amt.value(),2),"payment":e_pay.currentText()})
+            if est["pending_receipt"]: e["receipt"]=store_receipt(est["pending_receipt"],e)
+            save_data(); audit("EXPENSE_SAVED",f"{e['date']} {e['category']} {e['amount']:.2f}",user()); e_refresh(); cash_refresh(); euer_refresh(); e_load(e); return e
+        def e_receipt():
+            f,_=QFileDialog.getOpenFileName(self,"Beleg auswählen",str(Path.home()),"Belege (*.pdf *.jpg *.jpeg *.png *.tif *.tiff);;Alle Dateien (*.*)")
+            if not f: return
+            est["pending_receipt"]=f; e_rec.setText(Path(f).name+"  (wird beim Speichern verschlüsselt übernommen)")
+            if e_current() is not None: e_save()
+        def e_open():
+            e=e_current()
+            if e and e.get("receipt") and Path(e["receipt"]).exists(): open_client_document(e["receipt"])
+        def e_del():
+            e=e_current()
+            if not e or not self.require_edit(): return
+            if QMessageBox.question(self,"Ausgabe löschen",f"Ausgabe vom {_de_date(e.get('date',''))} über {eur(float(e.get('amount',0)))} löschen?"+("\n\nDer verschlüsselte Beleg bleibt im Ordner „Ausgaben/Belege“ erhalten (Aufbewahrungspflicht)." if e.get("receipt") else ""),QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            DB["expenses"].remove(e); save_data(); audit("EXPENSE_DELETED",f"{e.get('date')} {e.get('amount')}",user()); e_load(None); e_refresh(); cash_refresh(); euer_refresh()
+        etable.itemSelectionChanged.connect(e_select); b_enew.clicked.connect(lambda: (etable.clearSelection(),e_load(None),e_desc.setFocus())); b_esave.clicked.connect(e_save); b_erec.clicked.connect(e_receipt); b_eopen.clicked.connect(e_open); b_edel.clicked.connect(e_del)
+
+        # ------------------------------------------------------------ Kassenbuch
+        ca_page=QWidget(); cv=QVBoxLayout(ca_page); cv.setContentsMargins(0,8,0,0)
+        crow=QHBoxLayout(); crow.addWidget(QLabel("Anfangsbestand zum 1.1.")); c_open=QDoubleSpinBox(); c_open.setRange(0,1000000); c_open.setDecimals(2); c_open.setSuffix(" €"); crow.addWidget(c_open); crow.addStretch(); c_bal=QLabel(""); c_bal.setStyleSheet("font-weight:700"); crow.addWidget(c_bal); cv.addLayout(crow)
+        ctable=QTableWidget(0,5); ctable.setHorizontalHeaderLabels(["Datum","Text","Einnahme","Ausgabe","Bestand"]); ctable.verticalHeader().setVisible(False)
+        for col,mode in enumerate((QHeaderView.ResizeToContents,QHeaderView.Stretch,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents)): ctable.horizontalHeader().setSectionResizeMode(col,mode)
+        ctable.setSelectionBehavior(QTableWidget.SelectRows); ctable.setEditTriggers(QTableWidget.NoEditTriggers); cv.addWidget(ctable,1)
+        cform=QFrame(); cform.setObjectName("formCard"); cfl=QHBoxLayout(cform); cfl.setContentsMargins(12,8,12,8)
+        c_kind=QComboBox(); c_kind.addItems(["Einnahme","Entnahme / Einzahlung Bank"]); c_date=FlexDateEdit(QDate.currentDate()); c_date.setCalendarPopup(True); c_date.setDisplayFormat("dd.MM.yyyy")
+        c_text=QLineEdit(); c_text.setPlaceholderText("Text, z. B. Barzahlung Sitzung"); c_inv=QComboBox(); c_inv.setEditable(True); c_inv.setMinimumContentsLength(10); c_inv.lineEdit().setPlaceholderText("Rechnungs-Nr. (optional)")
+        c_amt=QDoubleSpinBox(); c_amt.setRange(0,100000); c_amt.setDecimals(2); c_amt.setSuffix(" €")
+        c_add=QPushButton("＋ Buchen"); c_del=QPushButton("Ausgewählte Buchung löschen"); c_del.setStyleSheet("background:white;color:#b5534b;border:1px solid #d9a9a4")
+        for w_ in (c_kind,c_date,c_text,c_inv,c_amt,c_add): cfl.addWidget(w_,1 if w_ is c_text else 0)
+        cv.addWidget(cform); cdel_row=QHBoxLayout(); cdel_row.addStretch(); cdel_row.addWidget(c_del); cv.addLayout(cdel_row)
+        chint=QLabel("Barausgaben werden im Reiter „Ausgaben“ mit Zahlart „Bar“ erfasst und erscheinen hier automatisch. Eine Bareinnahme mit Rechnungsnummer markiert die Rechnung als bezahlt."); chint.setWordWrap(True); chint.setObjectName("pageSub"); cv.addWidget(chint)
+        tabs.addTab(ca_page,"Kassenbuch (bar)")
+        def cash_refresh():
+            c_open.blockSignals(True); c_open.setValue(float(get_setting(f"cash_opening_{Y()}","0") or 0)); c_open.blockSignals(False)
+            rows,bal=F.cash_book(DB["expenses"],DB["cash"],Y(),c_open.value()); ctable.setRowCount(0)
+            for row_ in rows:
+                r=ctable.rowCount(); ctable.insertRow(r)
+                it=QTableWidgetItem(_de_date(row_["date"])); it.setData(Qt.UserRole,row_["id"]); it.setData(Qt.UserRole+1,row_["kind"]); ctable.setItem(r,0,it); ctable.setItem(r,1,QTableWidgetItem(row_["text"]))
+                ctable.setItem(r,2,money_item(row_["in"])); ctable.setItem(r,3,money_item(row_["out"])); b_=money_item(row_["balance"]) if row_["balance"] else QTableWidgetItem("0,00 €")
+                if row_["balance"]<0: b_.setForeground(QColor("#b5534b"))
+                ctable.setItem(r,4,b_)
+            c_bal.setText(f"Kassenbestand: {eur(bal)}"+("   ⚠ negativ – Buchungen prüfen" if bal<0 else ""))
+            c_inv.clear(); c_inv.addItem("")
+            for inv in DB["invoices"]:
+                if inv.get("status","offen")=="offen": c_inv.addItem(f"{inv.get('number','')}",inv.get("number",""))
+        def c_book():
+            if not self.require_edit(): return
+            if c_amt.value()<=0: return QMessageBox.warning(self,"Kassenbuch","Bitte einen Betrag eingeben.")
+            kind="Einnahme" if c_kind.currentIndex()==0 else "Entnahme"
+            no=c_inv.currentText().strip() if kind=="Einnahme" else ""
+            entry={"id":datetime.now().strftime("K%Y%m%d%H%M%S%f"),"kind":kind,"date":c_date.date().toString("yyyy-MM-dd"),"text":c_text.text().strip() or ("Bareinnahme" if kind=="Einnahme" else "Einzahlung auf Bankkonto"),"amount":round(c_amt.value(),2),"invoice":no}
+            inv=next((i for i in DB["invoices"] if i.get("number")==no),None) if no else None
+            if inv is not None and inv.get("status","offen")=="offen":
+                if abs(float(inv.get("amount",0) or 0)-entry["amount"])>0.009 and QMessageBox.question(self,"Kassenbuch",f"Rechnung {no} lautet über {eur(float(inv.get('amount',0)))}, gebucht werden {eur(entry['amount'])}. Trotzdem als bezahlt markieren?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: inv=None
+                if inv is not None:
+                    inv["status"]="bezahlt"; inv["paid_date"]=entry["date"]; inv["reminder_closed"]=True; inv["paid_method"]="Bar"; audit("INVOICE_PAID",f"Rechnung {no} bar bezahlt",user())
+            DB["cash"].append(entry); save_data(); update_excel(); audit("CASH_BOOKED",f"{entry['kind']} {entry['amount']:.2f}",user())
+            c_text.clear(); c_amt.setValue(0); cash_refresh(); euer_refresh()
+        def c_delete():
+            r=ctable.currentRow()
+            if r<0 or not self.require_edit(): return
+            cid_,kind=ctable.item(r,0).data(Qt.UserRole),ctable.item(r,0).data(Qt.UserRole+1)
+            if kind=="Ausgabe": return QMessageBox.information(self,"Kassenbuch","Barausgaben bitte im Reiter „Ausgaben“ ändern oder löschen.")
+            entry=next((c for c in DB["cash"] if c.get("id")==cid_),None)
+            if not entry or QMessageBox.question(self,"Buchung löschen",f"Buchung „{entry.get('text','')}“ über {eur(float(entry.get('amount',0)))} löschen?"+("\n\nDie Rechnung bleibt als bezahlt markiert." if entry.get("invoice") else ""),QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            DB["cash"].remove(entry); save_data(); audit("CASH_DELETED",entry.get("text",""),user()); cash_refresh(); euer_refresh()
+        c_open.valueChanged.connect(lambda val: (set_setting(f"cash_opening_{Y()}",f"{val:.2f}"),cash_refresh()))
+        c_kind.currentIndexChanged.connect(lambda i: c_inv.setVisible(i==0)); c_add.clicked.connect(c_book); c_del.clicked.connect(c_delete)
+
+        # ------------------------------------------------------------ EÜR
+        eu_page=QWidget(); uv=QVBoxLayout(eu_page); uv.setContentsMargins(0,8,0,0)
+        kpis=QHBoxLayout(); kpi_labels={}
+        for key,cap in (("income_total","EINNAHMEN (ZUFLUSS)"),("expense_total","AUSGABEN"),("result","ERGEBNIS")):
+            box=QFrame(); box.setObjectName("statCard"); box.setMinimumHeight(90); q=QVBoxLayout(box); a=QLabel(cap); a.setObjectName("cardCaption"); b=QLabel(""); b.setObjectName("cardValue"); q.addWidget(a); q.addWidget(b); kpi_labels[key]=b; kpis.addWidget(box)
+        uv.addLayout(kpis)
+        usplit=QSplitter(); usplit.setChildrenCollapsible(False); self.responsive_split(usplit,900)
+        mtable=QTableWidget(13,4); mtable.setHorizontalHeaderLabels(["Monat","Einnahmen","Ausgaben","Ergebnis"]); mtable.verticalHeader().setVisible(False); mtable.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); mtable.setEditTriggers(QTableWidget.NoEditTriggers)
+        ctab=QTableWidget(0,2); ctab.setHorizontalHeaderLabels(["Ausgaben nach Kategorie","Betrag"]); ctab.verticalHeader().setVisible(False); ctab.horizontalHeader().setSectionResizeMode(0,QHeaderView.Stretch); ctab.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeToContents); ctab.setEditTriggers(QTableWidget.NoEditTriggers)
+        usplit.addWidget(mtable); usplit.addWidget(ctab); usplit.setStretchFactor(0,3); usplit.setStretchFactor(1,2); uv.addWidget(usplit,1)
+        xrow=QHBoxLayout(); x_names=QCheckBox("Klientennamen in der Einnahmenliste mit ausgeben (sonst nur Rechnungsnummern)"); xrow.addWidget(x_names,1)
+        x_btn=QPushButton("⇩ Export für Steuerberater (Excel + CSV)"); x_btn.setMinimumHeight(40); xrow.addWidget(x_btn); uv.addLayout(xrow)
+        unote=QLabel("Einnahmen nach Zahlungseingang (Zuflussprinzip), Ausgaben brutto. Die Auswertung ist eine Arbeitshilfe und ersetzt keine Steuerberatung."); unote.setWordWrap(True); unote.setObjectName("pageSub"); uv.addWidget(unote)
+        tabs.addTab(eu_page,"EÜR / Steuerberater")
+        def euer_refresh():
+            s=F.euer_summary(DB["invoices"],DB["expenses"],DB["cash"],Y())
+            for key,lab in kpi_labels.items(): lab.setText(eur(s[key])); lab.setStyleSheet("color:#b5534b" if key=="result" and s[key]<0 else "")
+            for r,m in enumerate(s["months"]+[{"month":"Summe","income":s["income_total"],"expenses":s["expense_total"],"result":s["result"]}]):
+                mtable.setItem(r,0,QTableWidgetItem(m["month"])); mtable.setItem(r,1,money_item(m["income"])); mtable.setItem(r,2,money_item(m["expenses"])); it=money_item(m["result"]) if m["result"] else QTableWidgetItem("–"); mtable.setItem(r,3,it)
+                if r==12:
+                    for c_ in range(4):
+                        f_=mtable.item(r,c_).font(); f_.setBold(True); mtable.item(r,c_).setFont(f_)
+            ctab.setRowCount(0)
+            for k,val in s["categories"].items():
+                r=ctab.rowCount(); ctab.insertRow(r); ctab.setItem(r,0,QTableWidgetItem(k)); ctab.setItem(r,1,money_item(val))
+            return s
+        def export():
+            s=euer_refresh(); folder=ROOT/"Einnahmen"; folder.mkdir(parents=True,exist_ok=True)
+            rows,_=F.cash_book(DB["expenses"],DB["cash"],Y(),float(get_setting(f"cash_opening_{Y()}","0") or 0))
+            try:
+                x=F.export_xlsx(folder/f"EUER_{Y()}.xlsx",s,x_names.isChecked(),rows,float(get_setting(f"cash_opening_{Y()}","0") or 0)); c=F.export_csv(folder/f"Buchungen_{Y()}.csv",s)
+            except PermissionError:
+                return QMessageBox.warning(self,"Export","Die Datei ist noch in Excel geöffnet. Bitte Excel schließen und erneut exportieren.")
+            audit("EUER_EXPORT",f"{Y()} Namen={'ja' if x_names.isChecked() else 'nein'}",user())
+            QMessageBox.information(self,"Export",f"Erstellt im Ordner „Einnahmen“:\n• {Path(x).name}\n• {Path(c).name}\n\nDer Ordner wird jetzt geöffnet.")
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+        x_btn.clicked.connect(export)
+        def all_refresh(): e_refresh(); cash_refresh(); euer_refresh()
+        year.currentIndexChanged.connect(lambda *_: all_refresh()); self.refresh_finance=all_refresh
+        e_load(None); all_refresh()
         return page
 
     def documents_ui(self):
@@ -3831,7 +4040,7 @@ Write-Output ($lines -join "`n")
         self.i_client.activated.connect(pick_invoice_client)
         self.i_client.lineEdit().editingFinished.connect(pick_invoice_client)
         for ed in (self.i_no,self.i_last,self.i_first,self.i_addr,self.i_diag): ed.setMinimumHeight(40)
-        self.i_date=FlexDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_date.setDisplayFormat("dd.MM.yyyy"); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstige"])
+        self.i_date=FlexDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_date.setDisplayFormat("dd.MM.yyyy"); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Ausfallhonorar","Sonstige"])
         self.i_min=QSpinBox(); self.i_min.setRange(1,1000); self.i_min.setValue(45); self.i_red=QCheckBox("Ermäßigter Satz")
         self.i_start=FlexTimeEdit(QTime.currentTime()); self.i_start.setDisplayFormat("HH:mm"); self.i_end=FlexTimeEdit(QTime.currentTime().addSecs(45*60)); self.i_end.setDisplayFormat("HH:mm")
         for ed in (self.i_date,self.i_type,self.i_min,self.i_start,self.i_end): ed.setMinimumHeight(40)
@@ -3864,7 +4073,7 @@ Write-Output ($lines -join "`n")
                 vals=[it.get("date",""),f'{it.get("start","")}–{it.get("end","")}',str(it.get("minutes",0)),it.get("type",""),"ermäßigt" if it.get("reduced") else "regulär",f'{float(it.get("amount",0)):.2f} €']
                 for j,val in enumerate(vals): self.itemtable.setItem(r,j,QTableWidgetItem(str(val)))
             self.iteminfo.setText("Noch keine zusätzlichen Leistungen" if not self.manual_items else f"{len(self.manual_items)} Leistungen · {sum(float(x.get('amount',0)) for x in self.manual_items):.2f} €")
-        additem.clicked.connect(add_manual_item)
+        additem.clicked.connect(add_manual_item); self.refresh_invoice_items=refresh_items
         itembuttons=QHBoxLayout(); removeitem=QPushButton("Ausgewählte Leistung entfernen"); clearitems=QPushButton("Leistungen leeren")
         def remove_manual_item():
             r=self.itemtable.currentRow()
