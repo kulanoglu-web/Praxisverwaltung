@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.18.0"
+APP_VERSION = "0.19.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -2133,7 +2133,9 @@ class Main(QMainWindow):
         top.addWidget(pick,1); self.therapy_pick=pick
         self.therapy_alert=QLabel(""); self.therapy_alert.setWordWrap(True); self.therapy_alert.setStyleSheet("background:#fbecea;color:#8a2f28;border:1px solid #e3b4ae;border-radius:8px;padding:6px 10px;font-weight:600"); self.therapy_alert.setVisible(False)
         self.therapy_stats=QLabel(""); self.therapy_stats.setObjectName("pageSub")
-        v.addLayout(top); v.addWidget(self.therapy_stats); v.addWidget(self.therapy_alert)
+        self.therapy_hint=QLabel("Bitte oben zuerst einen Klienten auswählen – erst dann werden Anamnese, Ziele und Fragebögen gespeichert.")
+        self.therapy_hint.setWordWrap(True); self.therapy_hint.setStyleSheet("background:#fff6e0;color:#6b4e00;border:1px solid #ecd9a6;border-radius:8px;padding:6px 10px;font-weight:600")
+        v.addLayout(top); v.addWidget(self.therapy_hint); v.addWidget(self.therapy_stats); v.addWidget(self.therapy_alert)
         tabs=QTabWidget(); tabs.setDocumentMode(True); v.addWidget(tabs,1); self.therapy_tabs=tabs
         state={"cc":None,"loading":False}
         user=lambda: (self.current_user or {}).get("username","")
@@ -2352,7 +2354,9 @@ class Main(QMainWindow):
             self.therapy_alert.setVisible(bool(msgs))
         def select_client():
             state["cc"]=resolve_client(pick.currentData())   # Original, nicht die Kopie aus der Auswahlliste
-            for w_ in (an_page,go_page,qu_page): w_.setEnabled(state["cc"] is not None)
+            # Reiter NICHT deaktivieren: deaktivierte Bereiche nehmen kein Mausrad an (Scrollen ging nicht).
+            # Stattdessen Hinweis; Speichern ohne Klient wird in den Funktionen selbst abgefangen.
+            self.therapy_hint.setVisible(state["cc"] is None)
             an_load(state["cc"]); g_load(None); g_refresh(); q_hist_refresh(); q_live(); update_alert()
             self.therapy_stats.setText(session_stats_text(state["cc"]) if state["cc"] else "")
         def refresh_clients():
@@ -5291,7 +5295,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             for col,mode in enumerate((QHeaderView.ResizeToContents,QHeaderView.Stretch,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents)): tbl.horizontalHeader().setSectionResizeMode(col,mode)
             tbl.setSelectionBehavior(QTableWidget.SelectRows); tbl.setSelectionMode(QTableWidget.SingleSelection); tbl.setEditTriggers(QTableWidget.NoEditTriggers)
             nowt=now.strftime("%H:%M")
-            for r,(aid,t,m,typ,first,last,couple,status) in enumerate(appts):
+            for r,(aid,t,m,typ,status,first,last,couple) in enumerate(appts):   # Reihenfolge wie im SELECT
                 name=((decrypt_text(first) if first else "")+" "+(decrypt_text(last) if last else "")).strip() or (f"Paarakte #{couple}" if couple else "–")
                 end=(datetime.strptime(t,"%H:%M")+timedelta(minutes=int(m))).strftime("%H:%M")
                 for j,val in enumerate((f"{t}–{end}",name,typ or "",status)):

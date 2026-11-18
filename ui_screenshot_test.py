@@ -236,6 +236,9 @@ dash=win.dash_scroll.widget()
 texts=" ".join(l.text() for l in dash.findChildren(main.QLabel))+" ".join(c.text() for c in dash.findChildren(main.QCheckBox))
 for need in ("Heute","Aufgaben","Rückruf Testperson","Frei gewordene Termine"):
     if need not in texts: raise SystemExit(f"Startseite: '{need}' fehlt")
+from PySide6.QtWidgets import QTableWidget as _QTW
+_tt=[t for t in dash.findChildren(_QTW) if t.columnCount()==4 and t.horizontalHeaderItem(3).text()=="Status"]
+if not _tt or _tt[0].item(0,1).text()!="Anna Mustermann" or _tt[0].item(0,3).text()!="geplant": raise SystemExit("Startseite 'Heute': Spalten Klient/Status vertauscht")
 print("Calendar & dashboard functional test OK")
 
 # Echte Rechnung im isolierten Windows-Test erzeugen.

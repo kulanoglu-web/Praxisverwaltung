@@ -20,6 +20,16 @@ Drei PDF-Varianten aus demselben Modul (`invoice_pdf.py`):
 
 Die ursprüngliche Rechnung wird nie überschrieben; Dankes- und Erinnerungs-PDFs liegen als eigene Dateien daneben.
 
+## Startseite & Kalender
+- **Startseite** (aktualisiert sich bei jedem Aufruf): heutige Termine mit „Sitzung starten“, automatische
+  Aufgaben (überfällige Rechnungen, nicht abgerechnete Sitzungen, Termine ohne Status, fehlender
+  Behandlungsvertrag/Einwilligung, Kontingent, Warteliste), eigene Erinnerungen zum Abhaken,
+  frei gewordene Termine mit passenden Wartelisteneinträgen, Finanzen inkl. Monatsumsatz
+- **Kalender**: Tag/Woche/Monat; Serientermine wöchentlich, 14-tägig oder 4-wöchentlich (Überschneidungen werden
+  übersprungen und gemeldet); Löschen „nur diesen“ oder „diesen und alle folgenden“
+- **Sitzungskontingent** je Klient (Klientenakte → Kostenträger): Zähler bisher/geplant/frei im Kalender,
+  im Therapieverlauf und als Aufgabe auf der Startseite, wenn nur noch wenige Sitzungen frei sind
+
 ## Therapieverlauf (Menü Therapie)
 - **Anamnese**: strukturiert (Anlass, Beschwerden, Biografie, Gesundheit/Medikation, Ressourcen,
   Risikoeinschätzung inkl. Suizidalität, Befund/Hypothese/Plan); Export als PDF – verschlüsselt in der Akte
