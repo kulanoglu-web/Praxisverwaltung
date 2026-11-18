@@ -31,8 +31,8 @@ Die ursprüngliche Rechnung wird nie überschrieben; Dankes- und Erinnerungs-PDF
 
 ## Startseite & Kalender
 - **Startseite** (aktualisiert sich bei jedem Aufruf): heutige Termine mit „Sitzung starten“, automatische
-  Aufgaben (überfällige Rechnungen, nicht abgerechnete Sitzungen, Termine ohne Status, fehlender
-  Behandlungsvertrag/Einwilligung, Kontingent, Warteliste), eigene Erinnerungen zum Abhaken,
+  Aufgaben (überfällige Rechnungen, nicht abgerechnete Sitzungen, Termine ohne Status,
+  Kontingent, Warteliste – Formulare sind freiwillig und werden nicht angemahnt), eigene Erinnerungen,
   frei gewordene Termine mit passenden Wartelisteneinträgen, Finanzen inkl. Monatsumsatz
 - **Kalender**: Tag/Woche/Monat; Serientermine wöchentlich, 14-tägig oder 4-wöchentlich (Überschneidungen werden
   übersprungen und gemeldet); Löschen „nur diesen“ oder „diesen und alle folgenden“

@@ -390,3 +390,14 @@ if not win.bill_cancellation_fee(_aid): raise SystemExit("Ausfallhonorar wurde n
 if len(win.manual_items)!=1 or win.manual_items[0]["type"]!="Ausfallhonorar" or abs(win.manual_items[0]["amount"]-70)>0.01: raise SystemExit(f"Ausfallhonorar falsch: {win.manual_items}")
 if win.i_last.text()!="Mustermann" or win.pages.currentIndex()!=7: raise SystemExit("Ausfallhonorar: Rechnungsseite nicht vorbelegt")
 print("Finance functional test OK")
+
+# Überschneidungen: zentrale Prüfung (auch "erschienen" belegt), eigener Termin beim Ändern ausgenommen
+_con=_sq.connect(main.DBFILE)
+_a=_con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,appointment_type,status,created_at) VALUES(?,?,?,?,?,?,?)",("2030-01-07","10:00",45,cid,"Einzeltherapie","erschienen","x")).lastrowid
+_con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,appointment_type,status,created_at) VALUES(?,?,?,?,?,?,?)",("2030-01-07","12:00",45,cid,"Einzeltherapie","abgesagt","x")); _con.commit(); _con.close()
+if main.appointment_conflict("2030-01-07","10:30",45)!="10:00": raise SystemExit("Überschneidung mit 'erschienen'-Termin nicht erkannt")
+if main.appointment_conflict("2030-01-07","10:45",45) is not None: raise SystemExit("Anschlusstermin fälschlich als Konflikt erkannt")
+if main.appointment_conflict("2030-01-07","12:00",45) is not None: raise SystemExit("Abgesagter Termin blockiert den Platz")
+if main.appointment_conflict("2030-01-07","10:00",45,exclude_id=_a) is not None: raise SystemExit("Eigener Termin blockiert sich beim Ändern selbst")
+if any("Unterlagen" in t_[1] for t_ in win.dashboard_tasks()): raise SystemExit("Formulare sind freiwillig – keine Aufgabe 'Fehlende Unterlagen'")
+print("Overlap & optional forms test OK")

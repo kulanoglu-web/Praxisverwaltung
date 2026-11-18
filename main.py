@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.20.0"
+APP_VERSION = "0.20.1"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -923,6 +923,21 @@ def resolve_client(d):
         if c is d: return c
     key=lambda x:(str(x.get("last","")).strip().lower(),str(x.get("first","")).strip().lower(),str(x.get("dob","")).strip())
     return next((c for c in DB["clients"] if key(c)==key(d)),None)
+
+ACTIVE_APPT_STATUS=("geplant","erschienen")   # abgesagte/ausgefallene Termine geben den Platz frei
+
+def appointment_conflict(day,start,minutes,exclude_id=None,con=None):
+    """Prüft, ob sich ein Termin mit einem bestehenden (geplant/erschienen) überschneidet. Liefert die Startzeit des belegten Termins oder None."""
+    own=con is None; con=con or sqlite3.connect(DBFILE)
+    try:
+        s=datetime.strptime(start,"%H:%M"); e=s+timedelta(minutes=int(minutes))
+        for eid,estart,emin in con.execute("SELECT id,start_time,minutes FROM appointments WHERE appointment_date=? AND status IN (?,?)",(day,)+ACTIVE_APPT_STATUS).fetchall():
+            if exclude_id is not None and eid==exclude_id: continue
+            es=datetime.strptime(estart,"%H:%M"); ee=es+timedelta(minutes=int(emin))
+            if s<ee and e>es: return estart
+        return None
+    finally:
+        if own: con.close()
 
 def client_key(c):
     return hashlib.sha256((str(c.get("first","")).strip().lower()+"|"+str(c.get("last","")).strip().lower()+"|"+str(c.get("dob","")).strip()).encode("utf-8")).hexdigest()
@@ -1921,11 +1936,7 @@ class Main(QMainWindow):
             if cid and couple: QMessageBox.warning(self,"Termin","Bitte entweder Klient oder Paarakte zuordnen, nicht beides."); return
             con=sqlite3.connect(DBFILE)
             requested_start=QTime.fromString(t,"HH:mm"); requested_end=requested_start.addSecs(self.appt_minutes.value()*60)
-            def conflict_on(day):
-                for eid,estart,eminutes in con.execute("SELECT id,start_time,minutes FROM appointments WHERE appointment_date=? AND status='geplant'",(day,)).fetchall():
-                    existing_start=QTime.fromString(estart,"HH:mm"); existing_end=existing_start.addSecs(int(eminutes)*60)
-                    if requested_start < existing_end and requested_end > existing_start: return estart
-                return None
+            def conflict_on(day): return appointment_conflict(day,t,self.appt_minutes.value(),con=con)
             step={"wöchentlich":7,"alle 2 Wochen":14,"alle 4 Wochen":28}.get(self.appt_repeat.currentText(),0)
             count=self.appt_count.value() if step else 1
             dates=[self.appt_date.date().addDays(i*step) for i in range(count)]
@@ -1972,6 +1983,10 @@ class Main(QMainWindow):
             cid=self.appt_client.currentData(); couple=self.appt_couple.currentData()
             if cid and couple:
                 QMessageBox.warning(self,"Termin","Bitte entweder Klient oder Paarakte zuordnen, nicht beides."); return True
+            if self.appt_status.currentText() in ACTIVE_APPT_STATUS:
+                busy=appointment_conflict(self.appt_date.date().toString("yyyy-MM-dd"),self.appt_time.time().toString("HH:mm"),self.appt_minutes.value(),exclude_id=aid)
+                if busy:
+                    QMessageBox.warning(self,"Terminkonflikt",f"Die geänderte Zeit überschneidet sich mit einem bestehenden Termin um {busy} Uhr. Bitte eine andere Zeit wählen."); return True
             con=sqlite3.connect(DBFILE)
             con.execute("UPDATE appointments SET appointment_date=?,start_time=?,minutes=?,client_id=?,couple_id=?,appointment_type=?,status=?,note=? WHERE id=?",(self.appt_date.date().toString("yyyy-MM-dd"),self.appt_time.time().toString("HH:mm"),self.appt_minutes.value(),cid,couple,self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),aid))
             con.commit(); con.close(); audit("APPOINTMENT_UPDATE",str(aid),self.current_user.get("username",""))
@@ -2028,9 +2043,6 @@ class Main(QMainWindow):
         if status not in ("abgesagt","ausgefallen"):
             if QMessageBox.question(self,"Ausfallhonorar",f"Der Termin ist als „{status}“ markiert.\n\nAls „ausgefallen“ markieren und Ausfallhonorar abrechnen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return False
             con=sqlite3.connect(DBFILE); con.execute("UPDATE appointments SET status='ausgefallen' WHERE id=?",(aid,)); con.commit(); con.close()
-        folder=ROOT/"Klienten"/safe(f"{c.get('last','')}, {c.get('first','')}")/"Dokumente"
-        if not (folder.exists() and any("Behandlungsvertrag" in p.name for p in folder.iterdir())):
-            if QMessageBox.question(self,"Ausfallhonorar","Für diesen Klienten ist kein Behandlungsvertrag in der Akte abgelegt. Ein Ausfallhonorar setzt eine vorherige Vereinbarung voraus.\n\nTrotzdem fortfahren?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return False
         amount=round(amount_for(int(m),"Ausfallhonorar",False),2)
         end=(datetime.strptime(t,"%H:%M")+timedelta(minutes=int(m))).strftime("%H:%M")
         self.nav.setCurrentRow(7); QApplication.processEvents()
@@ -5441,15 +5453,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         past=con.execute("SELECT COUNT(*) FROM appointments WHERE status='geplant' AND appointment_date<? AND appointment_date>=?",(today.isoformat(),(today-timedelta(days=30)).isoformat())).fetchone()[0]
         con.close()
         if past: tasks.append(("▦",f"{past} vergangene(r) Termin(e) noch auf „geplant“ – Status nachtragen (erschienen / abgesagt / ausgefallen)",6))
-        recent_cut=(today-timedelta(days=90)).isoformat()
-        active=[c for c in DB["clients"] if any(s.get("date","")>=recent_cut for s in client_sessions(c))]
-        missing=[]
-        for c in active:
-            folder=ROOT/"Klienten"/safe(f"{c.get('last','')}, {c.get('first','')}")/"Dokumente"
-            names=" ".join(p.name for p in folder.glob("*")) if folder.exists() else ""
-            need=[lab for key,lab in (("Behandlungsvertrag","Behandlungsvertrag"),("Einwilligung","Datenschutz-Einwilligung")) if key not in names]
-            if need: missing.append(f"{c.get('first','')} {c.get('last','')} ({', '.join(need)})")
-        if missing: tasks.append(("✉",f"Fehlende Unterlagen bei {len(missing)} aktiven Klient(en): "+"; ".join(missing[:3])+(" …" if len(missing)>3 else ""),12))
+        # Formulare (Behandlungsvertrag, Einwilligung) sind freiwillig – daher keine Erinnerung an fehlende Unterlagen.
         for c in DB["clients"]:
             st=client_session_stats(c)
             if st["quota"] and st["left"] is not None and st["left"]<=2:
@@ -5532,10 +5536,12 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         if not tasks and not todos:
             ok=QLabel("✓ Alles erledigt – keine offenen Punkte."); ok.setObjectName("pageSub"); kv.addWidget(ok)
         for icon,text,page in tasks:
-            line=QHBoxLayout(); lab=QLabel(f"{icon}  {text}"); lab.setWordWrap(True); line.addWidget(lab,1)
+            # Jede Zeile als eigenes Widget: umbrochene Texte bekommen so die richtige Höhe und laufen nicht in Nachbarelemente.
+            roww=QWidget(); line=QHBoxLayout(roww); line.setContentsMargins(0,2,0,2); line.setSpacing(10)
+            lab=QLabel(f"{icon}  {text}"); lab.setWordWrap(True); lab.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.MinimumExpanding); line.addWidget(lab,1)
             if page is not None:
-                b=QPushButton("Öffnen"); b.setMinimumHeight(30); b.setStyleSheet("background:white;color:#2c3b33;border:1px solid #c5d0c9"); b.clicked.connect(lambda _=False,p=page: self.nav.setCurrentRow(p)); line.addWidget(b)
-            kv.addLayout(line)
+                b=QPushButton("Öffnen"); b.setFixedHeight(32); b.setSizePolicy(QSizePolicy.Fixed,QSizePolicy.Fixed); b.setStyleSheet("background:white;color:#2c3b33;border:1px solid #c5d0c9;padding:4px 14px"); b.clicked.connect(lambda _=False,p=page: self.nav.setCurrentRow(p)); line.addWidget(b,0,Qt.AlignVCenter)
+            kv.addWidget(roww)
         if todos:
             sep=QLabel("Eigene Notizen"); sep.setStyleSheet("color:#6b7a72;font-weight:700;padding-top:6px"); kv.addWidget(sep)
         for t_ in todos:
@@ -5543,7 +5549,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
             def done(_=False,item=t_):
                 item["done"]=True; item["done_at"]=datetime.now().isoformat(timespec="seconds"); save_data(); QTimer.singleShot(0,self.refresh_dashboard)
             cb.toggled.connect(done); kv.addWidget(cb)
-        addrow=QHBoxLayout(); newtodo=QLineEdit(); newtodo.setPlaceholderText("Neue Erinnerung, z. B. Rückruf Frau M. wegen Termin"); addbtn=QPushButton("＋"); addbtn.setFixedWidth(44); addbtn.setMinimumHeight(32)
+        kv.addSpacing(6); addrow=QHBoxLayout(); newtodo=QLineEdit(); newtodo.setPlaceholderText("Neue Erinnerung, z. B. Rückruf Frau M. wegen Termin"); addbtn=QPushButton("＋"); addbtn.setFixedWidth(44); addbtn.setMinimumHeight(32)
         def add_todo():
             txt=newtodo.text().strip()
             if not txt: return
