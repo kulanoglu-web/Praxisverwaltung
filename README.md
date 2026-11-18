@@ -20,6 +20,17 @@ Drei PDF-Varianten aus demselben Modul (`invoice_pdf.py`):
 
 Die ursprüngliche Rechnung wird nie überschrieben; Dankes- und Erinnerungs-PDFs liegen als eigene Dateien daneben.
 
+## Formulare & Briefe
+Menü **Klienten → Formulare & Briefe** (`document_pdf.py`, Vorlagen in `document_templates.py`):
+- Behandlungsvertrag mit Honorarvereinbarung, DSGVO-Einwilligung, Schweigepflichtentbindung,
+  Teilnahmebestätigung, Bericht für Kostenträger, Konsiliarbericht/Arztbrief
+- Automatisch befüllt mit Klienten-, Praxis-, Honorar- und Sitzungsdaten; Text vor dem Erstellen frei änderbar
+- Unterschrift per Finger/Stift/Maus direkt im Programm oder leere Linie zum Ausdrucken
+- PDF im gleichen Briefkopf wie die Rechnungen, abgelegt unter `Klienten/<Name>/Dokumente`
+- Eigene Vorlagentexte über den Reiter *Vorlage bearbeiten*; Platzhalter in `{geschweiften Klammern}`
+
+Die mitgelieferten Texte sind Muster und ersetzen keine Rechtsberatung.
+
 ## Datenschutz
 - Therapienotizen, Datenbankinhalte und Handschriftnotizen werden verschlüsselt gespeichert.
 - Der Datenschlüssel kann an das Windows-Benutzerkonto gebunden werden (Angebot beim Start bzw.

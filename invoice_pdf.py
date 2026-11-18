@@ -102,43 +102,7 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
     tax = s.get("tax_number", ""); iban = s.get("iban", ""); bic = s.get("bic", ""); paypal = s.get("paypal", "")
     amt = float(d["amount"]); no = d["number"]
 
-    # ---------------------------------------------------------------- Kopf
-    drawn = False
-    if logo_path:
-        try:
-            from reportlab.lib.utils import ImageReader
-            im = ImageReader(str(logo_path)); iw, ih = im.getSize(); im.getRGBData()
-            mw = float(s.get("logo_width_mm", "72")) * mm; mh = float(s.get("logo_height_mm", "22")) * mm
-            sc = min(mw / iw, mh / ih); lw, lh = iw * sc, ih * sc
-            zone_base = {"Links": 18.0, "Mitte": 74.0, "Rechts": 132.0}.get(s.get("invoice_header_logo_zone", "Links"), 18.0)
-            lx = (zone_base + max(0.0, float(s.get("logo_x_mm", "18")) - 18.0)) * mm
-            top = float(s.get("logo_y_mm", "7")) * mm
-            can.drawImage(im, lx, H - top - lh, width=lw, height=lh, preserveAspectRatio=True, mask="auto")
-            drawn = True
-        except Exception as e:
-            log("INVOICE_LOGO_ERROR", str(e)[:500])
-    if not drawn:
-        log("INVOICE_LOGO_MISSING", "Praxislogo konnte nicht geladen werden")
-
-    can.setFillColor(NAVY); can.setFont(regular, 7.7)
-    qy = H - 29 * mm
-    for line in (owner, practice_name, qualifications):
-        if line:
-            can.drawString(L, qy, line); qy -= 4.2 * mm
-    for line in _wrap(can, subtitle, regular, 7.7, 100 * mm):
-        can.drawString(L, qy, line); qy -= 4.2 * mm
-
-    can.setFont(regular, 8.2); tx = 132 * mm; ty = H - 14 * mm
-    contact = [x.strip() for x in address.replace(",", "\n", 1).splitlines() if x.strip()]
-    if phone: contact.append("Handy " + phone)
-    if landline: contact.append("Festnetz " + landline)
-    if fax: contact.append("Fax " + fax)
-    contact += [x for x in (email, website) if x]
-    for line in contact:
-        can.drawString(tx, ty, line); ty -= 4.3 * mm
-
-    can.setStrokeColor(GOLD); can.setLineWidth(1)
-    can.line(L, H - 52 * mm, R, H - 52 * mm)
+    draw_letterhead(can, s, logo_path, log)
 
     # ---------------------------------------------------------------- Empfänger / Metadaten
     y = H - 64 * mm; can.setFillColor(NAVY); can.setFont(regular, 10)
@@ -299,19 +263,80 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
     can.setFont(regular, 6.8)
     can.drawRightString(R, yy - 18 * mm, "Dieses Dokument wurde elektronisch erstellt und ist auch ohne Unterschrift gültig.")
 
-    # ---------------------------------------------------------------- Fußzeile
+    draw_footer(can, s)
+    can.save()
+    return str(pdf_path)
+
+
+def draw_letterhead(can, s, logo_path=None, log=None):
+    """Briefkopf (Logo, Praxisangaben links, Kontakt rechts, Goldlinie bei 52 mm).
+    Gemeinsam für Rechnungen und alle Praxisdokumente (Verträge, Bescheinigungen, Berichte)."""
+    log = log or (lambda code, text: None)
+    regular, _bold = _fonts()
+    W, H = A4
+    L, R = 18 * mm, W - 18 * mm
+    owner = s.get("owner_name", ""); practice_name = s.get("practice_name", "")
+    qualifications = s.get("qualifications", ""); subtitle = s.get("practice_subtitle", "")
+    address = s.get("address", ""); phone = s.get("phone", ""); landline = s.get("landline", ""); fax = s.get("fax", "")
+    email = s.get("email", ""); website = s.get("website", "")
+    drawn = False
+    if logo_path:
+        try:
+            from reportlab.lib.utils import ImageReader
+            im = ImageReader(str(logo_path)); iw, ih = im.getSize(); im.getRGBData()
+            mw = float(s.get("logo_width_mm", "72")) * mm; mh = float(s.get("logo_height_mm", "22")) * mm
+            sc = min(mw / iw, mh / ih); lw, lh = iw * sc, ih * sc
+            zone_base = {"Links": 18.0, "Mitte": 74.0, "Rechts": 132.0}.get(s.get("invoice_header_logo_zone", "Links"), 18.0)
+            lx = (zone_base + max(0.0, float(s.get("logo_x_mm", "18")) - 18.0)) * mm
+            top = float(s.get("logo_y_mm", "7")) * mm
+            can.drawImage(im, lx, H - top - lh, width=lw, height=lh, preserveAspectRatio=True, mask="auto")
+            drawn = True
+        except Exception as e:
+            log("INVOICE_LOGO_ERROR", str(e)[:500])
+    if not drawn:
+        log("INVOICE_LOGO_MISSING", "Praxislogo konnte nicht geladen werden")
+
+    can.setFillColor(NAVY); can.setFont(regular, 7.7)
+    qy = H - 29 * mm
+    for line in (owner, practice_name, qualifications):
+        if line:
+            can.drawString(L, qy, line); qy -= 4.2 * mm
+    for line in _wrap(can, subtitle, regular, 7.7, 100 * mm):
+        can.drawString(L, qy, line); qy -= 4.2 * mm
+
+    can.setFont(regular, 8.2); tx = 132 * mm; ty = H - 14 * mm
+    contact = [x.strip() for x in address.replace(",", "\n", 1).splitlines() if x.strip()]
+    if phone: contact.append("Handy " + phone)
+    if landline: contact.append("Festnetz " + landline)
+    if fax: contact.append("Fax " + fax)
+    contact += [x for x in (email, website) if x]
+    for line in contact:
+        can.drawString(tx, ty, line); ty -= 4.3 * mm
+
+    can.setStrokeColor(GOLD); can.setLineWidth(1)
+    can.line(L, H - 52 * mm, R, H - 52 * mm)
+
+
+def draw_footer(can, s, payment=True):
+    """Dreispaltige Fußzeile. payment=False: rechte Spalte ohne Bankdaten (für Verträge/Berichte)."""
+    regular, bold = _fonts()
+    W, H = A4
+    L, R = 18 * mm, W - 18 * mm
+    address = s.get("address", ""); phone = s.get("phone", ""); landline = s.get("landline", ""); fax = s.get("fax", "")
+    email = s.get("email", ""); website = s.get("website", "")
+    tax = s.get("tax_number", ""); iban = s.get("iban", ""); bic = s.get("bic", "")
     fy = 20 * mm
     can.setStrokeColor(GOLD); can.setLineWidth(.8); can.line(L, fy + 11 * mm, R, fy + 11 * mm)
     cols = (L, L + (R - L) * 0.30, L + (R - L) * 0.60)
     can.setFillColor(TEAL); can.setFont(bold, 8.5)
-    for xx, title in zip(cols, ("Praxis", "Kontakt", "Zahlung")):
+    for xx, title in zip(cols, ("Praxis", "Kontakt", "Zahlung" if payment else "Hinweis")):
         can.drawString(xx, fy + 5.5 * mm, title)
     can.setFillColor(NAVY); can.setFont(regular, 8)
     ln = 4.2 * mm
+    third = ["IBAN " + iban, "BIC " + bic, ("Steuernummer " + tax) if tax else ""] if payment else \
+        ["Vertrauliches Dokument", "Bitte nicht an Unbefugte weitergeben."]
     for xx, lines in ((cols[0], [address, website]),
                       (cols[1], [" · ".join(x for x in (phone, landline) if x), ("Fax " + fax) if fax else "", email]),
-                      (cols[2], ["IBAN " + iban, "BIC " + bic, ("Steuernummer " + tax) if tax else ""])):
+                      (cols[2], third)):
         for i, t_ in enumerate([x for x in lines if x]):
             can.drawString(xx, fy + 0.5 * mm - i * ln, t_)
-    can.save()
-    return str(pdf_path)

@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.15.0"
+APP_VERSION = "0.16.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -845,6 +845,61 @@ def write_invoice_pdf(inv,mode,out_path,reminder_level=1,paid_date="",due_text="
        "amount":float(inv.get("amount",0)),"items":items,"mode":mode,"reminder_level":reminder_level,"paid_date":paid_date,"due_text":due_text}
     return invoice_pdf.render_invoice_pdf(out_path,d,invoice_settings(),practice_logo_path(),bundled_asset("paypal.png"),lambda code,text: audit(code,text,user))
 
+import document_pdf, document_templates
+
+def practice_city():
+    m=re.search(r"\b\d{5}\s+([^,\n]+)",get_setting("address",""))
+    return m.group(1).strip() if m else ""
+
+def fee_table_text():
+    rows=["Leistung | Dauer | Honorar"]
+    for name,minutes,amount,reduced,_mode in get_fee_rates():
+        price=invoice_pdf.eur(amount)+(f" (ermäßigt {invoice_pdf.eur(reduced)})" if reduced and float(reduced)>0 and float(reduced)!=float(amount) else "")
+        rows.append(f"{name} | {int(minutes)} Min. | {price}" if minutes else f"{name} | – | {price}")
+    return "\n".join(rows) if len(rows)>1 else "Honorar nach gesonderter Absprache."
+
+def client_sessions(c):
+    return sorted([x for x in DB["sessions"] if x.get("last","").lower()==c.get("last","").lower() and x.get("first","").lower()==c.get("first","").lower()],key=lambda x:(x.get("date",""),x.get("start","")))
+
+def document_values(c,recipient=""):
+    """Werte für die Platzhalter der Dokumentvorlagen (document_templates.PLACEHOLDERS)."""
+    c=c or {}; s=invoice_settings(); sess=client_sessions(c) if c else []
+    dates=[_de_date(x.get("date","")) for x in sess if x.get("date")]
+    sesslist="\n".join(["Datum | Art | Dauer"]+[f"{_de_date(x.get('date',''))} | {x.get('type','') or 'Sitzung'} | {int(x.get('minutes',0) or 0)} Min." for x in sess]) if sess else "(noch keine Sitzungen dokumentiert)"
+    g=str(c.get("gender","")).lower()
+    anrede=("Sehr geehrte Frau "+c.get("last","")) if g.startswith("w") else (("Sehr geehrter Herr "+c.get("last","")) if g.startswith("m") else "Sehr geehrte Damen und Herren")
+    rec_first=(recipient or "").strip().splitlines()[0] if (recipient or "").strip() else ""
+    return {"klient_name":(c.get("first","")+" "+c.get("last","")).strip() or "____________________",
+        "klient_vorname":c.get("first",""),"klient_nachname":c.get("last",""),
+        "klient_geburtsdatum":c.get("dob","") or "__________","klient_adresse":c.get("address","") or "______________________________",
+        "klient_telefon":c.get("phone",""),"klient_email":c.get("email",""),"anrede":"Sehr geehrte Kollegin, sehr geehrter Kollege" if rec_first.lower().startswith(("dr","praxis","herr dr","frau dr")) else "Sehr geehrte Damen und Herren",
+        "klient_anrede":anrede,"diagnose":c.get("diagnosis","") or "______________________________",
+        "therapeut":s.get("owner_name","") or "____________________","qualifikation":s.get("qualifications",""),
+        "praxis_name":s.get("practice_name","") or "Psychologische Privatpraxis","praxis_adresse":s.get("address",""),
+        "praxis_telefon":s.get("phone","") or s.get("landline",""),"praxis_email":s.get("email",""),
+        "ort":practice_city(),"datum":datetime.now().strftime("%d.%m.%Y"),
+        "empfaenger":", ".join(x.strip() for x in (recipient or "").splitlines() if x.strip()) or "______________________________",
+        "honorar_tabelle":fee_table_text(),"absagefrist":get_setting("doc_cancel_notice","24 Stunden"),
+        "erste_sitzung":dates[0] if dates else "__________","letzte_sitzung":dates[-1] if dates else "__________",
+        "anzahl_sitzungen":str(len(sess)),"sitzungsliste":sesslist}
+
+def document_template_text(key):
+    return get_setting("doc_tpl_"+key,"") or document_templates.TEMPLATES[key]["text"]
+
+def write_document_pdf(c,key,body,recipient="",place_date="",signatures=None,user=""):
+    """Erzeugt ein Praxisdokument im Klientenordner unter „Dokumente“. signatures: {"client":png,"therapist":png}."""
+    tpl=document_templates.TEMPLATES[key]; s=invoice_settings(); signatures=signatures or {}
+    folder=client_dir(c)/"Dokumente"; stamp=datetime.now()
+    out=folder/f"{stamp.strftime('%Y-%m-%d')}_{safe(tpl['title'])}.pdf"
+    if out.exists(): out=folder/f"{stamp.strftime('%Y-%m-%d_%H%M%S')}_{safe(tpl['title'])}.pdf"
+    name=(c.get("first","")+" "+c.get("last","")).strip()
+    sigs=[("Unterschrift Klient/in" if who=="client" else "Unterschrift Therapeut/in",signatures.get(who),name if who=="client" else s.get("owner_name","")) for who in tpl["signatures"]]
+    ref=""  # Klientenname steht in jeder Vorlage bereits im Text
+    recipient_lines=[x for x in (recipient or "").splitlines() if x.strip()] if tpl["recipient"] else None
+    document_pdf.render_document_pdf(out,tpl["title"],body,s,practice_logo_path(),recipient_lines,sigs,place_date,ref,lambda code,text: audit(code,text,user))
+    audit("DOCUMENT_CREATED",f"{tpl['title']}: {c.get('last','')}, {c.get('first','')}",user)
+    return out
+
 def client_dir(c):
     p=ROOT/"Klienten"/safe(f"{c.get('last','')}, {c.get('first','')}")
     for x in ["Stammdaten","Sitzungen","Rechnungen","Dokumente"]:(p/x).mkdir(parents=True,exist_ok=True)
@@ -1154,9 +1209,9 @@ class NavList(QListWidget):
     def add_section(self,title):
         it=QListWidgetItem(title.upper()); it.setFlags(Qt.NoItemFlags); it.setData(Qt.UserRole,"section")
         f=it.font(); f.setBold(True); f.setLetterSpacing(QFont.PercentageSpacing,108); it.setFont(f)
-        it.setSizeHint(QSize(10,28)); self.addItem(it)
+        it.setSizeHint(QSize(10,25)); self.addItem(it)
     def add_page(self,icon,label,page):
-        it=QListWidgetItem(f"{icon}   {label}"); it.setData(Qt.UserRole,page); it.setSizeHint(QSize(10,33)); self.addItem(it)
+        it=QListWidgetItem(f"{icon}   {label}"); it.setData(Qt.UserRole,page); it.setSizeHint(QSize(10,30)); self.addItem(it)
         row=super().count()-1; self._page_of_row[row]=page; self._row_of_page[page]=row; self.entries.append((row,icon,label))
     def count(self): return len(self._row_of_page)
     def page_label(self,page):
@@ -1175,6 +1230,38 @@ class NavList(QListWidget):
         for row,icon,label in self.entries:
             it=self.item(row); it.setToolTip(label)
             it.setText(icon if compact else f"{icon}   {label}"); it.setTextAlignment(Qt.AlignCenter if compact else Qt.AlignLeft|Qt.AlignVCenter)
+
+class SignaturePad(QWidget):
+    """Unterschriftsfeld für Maus, Finger oder Stift. Speichert als PNG mit transparentem Hintergrund."""
+    changed=Signal()
+    def __init__(self,placeholder="Hier unterschreiben"):
+        super().__init__(); self.placeholder=placeholder; self.setMinimumHeight(110); self.setMinimumWidth(200)
+        self.strokes=[]; self._cur=None; self.setCursor(Qt.CrossCursor); self.setAttribute(Qt.WA_StaticContents)
+    def is_empty(self): return not any(len(s)>1 for s in self.strokes)
+    def clear(self): self.strokes=[]; self._cur=None; self.update(); self.changed.emit()
+    def _pt(self,e): return (e.position().x()/max(1,self.width()),e.position().y()/max(1,self.height()))
+    def mousePressEvent(self,e):
+        if e.button()==Qt.LeftButton: self._cur=[self._pt(e)]; self.strokes.append(self._cur); self.update()
+    def mouseMoveEvent(self,e):
+        if self._cur is not None: self._cur.append(self._pt(e)); self.update()
+    def mouseReleaseEvent(self,e):
+        if self._cur is not None:
+            if len(self._cur)==1: self._cur.append((self._cur[0][0]+0.002,self._cur[0][1]+0.002))
+            self._cur=None; self.changed.emit()
+    def _draw(self,p,w,h,width):
+        p.setRenderHint(QPainter.Antialiasing); p.setPen(QPen(QColor("#0b2a4a"),width,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin))
+        for s in self.strokes:
+            for a,b in zip(s,s[1:]): p.drawLine(QPoint(int(a[0]*w),int(a[1]*h)),QPoint(int(b[0]*w),int(b[1]*h)))
+    def paintEvent(self,e):
+        p=QPainter(self); p.fillRect(self.rect(),QColor("white"))
+        p.setPen(QPen(QColor("#c5d0c9"),1,Qt.DashLine)); p.drawRect(self.rect().adjusted(0,0,-1,-1))
+        base=int(self.height()*0.78); p.setPen(QPen(QColor("#9fb3a6"),1)); p.drawLine(14,base,self.width()-14,base)
+        if self.is_empty():
+            p.setPen(QColor("#9aa8a0")); p.drawText(self.rect().adjusted(0,0,0,-int(self.height()*0.3)),Qt.AlignCenter,self.placeholder)
+        self._draw(p,self.width(),self.height(),2.2); p.end()
+    def save_png(self,path):
+        w,h=900,300; img=QImage(w,h,QImage.Format_ARGB32); img.fill(Qt.transparent)
+        p=QPainter(img); self._draw(p,w,h,5); p.end(); return img.save(str(path),"PNG")
 
 # Farbschemata: Seitenleiste, Seitenleistentext, Auswahl, Auswahltext, Hover, Schaltfläche,
 # Schaltfläche-Hover, Akzent (Überschriften), Hintergrund, Kopfleiste, Rahmen
@@ -1199,7 +1286,7 @@ class Main(QMainWindow):
         self.nav=NavList(); self.nav.setObjectName("nav"); self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         # Menü nach Arbeitsbereichen geordnet. Zahl = Seite im Seitenstapel (Reihenfolge unten bei self.pages).
         menu=[("Praxisalltag",[("⌂","Tagesübersicht",0),("✎","Sitzung dokumentieren",1),("▦","Terminkalender",6)]),
-              ("Klienten",[("♙","Klientenakten",3),("＋","Neuer Klient",4),("♥","Paarakte",5)]),
+              ("Klienten",[("♙","Klientenakten",3),("＋","Neuer Klient",4),("♥","Paarakte",5),("✉","Formulare & Briefe",12)]),
               ("Abrechnung",[("€","Neue Rechnung",7),("▤","Rechnungen",8)]),
               ("Wissen & Hilfe",[("✦","Sitzungsassistent",2),("📖","Glossar",10),("?","Hilfe · FAQ · Info",11)]),
               ("System",[("⚙","Praxiseinstellungen",9)])]
@@ -1220,7 +1307,7 @@ class Main(QMainWindow):
         tb.addWidget(self.top_logo)
         lockbtn=QPushButton("🔒 Sperren"); lockbtn.setObjectName("lockBtn"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_clicked); tb.addWidget(lockbtn); self.lockbtn=lockbtn
         contentv.addWidget(topbar)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.pages.addWidget(self.documents_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
         self.nav.pageChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(content,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -1466,6 +1553,7 @@ class Main(QMainWindow):
             QMessageBox.warning(self,"Keine Berechtigung","Praxiseinstellungen und Benutzerverwaltung sind Administratoren vorbehalten.")
             self.nav.blockSignals(True); self.nav.setCurrentRow(self.pages.currentIndex()); self.nav.blockSignals(False); return
         self.pages.setCurrentIndex(index)
+        if index==12 and hasattr(self,"refresh_document_clients"): self.refresh_document_clients()
     def require_edit(self):
         if self.can_edit(): return True
         QMessageBox.warning(self,"Nur Lesen","Dieser Benutzer hat nur Leserechte und kann keine Daten verändern.")
@@ -1724,6 +1812,146 @@ class Main(QMainWindow):
         session_save.clicked.connect(save_session)
         self.couple_list.currentItemChanged.connect(lambda *_: refresh_history())
         refresh()
+        return page
+
+    def documents_ui(self):
+        """Formulare & Briefe: Vorlagen mit Klientendaten befüllen, bearbeiten, unterschreiben lassen, als PDF ablegen."""
+        T=document_templates.TEMPLATES
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
+        title=QLabel("Formulare & Briefe"); title.setObjectName("pageTitle"); v.addWidget(title)
+        sub=QLabel("① Vorlage und Klient wählen  ·  ② Text prüfen  ·  ③ unterschreiben  ·  ④ PDF erstellen – abgelegt in der Klientenakte unter „Dokumente“"); sub.setObjectName("pageSub"); sub.setWordWrap(True); v.addWidget(sub)
+        split=QSplitter(); split.setChildrenCollapsible(False); self.responsive_split(split,860)
+        left=QFrame(); left.setObjectName("formCard"); lv=QVBoxLayout(left); lv.setContentsMargins(14,12,14,14); lv.setSpacing(8)
+        lt=QLabel("Vorlage"); lt.setObjectName("sectionTitle"); lv.addWidget(lt)
+        self.doc_list=QListWidget(); self.doc_list.setMinimumHeight(190)
+        for key in document_templates.ORDER:
+            it=QListWidgetItem(T[key]["title"]); it.setData(Qt.UserRole,key); self.doc_list.addItem(it)
+        lv.addWidget(self.doc_list)
+        ct=QLabel("Klient"); ct.setObjectName("sectionTitle"); lv.addWidget(ct)
+        self.doc_client=QComboBox(); self.doc_client.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon); self.doc_client.setMinimumContentsLength(16); self.doc_client.setEditable(True); self.doc_client.setInsertPolicy(QComboBox.NoInsert); self.doc_client.setMinimumHeight(34)
+        self.doc_client.completer().setCompletionMode(QCompleter.PopupCompletion); self.doc_client.completer().setFilterMode(Qt.MatchContains); self.doc_client.completer().setCaseSensitivity(Qt.CaseInsensitive)
+        lv.addWidget(self.doc_client)
+        self.doc_rec_label=QLabel("Empfänger (Arzt, Versicherung, Person – eine Angabe pro Zeile)"); self.doc_rec_label.setWordWrap(True); lv.addWidget(self.doc_rec_label)
+        self.doc_recipient=QTextEdit(); self.doc_recipient.setPlaceholderText("z. B.\nDr. med. Erika Beispiel\nHauptstraße 1\n10115 Berlin"); self.doc_recipient.setFixedHeight(96); lv.addWidget(self.doc_recipient)
+        lv.addWidget(QLabel("Ort, Datum"))
+        self.doc_place=QLineEdit(); self.doc_place.setMinimumHeight(34); lv.addWidget(self.doc_place)
+        refill=QPushButton("↻ Text neu befüllen"); refill.setToolTip("Dokumenttext mit Klient, Empfänger und Vorlage neu erzeugen"); refill.setMinimumHeight(36); lv.addWidget(refill)
+        ht=QLabel("Bisherige Dokumente"); ht.setObjectName("sectionTitle"); lv.addWidget(ht)
+        self.doc_history=QListWidget(); self.doc_history.setMinimumHeight(110); self.doc_history.setToolTip("Doppelklick öffnet das PDF"); lv.addWidget(self.doc_history,1)
+        openfolder=QPushButton("📂 Dokumente-Ordner öffnen"); openfolder.setMinimumHeight(34); lv.addWidget(openfolder)
+        left.setMinimumWidth(290); left.setMaximumWidth(420); self.doc_list.setWordWrap(True)
+
+        right=QFrame(); right.setObjectName("formCard"); rv=QVBoxLayout(right); rv.setContentsMargins(14,12,14,14); rv.setSpacing(8)
+        self.doc_title=QLabel(""); self.doc_title.setObjectName("sectionTitle"); rv.addWidget(self.doc_title)
+        tabs=QTabWidget(); tabs.setDocumentMode(True)
+        self.doc_body=QTextEdit(); self.doc_body.setAcceptRichText(False); self.doc_body.setMinimumHeight(360)
+        tabs.addTab(self.doc_body,"Dokument für diesen Klienten")
+        tplpage=QWidget(); tv=QVBoxLayout(tplpage); tv.setContentsMargins(0,8,0,0)
+        tip=QLabel("Hier ändern Sie die Vorlage selbst – für alle künftigen Dokumente. Platzhalter in {geschweiften Klammern} werden automatisch ersetzt. "
+                   "Zeilen mit „## “ werden Überschriften, „• “ Aufzählungen, „[ ] “ Ankreuzfelder, „A | B“ Tabellenzeilen."); tip.setWordWrap(True); tip.setObjectName("pageSub"); tv.addWidget(tip)
+        self.doc_tpl_edit=QTextEdit(); self.doc_tpl_edit.setAcceptRichText(False); tv.addWidget(self.doc_tpl_edit,1)
+        ph=QComboBox(); ph.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon); ph.setMinimumContentsLength(18); ph.addItem("Platzhalter einfügen …",None)
+        for k,desc in document_templates.PLACEHOLDERS.items(): ph.addItem("{"+k+"}  –  "+desc,k)
+        tb=QHBoxLayout(); tb.addWidget(ph,1); tplsave=QPushButton("💾 Als meine Vorlage speichern"); tplreset=QPushButton("Original wiederherstellen"); tb.addWidget(tplsave); tb.addWidget(tplreset); tv.addLayout(tb)
+        tabs.addTab(tplpage,"Vorlage bearbeiten"); rv.addWidget(tabs,1)
+
+        sigbox=QFrame(); sg=QGridLayout(sigbox); sg.setContentsMargins(0,4,0,0); sg.setHorizontalSpacing(12)
+        self.doc_sig={}; self.doc_sig_boxes={}
+        for col,(who,label) in enumerate((("client","Unterschrift Klient/in"),("therapist","Unterschrift Therapeut/in"))):
+            box=QWidget(); bl=QVBoxLayout(box); bl.setContentsMargins(0,0,0,0); bl.setSpacing(4)
+            head=QHBoxLayout(); head.addWidget(QLabel("<b>"+label+"</b>")); head.addStretch(); clr=QPushButton("Löschen"); clr.setMinimumHeight(28); head.addWidget(clr); bl.addLayout(head)
+            pad=SignaturePad("Hier mit Finger, Stift oder Maus unterschreiben"); bl.addWidget(pad); clr.clicked.connect(pad.clear)
+            self.doc_sig[who]=pad; self.doc_sig_boxes[who]=box; sg.addWidget(box,0,col)
+        sighint=QLabel("Ohne Unterschrift im Feld entsteht eine leere Unterschriftslinie – dann einfach ausdrucken und auf Papier unterschreiben."); sighint.setWordWrap(True); sighint.setObjectName("pageSub"); sg.addWidget(sighint,1,0,1,2)
+        rv.addWidget(sigbox)
+        actions=QHBoxLayout(); actions.addStretch(); make=QPushButton("📄 PDF erstellen und öffnen"); make.setMinimumHeight(42); make.setMinimumWidth(240); make.setStyleSheet("font-weight:700"); actions.addWidget(make); rv.addLayout(actions)
+        split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,2); split.setStretchFactor(1,5); v.addWidget(split,1)
+
+        def current_key():
+            it=self.doc_list.currentItem(); return it.data(Qt.UserRole) if it else document_templates.ORDER[0]
+        def current_client():
+            c=self.doc_client.currentData()
+            if isinstance(c,dict) and self.doc_client.currentText().strip()==self.doc_client.itemText(self.doc_client.currentIndex()): return c
+            return None
+        def refill_body(ask=True):
+            if ask and self.doc_body.document().isModified() and self.doc_body.toPlainText().strip():
+                if QMessageBox.question(self,"Text neu befüllen","Ihre Änderungen im Dokumenttext gehen dabei verloren. Fortfahren?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            key=current_key(); vals=document_values(current_client(),self.doc_recipient.toPlainText())
+            self.doc_body.setPlainText(document_templates.fill(document_template_text(key),vals)); self.doc_body.document().setModified(False)
+        def refresh_history():
+            self.doc_history.clear(); c=current_client()
+            if not c: return
+            folder=ROOT/"Klienten"/safe(f"{c.get('last','')}, {c.get('first','')}")/"Dokumente"
+            if folder.exists():
+                for f in sorted(folder.glob("*.pdf"),key=lambda p:p.stat().st_mtime,reverse=True):
+                    it=QListWidgetItem(f.stem.replace("_"," ",1)); it.setData(Qt.UserRole,str(f)); self.doc_history.addItem(it)
+            if not self.doc_history.count(): self.doc_history.addItem("– noch keine Dokumente –")
+        def template_changed():
+            key=current_key(); tpl=T[key]; self.doc_title.setText(tpl["title"])
+            self.doc_rec_label.setVisible(tpl["recipient"]); self.doc_recipient.setVisible(tpl["recipient"])
+            for who,box in self.doc_sig_boxes.items(): box.setVisible(who in tpl["signatures"])
+            self.doc_tpl_edit.setPlainText(document_template_text(key)); self.doc_tpl_edit.document().setModified(False)
+            for pad in self.doc_sig.values(): pad.clear()
+            refill_body(ask=False)
+        def client_changed():
+            refresh_history(); refill_body(ask=False)
+        def refresh_clients():
+            old=self.doc_client.currentData(); self.doc_client.blockSignals(True); self.doc_client.clear(); self.doc_client.addItem("Klient auswählen …",None)
+            for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())):
+                self.doc_client.addItem(f"{cc.get('last','')}, {cc.get('first','')}"+(f"  (geb. {cc.get('dob')})" if cc.get("dob") else ""),cc)
+            idx=self.doc_client.findData(old) if isinstance(old,dict) else -1
+            self.doc_client.setCurrentIndex(idx if idx>=0 else 0); self.doc_client.blockSignals(False)
+            if not self.doc_place.text().strip(): self.doc_place.setText(", ".join(x for x in (practice_city(),datetime.now().strftime("%d.%m.%Y")) if x))
+        self.refresh_document_clients=lambda: (refresh_clients(),refresh_history())
+        def insert_placeholder(i):
+            k=ph.itemData(i)
+            if k: self.doc_tpl_edit.insertPlainText("{"+k+"}"); self.doc_tpl_edit.setFocus()
+            ph.blockSignals(True); ph.setCurrentIndex(0); ph.blockSignals(False)
+        def save_template():
+            if not self.require_edit(): return
+            key=current_key(); set_setting("doc_tpl_"+key,self.doc_tpl_edit.toPlainText()); audit("DOC_TEMPLATE_SAVED",T[key]["title"],self.current_user.get("username",""))
+            refill_body(ask=True); QMessageBox.information(self,"Vorlage","Die Vorlage wurde gespeichert und wird ab jetzt verwendet.")
+        def reset_template():
+            key=current_key()
+            if QMessageBox.question(self,"Original wiederherstellen","Eigene Änderungen an dieser Vorlage verwerfen und den Originaltext wiederherstellen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            set_setting("doc_tpl_"+key,""); self.doc_tpl_edit.setPlainText(T[key]["text"]); refill_body(ask=True)
+        def make_pdf():
+            if not self.require_edit(): return
+            c=current_client()
+            if not c: return QMessageBox.warning(self,"Formular","Bitte zuerst einen Klienten auswählen.")
+            key=current_key(); body=self.doc_body.toPlainText().strip()
+            if not body: return QMessageBox.warning(self,"Formular","Der Dokumenttext ist leer.")
+            if T[key]["recipient"] and not self.doc_recipient.toPlainText().strip():
+                if QMessageBox.question(self,"Empfänger fehlt","Es ist kein Empfänger angegeben. Trotzdem erstellen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            open_left=re.findall(r"\{[a-z_]+\}",body)
+            if open_left and QMessageBox.question(self,"Platzhalter","Im Text stehen noch unbekannte Platzhalter: "+", ".join(sorted(set(open_left)))+"\n\nTrotzdem erstellen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            tmpdir=Path(tempfile.mkdtemp(prefix="praxispro_sig_")); sigs={}
+            try:
+                for who in T[key]["signatures"]:
+                    pad=self.doc_sig[who]
+                    if not pad.is_empty():
+                        p=tmpdir/f"{who}.png"
+                        if pad.save_png(p): sigs[who]=str(p)
+                out=write_document_pdf(c,key,body,self.doc_recipient.toPlainText(),self.doc_place.text().strip(),sigs,self.current_user.get("username",""))
+            except Exception as e:
+                audit("DOCUMENT_ERROR",str(e)[:300],self.current_user.get("username","")); return QMessageBox.critical(self,"Formular","Das PDF konnte nicht erstellt werden:\n"+str(e))
+            finally:
+                shutil.rmtree(tmpdir,ignore_errors=True)
+            for pad in self.doc_sig.values(): pad.clear()
+            refresh_history(); self.doc_body.document().setModified(False)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(out)))
+        def open_history(item):
+            p=item.data(Qt.UserRole)
+            if p and Path(p).exists(): QDesktopServices.openUrl(QUrl.fromLocalFile(p))
+        def open_folder():
+            c=current_client()
+            if not c: return QMessageBox.information(self,"Dokumente","Bitte zuerst einen Klienten auswählen.")
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(client_dir(c)/"Dokumente")))
+        self.doc_list.currentRowChanged.connect(lambda *_: template_changed()); self.doc_client.currentIndexChanged.connect(lambda *_: client_changed())
+        refill.clicked.connect(lambda: refill_body(ask=True)); ph.currentIndexChanged.connect(insert_placeholder)
+        tplsave.clicked.connect(save_template); tplreset.clicked.connect(reset_template); make.clicked.connect(make_pdf)
+        self.doc_history.itemDoubleClicked.connect(open_history); openfolder.clicked.connect(open_folder)
+        refresh_clients(); self.doc_list.setCurrentRow(0)
         return page
 
     def session_ui(self):

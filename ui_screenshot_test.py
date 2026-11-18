@@ -56,6 +56,7 @@ pages=[
     (8,"Rechnungen"),
     (9,"Praxiseinstellungen"),
     (10,"Benutzerhandbuch"),
+    (12,"Formulare-Briefe"),
 ]
 saved=0
 # Mehrere typische Desktop-/Notebook-Auflösungen prüfen. Damit fallen starre,
@@ -122,6 +123,20 @@ selected_text=unicodedata.normalize("NFC",first_symptom.text())
 if selected_text not in summary_text:
     raise SystemExit("Ausgewähltes Symptom fehlt in der Assistenten-Zusammenfassung")
 print("Assistant functional test OK: F43.1 -> PTBS / Trauma -> symptoms")
+
+# Formulare & Briefe funktional prüfen: Vorlage + Klient wählen -> Text befüllt -> PDF in der Klientenakte.
+win.nav.setCurrentRow(12); app.processEvents()
+idx=next((i for i in range(win.doc_client.count()) if isinstance(win.doc_client.itemData(i),dict) and win.doc_client.itemData(i).get("last")=="Mustermann"),-1)
+if idx<0: raise SystemExit("Testklient fehlt in Formulare & Briefe")
+win.doc_client.setCurrentIndex(idx); app.processEvents()
+for row in range(win.doc_list.count()):
+    win.doc_list.setCurrentRow(row); app.processEvents()
+    body=win.doc_body.toPlainText()
+    if "Mustermann" not in body: raise SystemExit(f"Vorlage {win.doc_list.item(row).text()} wurde nicht mit Klientendaten befüllt")
+doc_pdf=main.write_document_pdf(win.doc_client.currentData(),"teilnahme",main.document_templates.fill(main.document_template_text("teilnahme"),main.document_values(win.doc_client.currentData())),"","Berlin, 01.01.2026",{},"ui-test")
+if not Path(doc_pdf).exists() or Path(doc_pdf).stat().st_size<20000: raise SystemExit("Dokument-PDF fehlt oder ist zu klein")
+if "Dokumente" not in str(doc_pdf): raise SystemExit("Dokument-PDF liegt nicht im Ordner Dokumente der Klientenakte")
+print("Documents functional test OK", doc_pdf)
 
 # Echte Rechnung im isolierten Windows-Test erzeugen.
 # Sie wird ausschließlich durch PraxisPro selbst erstellt, nicht extern nachgebaut.
