@@ -20,6 +20,15 @@ Drei PDF-Varianten aus demselben Modul (`invoice_pdf.py`):
 
 Die ursprüngliche Rechnung wird nie überschrieben; Dankes- und Erinnerungs-PDFs liegen als eigene Dateien daneben.
 
+## Klientenakte & Warteliste
+- Stammdaten in Bereichen: Person (inkl. Geschlecht für die Anrede), Kostenträger (Selbstzahler, PKV, Beihilfe,
+  Zusatzversicherung), Notfallkontakt, ärztliche Versorgung/Vorbehandlung, Klinisches
+- Klientenakte mit Reitern *Sitzungen & Rechnungen*, *Stammdaten & Kostenträger*, *Dokumente*
+- Dokumentenablage: Arztbriefe, Befunde, unterschriebene Scans usw. werden **verschlüsselt** in der Akte gespeichert
+  und nur zum Ansehen kurz entschlüsselt; erstellte Formulare erscheinen in derselben Liste
+- **Warteliste** (Menü Klienten): Interessenten mit Anliegen, Erreichbarkeit, Dringlichkeit und Status;
+  Übernahme als Klient mit einem Klick; Zahl offener Einträge im Menü
+
 ## Formulare & Briefe
 Menü **Klienten → Formulare & Briefe** (`document_pdf.py`, Vorlagen in `document_templates.py`):
 - Behandlungsvertrag mit Honorarvereinbarung, DSGVO-Einwilligung, Schweigepflichtentbindung,

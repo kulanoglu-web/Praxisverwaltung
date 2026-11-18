@@ -10,7 +10,8 @@ from invoice_selftest import SETTINGS, text_of
 ROOT = Path(__file__).resolve().parent
 VALUES = {"klient_name": "Anna Mustermann", "klient_vorname": "Anna", "klient_nachname": "Mustermann", "klient_geburtsdatum": "14.05.1988",
           "klient_adresse": "Musterstraße 12, 13597 Berlin", "klient_telefon": "030 1234567", "klient_email": "anna@example.test",
-          "anrede": "Sehr geehrte Kollegin, sehr geehrter Kollege", "diagnose": "F43.2 Anpassungsstörung", "therapeut": SETTINGS["owner_name"],
+          "anrede": "Sehr geehrte Kollegin, sehr geehrter Kollege", "klient_anrede": "Sehr geehrte Frau Mustermann",
+          "kostentraeger": "Private Krankenversicherung – Muster PKV", "versicherungsnummer": "A123456789","diagnose": "F43.2 Anpassungsstörung", "therapeut": SETTINGS["owner_name"],
           "qualifikation": SETTINGS["qualifications"], "praxis_name": SETTINGS["practice_name"], "praxis_adresse": SETTINGS["address"],
           "praxis_telefon": SETTINGS["phone"], "praxis_email": SETTINGS["email"], "ort": "Berlin", "datum": "18.11.2026",
           "empfaenger": "Dr. med. Erika Beispiel, Hauptstraße 1, 10115 Berlin",

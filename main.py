@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.16.0"
+APP_VERSION = "0.17.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -807,7 +807,7 @@ def load_data():
             legacy.unlink(); return d
         except:return {}
     return {}
-DB=load_data(); DB.setdefault("clients",[]); DB.setdefault("sessions",[]); DB.setdefault("invoices",[])
+DB=load_data(); DB.setdefault("clients",[]); DB.setdefault("sessions",[]); DB.setdefault("invoices",[]); DB.setdefault("waitlist",[])
 init_sqlite(); sync_sqlite()
 
 def save_data():
@@ -841,7 +841,7 @@ def write_invoice_pdf(inv,mode,out_path,reminder_level=1,paid_date="",due_text="
     isos=sorted(x["iso"] for x in items if x["iso"])
     period=(_de_date(isos[0]) if len(set(isos))<=1 and isos else (_de_date(isos[0])+" - "+_de_date(isos[-1]) if isos else _de_date(inv.get("date",""))))
     d={"number":inv.get("number",""),"date":_de_date(inv.get("date","")),"period":period,"first":first,"last":last,"address":inv.get("address",""),
-       "salutation":"Sehr geehrte Frau" if str(client.get("gender","")).lower().startswith("w") else "Sehr geehrter Herr",
+       "salutation":salutation_for(client),
        "amount":float(inv.get("amount",0)),"items":items,"mode":mode,"reminder_level":reminder_level,"paid_date":paid_date,"due_text":due_text}
     return invoice_pdf.render_invoice_pdf(out_path,d,invoice_settings(),practice_logo_path(),bundled_asset("paypal.png"),lambda code,text: audit(code,text,user))
 
@@ -866,14 +866,14 @@ def document_values(c,recipient=""):
     c=c or {}; s=invoice_settings(); sess=client_sessions(c) if c else []
     dates=[_de_date(x.get("date","")) for x in sess if x.get("date")]
     sesslist="\n".join(["Datum | Art | Dauer"]+[f"{_de_date(x.get('date',''))} | {x.get('type','') or 'Sitzung'} | {int(x.get('minutes',0) or 0)} Min." for x in sess]) if sess else "(noch keine Sitzungen dokumentiert)"
-    g=str(c.get("gender","")).lower()
-    anrede=("Sehr geehrte Frau "+c.get("last","")) if g.startswith("w") else (("Sehr geehrter Herr "+c.get("last","")) if g.startswith("m") else "Sehr geehrte Damen und Herren")
+    anrede=(salutation_for(c)+" "+c.get("last","")).strip() if c else "Sehr geehrte Damen und Herren"
     rec_first=(recipient or "").strip().splitlines()[0] if (recipient or "").strip() else ""
     return {"klient_name":(c.get("first","")+" "+c.get("last","")).strip() or "____________________",
         "klient_vorname":c.get("first",""),"klient_nachname":c.get("last",""),
         "klient_geburtsdatum":c.get("dob","") or "__________","klient_adresse":c.get("address","") or "______________________________",
         "klient_telefon":c.get("phone",""),"klient_email":c.get("email",""),"anrede":"Sehr geehrte Kollegin, sehr geehrter Kollege" if rec_first.lower().startswith(("dr","praxis","herr dr","frau dr")) else "Sehr geehrte Damen und Herren",
-        "klient_anrede":anrede,"diagnose":c.get("diagnosis","") or "______________________________",
+        "klient_anrede":anrede,"kostentraeger":" – ".join(x for x in (c.get("payer",""),c.get("insurer","")) if x) or "__________",
+        "versicherungsnummer":c.get("insurance_no","") or "__________","diagnose":c.get("diagnosis","") or "______________________________",
         "therapeut":s.get("owner_name","") or "____________________","qualifikation":s.get("qualifications",""),
         "praxis_name":s.get("practice_name","") or "Psychologische Privatpraxis","praxis_adresse":s.get("address",""),
         "praxis_telefon":s.get("phone","") or s.get("landline",""),"praxis_email":s.get("email",""),
@@ -899,6 +899,115 @@ def write_document_pdf(c,key,body,recipient="",place_date="",signatures=None,use
     document_pdf.render_document_pdf(out,tpl["title"],body,s,practice_logo_path(),recipient_lines,sigs,place_date,ref,lambda code,text: audit(code,text,user))
     audit("DOCUMENT_CREATED",f"{tpl['title']}: {c.get('last','')}, {c.get('first','')}",user)
     return out
+
+# Stammdaten einer Klientenakte, nach Bereichen gegliedert. Gespeichert im verschlüsselten Datenbestand (DB["clients"]).
+# Art: "text" (einzeilig), "multi" (mehrzeilig), oder eine Liste = Auswahlfeld.
+PAYERS=["Selbstzahler","Private Krankenversicherung","Beihilfe + PKV","Heilpraktiker-Zusatzversicherung","Sonstiger Kostenträger"]
+CLIENT_FIELDS=[
+    ("Person",[("last","Nachname *","text"),("first","Vorname *","text"),("gender","Geschlecht (für die Anrede)",["","weiblich","männlich","divers"]),("dob","Geburtsdatum","text"),
+               ("phone","Telefon","text"),("email","E-Mail","text"),("address","Anschrift","text")]),
+    ("Kostenträger",[("payer","Abrechnung",PAYERS),("insurer","Versicherung / Kostenträger","text"),("insurance_no","Versicherungs-/Mitgliedsnummer","text")]),
+    ("Notfallkontakt",[("emergency_name","Name","text"),("emergency_relation","Beziehung","text"),("emergency_phone","Telefon","text")]),
+    ("Ärztliche Versorgung",[("physician","Hausarzt / überweisende Ärztin","multi"),("prior_treatment","Vorbehandlung / Vorbehandler","multi")]),
+    ("Klinisch",[("diagnosis","Diagnose (optional)","text"),("referral_source","Wie auf die Praxis aufmerksam geworden","text")]),
+]
+CLIENT_KEYS=[k for _,fields in CLIENT_FIELDS for k,_,_ in fields]
+
+def salutation_for(c):
+    g=str((c or {}).get("gender","")).lower()
+    if g.startswith("w"): return "Sehr geehrte Frau"
+    if g.startswith("m"): return "Sehr geehrter Herr"
+    return ("Guten Tag "+str((c or {}).get("first","")).strip()).strip()   # wird mit dem Nachnamen ergänzt
+
+class ClientForm(QWidget):
+    """Alle Stammdatenfelder einer Klientenakte, in Karten gruppiert. Für Anlegen und Bearbeiten."""
+    def __init__(self,cc=None,columns=2):
+        super().__init__(); self.fields={}
+        grid=QGridLayout(self); grid.setContentsMargins(0,0,0,0); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(12)
+        for i,(group,items) in enumerate(CLIENT_FIELDS):
+            box=QFrame(); box.setObjectName("formCard"); bv=QVBoxLayout(box); bv.setContentsMargins(14,10,14,12)
+            gt=QLabel(group); gt.setObjectName("sectionTitle"); bv.addWidget(gt)
+            form=QFormLayout(); form.setVerticalSpacing(8); form.setLabelAlignment(Qt.AlignLeft); form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+            for key,label,kind in items:
+                if isinstance(kind,list): ed=QComboBox(); ed.addItems(kind); ed.setEditable(key=="payer")
+                elif kind=="multi": ed=QTextEdit(); ed.setAcceptRichText(False); ed.setFixedHeight(64)
+                else: ed=QLineEdit()
+                if key=="dob": ed.setPlaceholderText("TT.MM.JJJJ")
+                if key=="emergency_phone": ed.setPlaceholderText("im Notfall erreichbar")
+                ed.setMinimumHeight(32) if not isinstance(ed,QTextEdit) else None
+                self.fields[key]=ed; form.addRow(label,ed)
+            bv.addLayout(form)
+            # zweispaltig: Person links (zwei Zeilen hoch), Kostenträger und Notfallkontakt rechts, darunter Ärztliches und Klinisches
+            pos={0:(0,0,2,1),1:(0,1,1,1),2:(1,1,1,1),3:(2,0,1,1),4:(2,1,1,1)}[i] if columns==2 else (i,0,1,1)
+            grid.addWidget(box,*pos)
+        if columns==2: grid.setColumnStretch(0,1); grid.setColumnStretch(1,1)
+        self.set_values(cc or {})
+    def value(self,key):
+        ed=self.fields[key]
+        if isinstance(ed,QComboBox): return ed.currentText().strip()
+        if isinstance(ed,QTextEdit): return ed.toPlainText().strip()
+        return ed.text().strip()
+    def values(self): return {k:self.value(k) for k in CLIENT_KEYS}
+    def set_values(self,cc):
+        for k,ed in self.fields.items():
+            val=str(cc.get(k,"") or "")
+            if isinstance(ed,QComboBox):
+                if k=="payer" and not val: val="Selbstzahler"
+                i=ed.findText(val)
+                if i>=0: ed.setCurrentIndex(i)
+                elif ed.isEditable(): ed.setEditText(val)
+            elif isinstance(ed,QTextEdit): ed.setPlainText(val)
+            else: ed.setText(val)
+    def clear(self): self.set_values({})
+
+def client_form_dialog(parent,title,cc=None):
+    """Dialog mit allen Stammdaten. Liefert die eingegebenen Werte oder None (abgebrochen)."""
+    dlg=QDialog(parent); dlg.setWindowTitle(title); v=QVBoxLayout(dlg)
+    ag=QApplication.primaryScreen().availableGeometry(); dlg.resize(min(1000,int(ag.width()*0.9)),min(760,int(ag.height()*0.88)))
+    form=ClientForm(cc); sc=QScrollArea(); sc.setWidgetResizable(True); sc.setFrameShape(QFrame.NoFrame); sc.setWidget(form); v.addWidget(sc,1)
+    buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); v.addWidget(buttons); result={}
+    def ok():
+        vals=form.values()
+        if not vals["last"] or not vals["first"]: return QMessageBox.warning(dlg,"Fehlt","Vorname und Nachname sind erforderlich.")
+        result.update(vals); dlg.accept()
+    buttons.accepted.connect(ok); buttons.rejected.connect(dlg.reject)
+    return result if dlg.exec()==QDialog.Accepted else None
+
+# ---------------------------------------------------------------- Dokumentenablage der Klientenakte
+DOC_CATEGORIES=["Arztbrief / Befund","Vertrag / Einwilligung (unterschrieben)","Bescheinigung","Korrespondenz","Sonstiges"]
+VIEW_DIR=Path(tempfile.gettempdir())/"PraxisPro_Ansicht"
+
+def clear_view_dir():
+    """Entschlüsselte Ansichtskopien entfernen (beim Start und vor jedem Öffnen). Geöffnete Dateien bleiben bis zum nächsten Mal."""
+    if VIEW_DIR.exists():
+        for f in VIEW_DIR.iterdir():
+            try: f.unlink()
+            except Exception: pass
+
+def client_documents(c):
+    """Alle Dateien im Ordner Dokumente: erstellte PDFs (unverschlüsselt) und importierte Dateien (.enc)."""
+    folder=client_dir(c)/"Dokumente"; out=[]
+    for f in folder.iterdir():
+        if not f.is_file() or f.name.startswith("."): continue
+        shown=f.name[:-4] if f.suffix==".enc" else f.name
+        out.append({"path":str(f),"name":shown,"encrypted":f.suffix==".enc","mtime":f.stat().st_mtime})
+    return sorted(out,key=lambda d:d["mtime"],reverse=True)
+
+def import_client_document(c,src,category):
+    """Kopiert eine Datei verschlüsselt in die Klientenakte. Das Original bleibt unverändert."""
+    src=Path(src); folder=client_dir(c)/"Dokumente"
+    base=f"{datetime.now().strftime('%Y-%m-%d')}_{safe(category.split(' /')[0].split(' (')[0])}_{safe(src.stem)}{src.suffix.lower()}"
+    target=folder/base; n=2
+    while target.exists() or Path(str(target)+".enc").exists(): target=folder/f"{Path(base).stem}_{n}{Path(base).suffix}"; n+=1
+    data=src.read_bytes(); Path(str(target)+".enc").write_bytes(Fernet(encryption_key()).encrypt(data))
+    return str(target)+".enc"
+
+def open_client_document(path):
+    """Öffnet ein Dokument; verschlüsselte Dateien werden in einen temporären Ansichtsordner entschlüsselt."""
+    p=Path(path)
+    if p.suffix!=".enc": QDesktopServices.openUrl(QUrl.fromLocalFile(str(p))); return str(p)
+    VIEW_DIR.mkdir(parents=True,exist_ok=True); clear_view_dir()
+    out=VIEW_DIR/p.name[:-4]; out.write_bytes(decrypt_file_bytes(p)); QDesktopServices.openUrl(QUrl.fromLocalFile(str(out))); return str(out)
 
 def client_dir(c):
     p=ROOT/"Klienten"/safe(f"{c.get('last','')}, {c.get('first','')}")
@@ -1209,9 +1318,9 @@ class NavList(QListWidget):
     def add_section(self,title):
         it=QListWidgetItem(title.upper()); it.setFlags(Qt.NoItemFlags); it.setData(Qt.UserRole,"section")
         f=it.font(); f.setBold(True); f.setLetterSpacing(QFont.PercentageSpacing,108); it.setFont(f)
-        it.setSizeHint(QSize(10,25)); self.addItem(it)
+        it.setSizeHint(QSize(10,23)); self.addItem(it)
     def add_page(self,icon,label,page):
-        it=QListWidgetItem(f"{icon}   {label}"); it.setData(Qt.UserRole,page); it.setSizeHint(QSize(10,30)); self.addItem(it)
+        it=QListWidgetItem(f"{icon}   {label}"); it.setData(Qt.UserRole,page); it.setSizeHint(QSize(10,29)); self.addItem(it)
         row=super().count()-1; self._page_of_row[row]=page; self._row_of_page[page]=row; self.entries.append((row,icon,label))
     def count(self): return len(self._row_of_page)
     def page_label(self,page):
@@ -1286,7 +1395,7 @@ class Main(QMainWindow):
         self.nav=NavList(); self.nav.setObjectName("nav"); self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         # Menü nach Arbeitsbereichen geordnet. Zahl = Seite im Seitenstapel (Reihenfolge unten bei self.pages).
         menu=[("Praxisalltag",[("⌂","Tagesübersicht",0),("✎","Sitzung dokumentieren",1),("▦","Terminkalender",6)]),
-              ("Klienten",[("♙","Klientenakten",3),("＋","Neuer Klient",4),("♥","Paarakte",5),("✉","Formulare & Briefe",12)]),
+              ("Klienten",[("♙","Klientenakten",3),("＋","Neuer Klient",4),("♥","Paarakte",5),("⏳","Warteliste",13),("✉","Formulare & Briefe",12)]),
               ("Abrechnung",[("€","Neue Rechnung",7),("▤","Rechnungen",8)]),
               ("Wissen & Hilfe",[("✦","Sitzungsassistent",2),("📖","Glossar",10),("?","Hilfe · FAQ · Info",11)]),
               ("System",[("⚙","Praxiseinstellungen",9)])]
@@ -1307,7 +1416,7 @@ class Main(QMainWindow):
         tb.addWidget(self.top_logo)
         lockbtn=QPushButton("🔒 Sperren"); lockbtn.setObjectName("lockBtn"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_clicked); tb.addWidget(lockbtn); self.lockbtn=lockbtn
         contentv.addWidget(topbar)
-        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.pages.addWidget(self.documents_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
+        self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.pages.addWidget(self.documents_ui()); self.pages.addWidget(self.waitlist_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
         self.nav.pageChanged.connect(self.navigate); self.nav.setCurrentRow(0)
         root.addWidget(sidebar); root.addWidget(content,1); self.setCentralWidget(shell)
         self.timer=QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(250)
@@ -1367,7 +1476,7 @@ class Main(QMainWindow):
         """)
         self.apply_appearance()
         QShortcut(QKeySequence("Ctrl+L"),self,activated=self.lock_clicked)
-        self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(10000)
+        self.autosave=QTimer(self); self.autosave.timeout.connect(self.autosave_session); self.autosave.start(10000); clear_view_dir()
     def apply_appearance(self):
         if get_setting("ui_migrated_v15","0")!="1":
             # Einmalig: neues ruhiges Standard-Farbschema „Salbei“ (in den Einstellungen umstellbar).
@@ -1554,6 +1663,8 @@ class Main(QMainWindow):
             self.nav.blockSignals(True); self.nav.setCurrentRow(self.pages.currentIndex()); self.nav.blockSignals(False); return
         self.pages.setCurrentIndex(index)
         if index==12 and hasattr(self,"refresh_document_clients"): self.refresh_document_clients()
+        if index==3 and hasattr(self,"refresh_clients_table"): self.refresh_clients_table()
+        if index==13 and hasattr(self,"refresh_waitlist"): self.refresh_waitlist()
     def require_edit(self):
         if self.can_edit(): return True
         QMessageBox.warning(self,"Nur Lesen","Dieser Benutzer hat nur Leserechte und kann keine Daten verändern.")
@@ -1976,7 +2087,7 @@ class Main(QMainWindow):
         st=QLabel("▤  Sitzungsdaten"); st.setObjectName("sectionTitle"); sg.addWidget(st,0,0,1,3)
         self.client_pick=QComboBox(); self.client_pick.setEditable(True); self.client_pick.setInsertPolicy(QComboBox.NoInsert); self.client_pick.setPlaceholderText("Klient auswählen …"); self.client_pick.addItem("Klient auswählen …",None)
         for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.client_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
-        newclient=QPushButton("＋ Neu"); newclient.setMinimumHeight(28); newclient.setMaximumWidth(72); newclient.clicked.connect(self.open_new_client_dialog)
+        newclient=QPushButton("＋ Neu"); newclient.setMinimumHeight(28); newclient.setMaximumWidth(72); newclient.clicked.connect(lambda: self.open_new_client_dialog())
         self.s_date=FlexDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
         self.s_start=FlexTimeEdit(QTime.currentTime()); self.s_end=FlexTimeEdit(QTime.currentTime().addSecs(45*60)); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
         self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); self.s_red=QCheckBox("Ermäßigter Satz")
@@ -2106,35 +2217,223 @@ class Main(QMainWindow):
         h=QHBoxLayout(); h.addStretch(); endsave=QPushButton("💾 Sitzung speichern"); endsave.setMinimumHeight(42); endsave.setMinimumWidth(220); endsave.setStyleSheet("font-weight:700"); endsave.clicked.connect(self.save_session); h.addWidget(endsave); v.addLayout(h)
         body.setMinimumWidth(0); body.setMaximumWidth(1500); scroll.setWidget(body); outer.addWidget(scroll); return page
 
-    def open_new_client_dialog(self):
-        if not self.require_edit(): return
-        dlg=QDialog(self); dlg.setWindowTitle("Neuen Klienten anlegen"); dlg.setMinimumWidth(520); form=QFormLayout(dlg)
-        last=QLineEdit(); first=QLineEdit(); dob=QLineEdit(); dob.setPlaceholderText("TT.MM.JJJJ"); address=QLineEdit(); diagnosis=QLineEdit(); phone=QLineEdit(); email=QLineEdit()
-        form.addRow("Nachname *",last); form.addRow("Vorname *",first); form.addRow("Geburtsdatum",dob); form.addRow("Telefon",phone); form.addRow("E-Mail",email); form.addRow("Adresse",address); form.addRow("Diagnose",diagnosis)
-        buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); form.addRow(buttons)
-        def save_client():
-            if not last.text().strip() or not first.text().strip(): return QMessageBox.warning(dlg,"Fehlt","Vorname und Nachname sind erforderlich.")
-            exists=next((x for x in DB["clients"] if x.get("last","").lower()==last.text().strip().lower() and x.get("first","").lower()==first.text().strip().lower() and x.get("dob","")==dob.text().strip()),None)
-            if exists:return QMessageBox.warning(dlg,"Klient","Dieser Klient ist bereits vorhanden.")
-            cc={"last":last.text().strip(),"first":first.text().strip(),"dob":dob.text().strip(),"phone":phone.text().strip(),"email":email.text().strip(),"address":address.text().strip(),"diagnosis":diagnosis.text().strip()}; DB["clients"].append(cc); save_data()
-            if hasattr(self,"client_pick"): self.client_pick.addItem(f"{cc['last']}, {cc['first']}",cc); self.client_pick.setCurrentIndex(self.client_pick.count()-1)
-            audit("CLIENT_CREATED","Klient angelegt",self.current_user.get("username","") if self.current_user else ""); dlg.accept()
-        buttons.accepted.connect(save_client); buttons.rejected.connect(dlg.reject); dlg.exec()
+    def client_master_tab(self,cc,name_label=None,contact_label=None):
+        """Reiter „Stammdaten & Kostenträger“ in der Klientenakte: Übersicht aller Felder + Bearbeiten."""
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(0,8,0,0)
+        view=QLabel(); view.setWordWrap(True); view.setTextFormat(Qt.RichText); view.setAlignment(Qt.AlignTop|Qt.AlignLeft)
+        sc=QScrollArea(); sc.setWidgetResizable(True); sc.setFrameShape(QFrame.NoFrame); sc.setWidget(view); v.addWidget(sc,1)
+        import html as _html
+        def render():
+            parts=[]
+            for group,items in CLIENT_FIELDS:
+                rows="".join(f"<tr><td style='color:#6b7a72;padding:3px 18px 3px 0;vertical-align:top'>{_html.escape(label.rstrip(' *'))}</td>"
+                             f"<td style='padding:3px 0'>{_html.escape(str(cc.get(key,'') or ('Selbstzahler' if key=='payer' else '–'))).replace(chr(10),'<br>')}</td></tr>" for key,label,_ in items)
+                parts.append(f"<h3 style='color:#2c3b33;margin:12px 0 4px 0'>{_html.escape(group)}</h3><table>{rows}</table>")
+            view.setText("".join(parts))
+        render()
+        row=QHBoxLayout(); row.addStretch(); edit=QPushButton("✎ Stammdaten bearbeiten"); edit.setMinimumHeight(38); row.addWidget(edit); v.addLayout(row)
+        def do_edit():
+            if self.edit_client_record(cc):
+                render()
+                if name_label is not None: name_label.setText(f"{cc.get('first','')} {cc.get('last','')}")
+                if contact_label is not None: contact_label.setText(" · ".join(x for x in [cc.get("phone",""),cc.get("email",""),cc.get("address",""),cc.get("payer","")] if x))
+        edit.clicked.connect(do_edit)
+        return page
+
+    def client_documents_tab(self,cc,dlg=None):
+        """Reiter „Dokumente“: erstellte Formulare und importierte Dateien (Arztbriefe, Befunde, Scans …)."""
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(0,8,0,0)
+        hint=QLabel("Importierte Dateien werden verschlüsselt in der Klientenakte gespeichert (🔒) und nur zum Ansehen kurz entschlüsselt. Das Original auf dem PC bleibt unverändert – löschen Sie es danach bei Bedarf selbst."); hint.setWordWrap(True); hint.setObjectName("pageSub"); v.addWidget(hint)
+        table=QTableWidget(0,3); table.setHorizontalHeaderLabels(["Datum","Dokument",""]); table.horizontalHeader().setSectionResizeMode(1,QHeaderView.Stretch); table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeToContents); table.horizontalHeader().setSectionResizeMode(2,QHeaderView.ResizeToContents)
+        table.setSelectionBehavior(QTableWidget.SelectRows); table.setEditTriggers(QTableWidget.NoEditTriggers); table.verticalHeader().setVisible(False); v.addWidget(table,1)
+        def refresh():
+            table.setRowCount(0)
+            for d in client_documents(cc):
+                r=table.rowCount(); table.insertRow(r)
+                stamp=datetime.fromtimestamp(d["mtime"]).strftime("%d.%m.%Y")
+                name=re.sub(r"^\d{4}-\d{2}-\d{2}(_\d{6})?_","",d["name"]).replace("_"," ")
+                for j,val in enumerate((stamp,name,"🔒 importiert" if d["encrypted"] else "erstellt")):
+                    it=QTableWidgetItem(val); it.setData(Qt.UserRole,d["path"]); table.setItem(r,j,it)
+        def add():
+            if not self.require_edit(): return
+            files,_=QFileDialog.getOpenFileNames(self,"Dokumente zur Klientenakte hinzufügen",str(Path.home()),"Dokumente (*.pdf *.jpg *.jpeg *.png *.tif *.tiff *.docx *.doc *.odt *.txt);;Alle Dateien (*.*)")
+            if not files: return
+            cat,ok=QInputDialog.getItem(self,"Art des Dokuments","Welche Art von Dokument ist das?",DOC_CATEGORIES,0,False)
+            if not ok: return
+            done=0
+            for f in files:
+                try: import_client_document(cc,f,cat); done+=1
+                except Exception as e: QMessageBox.warning(self,"Dokument",f"{Path(f).name} konnte nicht übernommen werden:\n{e}")
+            audit("CLIENT_DOC_IMPORTED",f"{done} Dokument(e) ({cat}): {cc.get('last','')}, {cc.get('first','')}",self.current_user.get("username","")); refresh()
+        def open_selected():
+            r=table.currentRow()
+            if r<0: return QMessageBox.information(self,"Dokument","Bitte zuerst ein Dokument auswählen.")
+            p=table.item(r,0).data(Qt.UserRole)
+            try: open_client_document(p); audit("CLIENT_DOC_OPENED",Path(p).name,self.current_user.get("username",""))
+            except Exception as e: QMessageBox.warning(self,"Dokument","Das Dokument konnte nicht geöffnet werden:\n"+str(e))
+        def new_form():
+            if dlg is not None: dlg.accept()
+            self.nav.setCurrentRow(12); QApplication.processEvents()
+            same=lambda d: isinstance(d,dict) and all(d.get(x,"")==cc.get(x,"") for x in ("last","first","dob"))
+            i=next((k for k in range(self.doc_client.count()) if same(self.doc_client.itemData(k))),-1)
+            if i>=0: self.doc_client.setCurrentIndex(i)
+        row=QHBoxLayout()
+        for text,fn in (("＋ Dokument hinzufügen (Scan, Arztbrief …)",add),("Öffnen",open_selected),("✉ Neues Formular / Brief",new_form),("📂 Ordner öffnen",lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(client_dir(cc)/"Dokumente"))))):
+            b=QPushButton(text); b.setMinimumHeight(38); b.clicked.connect(fn); row.addWidget(b)
+        v.addLayout(row); table.cellDoubleClicked.connect(lambda *_: open_selected()); refresh()
+        return page
+
+    def waitlist_ui(self):
+        """Warteliste: Interessenten erfassen, bevor eine Klientenakte angelegt wird."""
+        DB.setdefault("waitlist",[])
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
+        title=QLabel("Warteliste"); title.setObjectName("pageTitle"); v.addWidget(title)
+        sub=QLabel("Interessenten mit Anliegen, Erreichbarkeit und Dringlichkeit erfassen. Bei freiem Platz mit einem Klick als Klient übernehmen."); sub.setObjectName("pageSub"); sub.setWordWrap(True); v.addWidget(sub)
+        tools=QHBoxLayout(); flt=QComboBox(); flt.addItems(["Offene Einträge","Alle Einträge","Übernommen / abgesagt"]); search=QLineEdit(); search.setPlaceholderText("Suchen …"); search.setClearButtonEnabled(True)
+        tools.addWidget(flt); tools.addWidget(search,1); v.addLayout(tools)
+        split=QSplitter(); split.setChildrenCollapsible(False); self.responsive_split(split,900)
+        table=QTableWidget(0,6); table.setHorizontalHeaderLabels(["Eingang","Name","Dringlichkeit","Erreichbar","Anliegen","Status"])
+        for col,mode in enumerate((QHeaderView.ResizeToContents,QHeaderView.Stretch,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents,QHeaderView.Stretch,QHeaderView.ResizeToContents)): table.horizontalHeader().setSectionResizeMode(col,mode)
+        table.setSelectionBehavior(QTableWidget.SelectRows); table.setSelectionMode(QTableWidget.SingleSelection); table.setEditTriggers(QTableWidget.NoEditTriggers); table.verticalHeader().setVisible(False); table.setMinimumWidth(420)
+        card=QFrame(); card.setObjectName("formCard"); cv=QVBoxLayout(card); cv.setContentsMargins(14,10,14,12)
+        ft=QLabel("Eintrag"); ft.setObjectName("sectionTitle"); cv.addWidget(ft)
+        form=QFormLayout(); form.setVerticalSpacing(8)
+        f_name=QLineEdit(); f_name.setPlaceholderText("Vor- und Nachname"); f_phone=QLineEdit(); f_email=QLineEdit()
+        f_urg=QComboBox(); f_urg.addItems(["normal","hoch","dringend"]); f_payer=QComboBox(); f_payer.addItems(PAYERS); f_payer.setEditable(True)
+        f_status=QComboBox(); f_status.addItems(["wartend","kontaktiert","Erstgespräch vereinbart","übernommen","abgesagt"])
+        days=QWidget(); dl=FlowLayout(days,hspacing=6,vspacing=4); dl.setContentsMargins(0,0,0,0); day_boxes={}
+        for d in ("Mo","Di","Mi","Do","Fr","Sa","vormittags","nachmittags","abends","online"):
+            cb=QCheckBox(d); day_boxes[d]=cb; dl.addWidget(cb)
+        f_concern=QTextEdit(); f_concern.setAcceptRichText(False); f_concern.setFixedHeight(80); f_concern.setPlaceholderText("Anliegen in Stichworten")
+        f_note=QTextEdit(); f_note.setAcceptRichText(False); f_note.setFixedHeight(60); f_note.setPlaceholderText("Notiz, z. B. Rückruf vereinbart am …")
+        for lab,w_ in (("Name *",f_name),("Telefon",f_phone),("E-Mail",f_email),("Dringlichkeit",f_urg),("Kostenträger",f_payer),("Erreichbar",days),("Anliegen",f_concern),("Notiz",f_note),("Status",f_status)): form.addRow(lab,w_)
+        cv.addLayout(form)
+        btns=QWidget(); bl=FlowLayout(btns,hspacing=8,vspacing=8); bl.setContentsMargins(0,4,0,0)
+        b_new=QPushButton("＋ Neuer Eintrag"); b_save=QPushButton("💾 Speichern"); b_take=QPushButton("♙ Als Klient übernehmen"); b_del=QPushButton("Löschen")
+        b_del.setStyleSheet("background:white;color:#b5534b;border:1px solid #d9a9a4")
+        for b in (b_new,b_save,b_take,b_del): b.setMinimumHeight(36); bl.addWidget(b)
+        cv.addWidget(btns); cv.addStretch()
+        split.addWidget(table); split.addWidget(card); split.setStretchFactor(0,3); split.setStretchFactor(1,2); v.addWidget(split,1)
+        state={"id":None}
+        URG={"dringend":0,"hoch":1,"normal":2}
+        def entries():
+            q=search.text().strip().lower(); mode=flt.currentIndex(); out=[]
+            for e in DB["waitlist"]:
+                done=e.get("status") in ("übernommen","abgesagt")
+                if mode==0 and done or mode==2 and not done: continue
+                if q and q not in " ".join(str(x) for x in e.values()).lower(): continue
+                out.append(e)
+            return sorted(out,key=lambda e:(URG.get(e.get("urgency","normal"),3),e.get("created","")))
+        def refresh():
+            table.setRowCount(0)
+            for e in entries():
+                r=table.rowCount(); table.insertRow(r)
+                vals=[_de_date(e.get("created","")[:10]),e.get("name",""),e.get("urgency",""),", ".join(e.get("availability",[])),e.get("concern","").replace("\n"," ")[:80],e.get("status","")]
+                for j,val in enumerate(vals):
+                    it=QTableWidgetItem(val); it.setData(Qt.UserRole,e.get("id"))
+                    if e.get("urgency")=="dringend": it.setForeground(QColor("#b5534b"))
+                    table.setItem(r,j,it)
+            self.nav_badge(13,sum(1 for e in DB["waitlist"] if e.get("status") not in ("übernommen","abgesagt")))
+        self.refresh_waitlist=refresh
+        def load(e):
+            state["id"]=e.get("id") if e else None
+            f_name.setText(e.get("name","") if e else ""); f_phone.setText(e.get("phone","") if e else ""); f_email.setText(e.get("email","") if e else "")
+            f_urg.setCurrentText(e.get("urgency","normal") if e else "normal"); f_payer.setCurrentText(e.get("payer","Selbstzahler") if e else "Selbstzahler")
+            f_status.setCurrentText(e.get("status","wartend") if e else "wartend")
+            av=set(e.get("availability",[])) if e else set()
+            for d,cb in day_boxes.items(): cb.setChecked(d in av)
+            f_concern.setPlainText(e.get("concern","") if e else ""); f_note.setPlainText(e.get("note","") if e else "")
+            ft.setText("Eintrag bearbeiten" if e else "Neuer Eintrag")
+        def current():
+            return next((e for e in DB["waitlist"] if e.get("id")==state["id"]),None)
+        def on_select():
+            r=table.currentRow()
+            if r<0: return
+            eid=table.item(r,0).data(Qt.UserRole); load(next((e for e in DB["waitlist"] if e.get("id")==eid),None))
+        def save():
+            if not self.require_edit(): return None
+            if not f_name.text().strip(): QMessageBox.warning(self,"Warteliste","Bitte einen Namen eingeben."); return None
+            e=current()
+            if e is None:
+                e={"id":datetime.now().strftime("%Y%m%d%H%M%S%f"),"created":datetime.now().isoformat(timespec="seconds")}; DB["waitlist"].append(e); state["id"]=e["id"]
+            e.update({"name":f_name.text().strip(),"phone":f_phone.text().strip(),"email":f_email.text().strip(),"urgency":f_urg.currentText(),"payer":f_payer.currentText().strip(),
+                      "availability":[d for d,cb in day_boxes.items() if cb.isChecked()],"concern":f_concern.toPlainText().strip(),"note":f_note.toPlainText().strip(),"status":f_status.currentText(),"updated":datetime.now().isoformat(timespec="seconds")})
+            save_data(); audit("WAITLIST_SAVED","Wartelisteneintrag gespeichert",self.current_user.get("username","")); refresh(); ft.setText("Eintrag bearbeiten"); return e
+        def take_over():
+            e=save()
+            if not e: return
+            parts=e["name"].split(); first=" ".join(parts[:-1]) if len(parts)>1 else ""; last=parts[-1] if parts else ""
+            cc=self.open_new_client_dialog({"first":first,"last":last,"phone":e.get("phone",""),"email":e.get("email",""),"payer":e.get("payer","")})
+            if cc:
+                e["status"]="übernommen"; e["note"]=(e.get("note","")+"\n" if e.get("note") else "")+f"Als Klient übernommen am {datetime.now().strftime('%d.%m.%Y')}."; save_data(); load(e); refresh()
+                QMessageBox.information(self,"Warteliste",f"{cc['first']} {cc['last']} wurde als Klient angelegt.")
+        def delete():
+            if not self.require_edit(): return
+            e=current()
+            if not e: return
+            if QMessageBox.question(self,"Eintrag löschen",f"Wartelisteneintrag „{e.get('name','')}“ endgültig löschen?\n\nDas kann nicht rückgängig gemacht werden.",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
+            DB["waitlist"].remove(e); save_data(); audit("WAITLIST_DELETED","Wartelisteneintrag gelöscht",self.current_user.get("username","")); load(None); refresh()
+        table.itemSelectionChanged.connect(on_select); b_new.clicked.connect(lambda: (table.clearSelection(),load(None),f_name.setFocus())); b_save.clicked.connect(save); b_take.clicked.connect(take_over); b_del.clicked.connect(delete)
+        flt.currentIndexChanged.connect(lambda *_: refresh()); search.textChanged.connect(lambda *_: refresh())
+        load(None); refresh()
+        return page
+
+    def nav_badge(self,page,count):
+        """Zahl hinter einem Menüpunkt anzeigen, z. B. offene Wartelisteneinträge."""
+        if not hasattr(self,"nav"): return
+        row=self.nav._row_of_page.get(page)
+        if row is None: return
+        for r,icon,label in self.nav.entries:
+            if r==row:
+                base=label.split("  (")[0]; new=base+(f"  ({count})" if count else "")
+                self.nav.entries[self.nav.entries.index((r,icon,label))]=(r,icon,new)
+                it=self.nav.item(row)
+                if it.textAlignment()&Qt.AlignHCenter: it.setToolTip(new)
+                else: it.setText(f"{icon}   {new}")
+                break
+
+    def open_new_client_dialog(self,prefill=None):
+        """Neuen Klienten mit allen Stammdaten anlegen. Liefert den neuen Datensatz oder None."""
+        if not self.require_edit(): return None
+        while True:
+            vals=client_form_dialog(self,"Neuen Klienten anlegen",prefill)
+            if vals is None: return None
+            exists=next((x for x in DB["clients"] if x.get("last","").lower()==vals["last"].lower() and x.get("first","").lower()==vals["first"].lower() and x.get("dob","")==vals["dob"]),None)
+            if not exists: break
+            QMessageBox.warning(self,"Klient","Dieser Klient ist bereits vorhanden."); prefill=vals
+        cc=dict(vals); cc["created_at"]=datetime.now().isoformat(timespec="seconds"); DB["clients"].append(cc); save_data()
+        if hasattr(self,"client_pick"): self.client_pick.addItem(f"{cc['last']}, {cc['first']}",cc); self.client_pick.setCurrentIndex(self.client_pick.count()-1)
+        audit("CLIENT_CREATED","Klient angelegt",self.current_user.get("username","") if self.current_user else "")
+        return cc
+
+    def edit_client_record(self,cc):
+        """Stammdaten bearbeiten (alle Felder). Bei Namensänderung werden Sitzungen und Rechnungen mitgeführt. True = gespeichert."""
+        if not self.require_edit(): return False
+        while True:
+            vals=client_form_dialog(self,f"Klientendaten bearbeiten – {cc.get('first','')} {cc.get('last','')}",cc)
+            if vals is None: return False
+            new_last,new_first=vals["last"],vals["first"]; old_last,old_first=cc.get("last",""),cc.get("first","")
+            name_changed=(old_last!=new_last or old_first!=new_first)
+            if name_changed:
+                duplicate=next((x for x in DB["clients"] if x is not cc and x.get("last","").lower()==new_last.lower() and x.get("first","").lower()==new_first.lower() and x.get("dob","")==vals["dob"]),None)
+                if duplicate: QMessageBox.warning(self,"Klient","Ein Klient mit diesem Namen und Geburtsdatum existiert bereits."); continue
+                if QMessageBox.question(self,"Name ändern",f"Name von {old_first} {old_last} in {new_first} {new_last} ändern?\n\nZugehörige Sitzungen und Rechnungen werden mit aktualisiert.")!=QMessageBox.Yes: continue
+                for sess in DB["sessions"]:
+                    if sess.get("last")==old_last and sess.get("first")==old_first: sess["last"]=new_last; sess["first"]=new_first
+                old_keys={f"{old_last}, {old_first}",f"{old_first} {old_last}"}
+                for inv in DB["invoices"]:
+                    if str(inv.get("client","")).strip() in old_keys: inv["client"]=f"{new_last}, {new_first}"
+            break
+        cc.update(vals); cc["updated_at"]=datetime.now().isoformat(timespec="seconds"); save_data()
+        audit("CLIENT_UPDATED",("Klientenname und Verknüpfungen aktualisiert" if name_changed else "Klientenstammdaten bearbeitet"),self.current_user.get("username","") if self.current_user else "")
+        return True
 
     def edit_session_client(self):
         cc=self.client_pick.currentData() if hasattr(self,"client_pick") else None
         if not isinstance(cc,dict): return QMessageBox.information(self,"Klient","Bitte zuerst einen Klienten auswählen.")
-        dlg=QDialog(self); dlg.setWindowTitle("Klientendaten bearbeiten"); dlg.setMinimumWidth(540); form=QFormLayout(dlg)
-        fields={}
-        for key,label in [("last","Nachname *"),("first","Vorname *"),("dob","Geburtsdatum"),("phone","Telefon"),("email","E-Mail"),("address","Adresse"),("diagnosis","Diagnose (optional)")]:
-            ed=QLineEdit(str(cc.get(key,""))); fields[key]=ed; form.addRow(label,ed)
-        buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); form.addRow(buttons)
-        def save_edit():
-            if not fields["last"].text().strip() or not fields["first"].text().strip(): return QMessageBox.warning(dlg,"Fehlt","Vorname und Nachname sind erforderlich.")
-            for key,ed in fields.items(): cc[key]=ed.text().strip()
-            save_data(); self.s_last.setText(cc.get("last","")); self.s_first.setText(cc.get("first","")); self.s_dob.setText(cc.get("dob","")); self.s_phone.setText(cc.get("phone","")); self.s_email.setText(cc.get("email",""))
-            idx=self.client_pick.currentIndex(); self.client_pick.setItemText(idx,f'{cc.get("last","")}, {cc.get("first","")}'); audit("CLIENT_UPDATED","Klientendaten bearbeitet",self.current_user.get("username","") if self.current_user else ""); dlg.accept()
-        buttons.accepted.connect(save_edit); buttons.rejected.connect(dlg.reject); dlg.exec()
+        if self.edit_client_record(cc):
+            self.s_last.setText(cc.get("last","")); self.s_first.setText(cc.get("first","")); self.s_dob.setText(cc.get("dob","")); self.s_phone.setText(cc.get("phone","")); self.s_email.setText(cc.get("email",""))
+            idx=self.client_pick.currentIndex(); self.client_pick.setItemText(idx,f'{cc.get("last","")}, {cc.get("first","")}')
 
     def save_ink_note(self):
         last=self.s_last.text().strip() if hasattr(self,"s_last") else ""
@@ -3446,42 +3745,46 @@ Write-Output ($lines -join "`n")
         elif done.clickedButton()==open_pdf:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(pdf)))
     def new_client_page(self):
-        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(16)
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(18,14,18,14); v.setSpacing(12)
         title=QLabel("Neuen Klienten anlegen"); title.setObjectName("pageTitle"); v.addWidget(title)
-        sub=QLabel("Stammdaten einmal erfassen und anschließend direkt für Sitzungen und Rechnungen verwenden."); sub.setObjectName("pageSub"); v.addWidget(sub)
-        card=QFrame(); card.setObjectName("formCard"); form=QFormLayout(card); form.setSpacing(14)
-        last=QLineEdit(); first=QLineEdit(); dob=QLineEdit(); dob.setPlaceholderText("TT.MM.JJJJ"); phone=QLineEdit(); email=QLineEdit(); address=QLineEdit(); diagnosis=QLineEdit()
-        for x in (last,first,dob,phone,email,address,diagnosis): x.setMinimumHeight(44)
-        form.addRow("Nachname *",last); form.addRow("Vorname *",first); form.addRow("Geburtsdatum",dob); form.addRow("Telefon",phone); form.addRow("E-Mail",email); form.addRow("Adresse",address); form.addRow("Diagnose (optional)",diagnosis); v.addWidget(card)
-        row=QHBoxLayout(); save=QPushButton("💾 Klient anlegen"); save.setMinimumHeight(52); session=QPushButton("＋ Anlegen und Sitzung öffnen"); session.setMinimumHeight(52)
+        sub=QLabel("Pflicht sind nur Vor- und Nachname. Alles andere kann jederzeit in der Klientenakte ergänzt werden."); sub.setObjectName("pageSub"); v.addWidget(sub)
+        form=ClientForm(); self.new_client_form=form; v.addWidget(form)
+        row=QHBoxLayout(); row.addStretch(); save=QPushButton("💾 Klient anlegen"); save.setMinimumHeight(44); session=QPushButton("＋ Anlegen und Sitzung öffnen"); session.setMinimumHeight(44)
         def create(go_session=False):
             if not self.require_edit():return
-            if not last.text().strip() or not first.text().strip():return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
-            cc={"last":last.text().strip(),"first":first.text().strip(),"dob":dob.text().strip(),"phone":phone.text().strip(),"email":email.text().strip(),"address":address.text().strip(),"diagnosis":diagnosis.text().strip()}
+            cc=form.values()
+            if not cc["last"] or not cc["first"]:return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
+            cc["created_at"]=datetime.now().isoformat(timespec="seconds")
             if any(x.get("last","").lower()==cc["last"].lower() and x.get("first","").lower()==cc["first"].lower() and x.get("dob","")==cc["dob"] for x in DB["clients"]):return QMessageBox.warning(self,"Klient","Dieser Klient ist bereits vorhanden.")
             DB["clients"].append(cc); save_data(); audit("CLIENT_CREATED","Klient angelegt",self.current_user.get("username","") if self.current_user else "")
             if hasattr(self,"client_pick"): self.client_pick.addItem(f"{cc['last']}, {cc['first']}",cc)
             if go_session:
                 self.s_last.setText(cc["last"]); self.s_first.setText(cc["first"]); self.s_dob.setText(cc["dob"]); self.s_phone.setText(cc.get("phone","")); self.s_email.setText(cc.get("email","")); self.client_pick.setCurrentIndex(self.client_pick.count()-1); self.nav.setCurrentRow(1)
             else:
-                QMessageBox.information(self,"Klient","Klient wurde angelegt."); last.clear(); first.clear(); dob.clear(); phone.clear(); email.clear(); address.clear(); diagnosis.clear()
+                QMessageBox.information(self,"Klient","Klient wurde angelegt."); form.clear()
         save.clicked.connect(lambda:create(False)); session.clicked.connect(lambda:create(True)); row.addWidget(save); row.addWidget(session); v.addLayout(row); v.addStretch(); return w
 
     def clients_ui(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(14)
         title=QLabel("Klienten"); title.setObjectName("pageTitle"); v.addWidget(title)
         tools=QHBoxLayout(); search=QLineEdit(); search.setPlaceholderText("Klient suchen …"); search.setClearButtonEnabled(True); tools.addWidget(search,1); v.addLayout(tools)
-        t=QTableWidget(0,5); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum","Telefon","E-Mail"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setAlternatingRowColors(True); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers)
-        for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())):
-            r=t.rowCount(); t.insertRow(r)
-            for j,k in enumerate(["last","first","dob","phone","email"]): t.setItem(r,j,QTableWidgetItem(str(cc.get(k,""))))
+        TABLE_KEYS=["last","first","dob","phone","email","payer"]
+        t=QTableWidget(0,len(TABLE_KEYS)); t.setHorizontalHeaderLabels(["Nachname","Vorname","Geburtsdatum","Telefon","E-Mail","Kostenträger"]); t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); t.setAlternatingRowColors(True); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.clients_table=t
+        def fill_table():
+            t.setRowCount(0)
+            for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())):
+                r=t.rowCount(); t.insertRow(r)
+                for j,k in enumerate(TABLE_KEYS): t.setItem(r,j,QTableWidgetItem(str(cc.get(k,"") or ("Selbstzahler" if k=="payer" else ""))))
+            filter_clients(search.text())
+        self.refresh_clients_table=lambda: fill_table()
         v.addWidget(t)
         def filter_clients(txt):
             q=txt.strip().lower()
             for row in range(t.rowCount()):
                 hay=" ".join(t.item(row,col).text().lower() if t.item(row,col) else "" for col in range(t.columnCount()))
                 t.setRowHidden(row,q not in hay)
-        search.textChanged.connect(filter_clients)
+        search.textChanged.connect(filter_clients); fill_table()
         opensessions=QPushButton("Klientenakte öffnen"); opensessions.setMinimumHeight(48)
         editclient=QPushButton("Klientendaten bearbeiten"); editclient.setMinimumHeight(48)
         def show_sessions():
@@ -3492,7 +3795,7 @@ Write-Output ($lines -join "`n")
             dlg=QDialog(self); dlg.setWindowTitle(f"Klientenakte – {first} {last}"); dlg.resize(980,700); lay=QVBoxLayout(dlg)
             head=QFrame(); head.setObjectName("clientHeader"); hv=QHBoxLayout(head); person=QVBoxLayout(); nm=QLabel(f"{first} {last}"); nm.setObjectName("clientName"); dob=t.item(r,2).text() if t.item(r,2) else ""; meta=QLabel(("Geburtsdatum: "+dob) if dob else "Geburtsdatum nicht hinterlegt"); meta.setObjectName("pageSub"); person.addWidget(nm);person.addWidget(meta);hv.addLayout(person);hv.addStretch(); phone=t.item(r,3).text() if t.item(r,3) else ""; email=t.item(r,4).text() if t.item(r,4) else ""
             cc=next((x for x in DB["clients"] if x.get("last")==last and x.get("first")==first),{})
-            contact=QLabel(" · ".join(x for x in [phone,email,cc.get("address","")] if x) or "Keine Kontaktdaten hinterlegt"); contact.setObjectName("pageSub"); contact.setWordWrap(True); person.addWidget(contact)
+            contact=QLabel(" · ".join(x for x in [phone,email,cc.get("address",""),cc.get("payer","")] if x) or "Keine Kontaktdaten hinterlegt"); contact.setObjectName("pageSub"); contact.setWordWrap(True); person.addWidget(contact)
             count=QLabel(f"{len(rows)} Sitzungen"); count.setObjectName("clientBadge");hv.addWidget(count);lay.addWidget(head)
             stats=QHBoxLayout()
             total_minutes=sum(int(s.get("minutes",0) or 0) for s in rows); unbilled=sum(1 for s in rows if not s.get("billed"))
@@ -3503,6 +3806,9 @@ Write-Output ($lines -join "`n")
             for txt in (f"Gesamt: {len(rows)} Sitzungen",f"Therapiezeit: {total_minutes} Min.",f"Nicht abgerechnet: {unbilled}",f"Offene Rechnungen: {len(open_invoices)} · {open_amount:.2f} €"):
                 badge=QLabel(txt); badge.setObjectName("clientBadge"); badge.setAlignment(Qt.AlignCenter); badge.setMinimumHeight(38); stats.addWidget(badge)
             lay.addLayout(stats)
+            # Akte in Reitern: Verlauf & Rechnungen · Stammdaten · Dokumente
+            outer_lay=lay; akte_tabs=QTabWidget(); akte_tabs.setDocumentMode(True); outer_lay.addWidget(akte_tabs,1)
+            p1=QWidget(); lay=QVBoxLayout(p1); lay.setContentsMargins(0,8,0,0); akte_tabs.addTab(p1,"Sitzungen & Rechnungen")
             section=QLabel("Sitzungsverlauf"); section.setObjectName("sectionTitle"); lay.addWidget(section)
             st=QTableWidget(0,6); st.setHorizontalHeaderLabels(["Datum","Beginn","Ende","Min.","Art","Abgerechnet"]); st.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
             for s in sorted(rows,key=lambda x:x.get("date",""),reverse=True):
@@ -3625,7 +3931,11 @@ Write-Output ($lines -join "`n")
                 else: QMessageBox.information(dlg,"PDF","Das Rechnungs-PDF konnte nicht gefunden werden.")
             open_invoice.clicked.connect(open_client_invoice); it.cellDoubleClicked.connect(lambda *_: open_client_invoice())
             actionrow=QHBoxLayout(); actionrow.addWidget(view); actionrow.addWidget(edit); actionrow.addWidget(invoice); actionrow.addWidget(open_invoice); lay.addLayout(actionrow)
-            close=QDialogButtonBox(QDialogButtonBox.Close); close.rejected.connect(dlg.reject); lay.addWidget(close); dlg.exec()
+            if cc:
+                akte_tabs.addTab(self.client_master_tab(cc,nm,contact),"Stammdaten & Kostenträger")
+                akte_tabs.addTab(self.client_documents_tab(cc,dlg),"Dokumente")
+            close=QDialogButtonBox(QDialogButtonBox.Close); close.rejected.connect(dlg.reject); outer_lay.addWidget(close); dlg.exec()
+            if hasattr(self,"refresh_clients_table"): self.refresh_clients_table()
         opensessions.clicked.connect(show_sessions); t.cellDoubleClicked.connect(lambda *_: show_sessions())
         def edit_client_master():
             r=t.currentRow()
@@ -3633,30 +3943,8 @@ Write-Output ($lines -join "`n")
             last=t.item(r,0).text(); first=t.item(r,1).text()
             cc=next((x for x in DB["clients"] if x.get("last")==last and x.get("first")==first),None)
             if not cc:return
-            dlg=QDialog(self); dlg.setWindowTitle("Klientendaten bearbeiten"); dlg.setMinimumWidth(560); form=QFormLayout(dlg); fields={}
-            for key,label in [("last","Nachname *"),("first","Vorname *"),("dob","Geburtsdatum"),("phone","Telefon"),("email","E-Mail"),("address","Adresse"),("diagnosis","Diagnose (optional)")]:
-                ed=QLineEdit(str(cc.get(key,""))); fields[key]=ed; form.addRow(label,ed)
-            buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel); form.addRow(buttons)
-            def save_master():
-                new_last=fields["last"].text().strip(); new_first=fields["first"].text().strip()
-                if not new_last or not new_first:return QMessageBox.warning(dlg,"Fehlt","Vorname und Nachname sind erforderlich.")
-                old_last,old_first=cc.get("last",""),cc.get("first","")
-                name_changed=(old_last!=new_last or old_first!=new_first)
-                if name_changed:
-                    duplicate=next((x for x in DB["clients"] if x is not cc and x.get("last","").lower()==new_last.lower() and x.get("first","").lower()==new_first.lower() and x.get("dob","")==fields["dob"].text().strip()),None)
-                    if duplicate:return QMessageBox.warning(dlg,"Klient","Ein Klient mit diesem Namen und Geburtsdatum existiert bereits.")
-                    if QMessageBox.question(dlg,"Name ändern",f"Name von {old_first} {old_last} in {new_first} {new_last} ändern?\n\nZugehörige Sitzungen und Rechnungen werden mit aktualisiert.")!=QMessageBox.Yes:return
-                    for sess in DB["sessions"]:
-                        if sess.get("last")==old_last and sess.get("first")==old_first:
-                            sess["last"]=new_last; sess["first"]=new_first
-                    old_keys={f"{old_last}, {old_first}",f"{old_first} {old_last}"}
-                    for inv in DB["invoices"]:
-                        if str(inv.get("client","")).strip() in old_keys: inv["client"]=f"{new_last}, {new_first}"
-                for key,ed in fields.items():cc[key]=ed.text().strip()
-                save_data()
-                for j,key in enumerate(["last","first","dob","phone","email"]):t.setItem(r,j,QTableWidgetItem(str(cc.get(key,""))))
-                audit("CLIENT_UPDATED",("Klientenname und Verknüpfungen aktualisiert" if name_changed else "Klientenstammdaten bearbeitet"),self.current_user.get("username","") if self.current_user else ""); dlg.accept()
-            buttons.accepted.connect(save_master); buttons.rejected.connect(dlg.reject); dlg.exec()
+            if self.edit_client_record(cc):
+                for j,key in enumerate(TABLE_KEYS): t.setItem(r,j,QTableWidgetItem(str(cc.get(key,""))))
         editclient.clicked.connect(edit_client_master)
         newclientbtn=QPushButton("＋ Neuen Klienten anlegen"); newclientbtn.setMinimumHeight(48); newclientbtn.clicked.connect(lambda:self.nav.setCurrentRow(4))
         mainactions=QHBoxLayout(); mainactions.addWidget(opensessions); mainactions.addWidget(editclient); mainactions.addWidget(newclientbtn); v.addLayout(mainactions)

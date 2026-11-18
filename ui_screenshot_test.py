@@ -57,6 +57,7 @@ pages=[
     (9,"Praxiseinstellungen"),
     (10,"Benutzerhandbuch"),
     (12,"Formulare-Briefe"),
+    (13,"Warteliste"),
 ]
 saved=0
 # Mehrere typische Desktop-/Notebook-Auflösungen prüfen. Damit fallen starre,
@@ -137,6 +138,33 @@ doc_pdf=main.write_document_pdf(win.doc_client.currentData(),"teilnahme",main.do
 if not Path(doc_pdf).exists() or Path(doc_pdf).stat().st_size<20000: raise SystemExit("Dokument-PDF fehlt oder ist zu klein")
 if "Dokumente" not in str(doc_pdf): raise SystemExit("Dokument-PDF liegt nicht im Ordner Dokumente der Klientenakte")
 print("Documents functional test OK", doc_pdf)
+
+# Klientenakte: Stammdaten-Formular, Anrede, verschlüsselte Dokumentenablage.
+form=main.ClientForm({"last":"Mustermann","first":"Anna","gender":"weiblich","payer":"Beihilfe + PKV","emergency_name":"Max Mustermann","physician":"Dr. Beispiel\nHauptstr. 1"})
+vals=form.values()
+if vals["gender"]!="weiblich" or vals["payer"]!="Beihilfe + PKV" or "Hauptstr. 1" not in vals["physician"]: raise SystemExit("Stammdatenformular gibt Werte nicht korrekt zurück")
+if set(vals)!=set(main.CLIENT_KEYS): raise SystemExit("Stammdatenformular: Felder fehlen")
+if main.salutation_for({"gender":"weiblich"})!="Sehr geehrte Frau" or main.salutation_for({"gender":"männlich"})!="Sehr geehrter Herr" or main.salutation_for({"first":"Kim"})!="Guten Tag Kim":
+    raise SystemExit("Anrede je nach Geschlecht falsch")
+test_doc=out/"befund-test.txt"; test_doc.write_text("Vertraulicher Testbefund äöü","utf-8")
+enc=main.import_client_document(test_client,test_doc,"Arztbrief / Befund")
+if not enc.endswith(".enc") or b"Testbefund" in Path(enc).read_bytes(): raise SystemExit("Importiertes Dokument ist nicht verschlüsselt")
+if main.decrypt_file_bytes(enc).decode("utf-8")!="Vertraulicher Testbefund äöü": raise SystemExit("Importiertes Dokument lässt sich nicht entschlüsseln")
+if not any(d["path"]==enc for d in main.client_documents(test_client)): raise SystemExit("Importiertes Dokument fehlt in der Dokumentenliste")
+if not test_doc.exists(): raise SystemExit("Original wurde beim Import verändert/entfernt")
+akte=win.client_documents_tab(test_client); akte_master=win.client_master_tab(test_client)
+print("Client record functional test OK")
+
+# Warteliste: Seite baut auf, Einträge werden gefiltert und gezählt.
+main.DB["waitlist"].append({"id":"t1","created":"2026-11-01T10:00:00","name":"Erika Wartend","urgency":"dringend","status":"wartend","availability":["Mo","abends"],"concern":"Schlafprobleme"})
+main.DB["waitlist"].append({"id":"t2","created":"2026-10-01T10:00:00","name":"Otto Fertig","urgency":"normal","status":"übernommen"})
+win.nav.setCurrentRow(13); app.processEvents()
+page=win.pages.currentWidget()
+from PySide6.QtWidgets import QTableWidget as _QT
+wt=[x for x in page.findChildren(_QT)][0]
+if wt.rowCount()!=1 or wt.item(0,1).text()!="Erika Wartend": raise SystemExit("Warteliste filtert offene Einträge nicht korrekt")
+if "(1)" not in win.nav.item(win.nav._row_of_page[13]).text(): raise SystemExit("Wartelisten-Zähler im Menü fehlt")
+print("Waitlist functional test OK")
 
 # Echte Rechnung im isolierten Windows-Test erzeugen.
 # Sie wird ausschließlich durch PraxisPro selbst erstellt, nicht extern nachgebaut.

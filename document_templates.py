@@ -15,7 +15,10 @@ PLACEHOLDERS = {
     "klient_adresse": "Anschrift",
     "klient_telefon": "Telefon",
     "klient_email": "E-Mail",
-    "anrede": "z. B. Sehr geehrte Frau Muster",
+    "anrede": "Anrede an den Empfänger (Kollegin/Kollege oder Damen und Herren)",
+    "klient_anrede": "Anrede an Klient/in, z. B. Sehr geehrte Frau Muster",
+    "kostentraeger": "Kostenträger / Versicherung des Klienten",
+    "versicherungsnummer": "Versicherungs-/Mitgliedsnummer",
     "diagnose": "hinterlegte Diagnose (Klientenakte)",
     "therapeut": "Name Therapeut/in (Praxiseinstellungen)",
     "qualifikation": "Qualifikation (Praxiseinstellungen)",
@@ -142,6 +145,7 @@ Die Bestätigung wird auf Wunsch der Klientin bzw. des Klienten ausgestellt. Sie
         "signatures": ["therapist"],
         "recipient": True,
         "text": """Betreff: {klient_name}, geb. {klient_geburtsdatum}
+Kostenträger: {kostentraeger}, Versicherungsnummer: {versicherungsnummer}
 Eine Schweigepflichtentbindung gegenüber dem Empfänger liegt vor.
 
 ## Anlass der Behandlung
