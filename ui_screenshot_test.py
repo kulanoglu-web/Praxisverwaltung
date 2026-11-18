@@ -199,6 +199,45 @@ if len(g)!=1 or g[0]["status"]!="in Arbeit" or len(g[0]["ratings"])!=1: raise Sy
 win.therapy_tabs.setCurrentIndex(0); app.processEvents()
 print("Therapy record functional test OK")
 
+# Kalender: Serientermine, Konflikte, Monatsansicht, Sitzungszähler; Startseite: Heute, Aufgaben, Lücken.
+import sqlite3 as _sq
+from datetime import date as _date, timedelta as _td
+main.sync_sqlite(); tc["session_quota"]="5"; main.save_data()
+cid=main.sqlite_client_id(tc)
+if not cid: raise SystemExit("Testklient fehlt in der SQLite-Tabelle")
+win.nav.setCurrentRow(6); app.processEvents()
+start=_date.today()+_td(days=1)
+_con=_sq.connect(main.DBFILE); _con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,appointment_type,status,created_at) VALUES(?,?,?,?,?,?,?)",((start+_td(days=14)).isoformat(),"10:15",45,None,"Sonstiger Termin","geplant","x")); _con.commit(); _con.close()
+win.appt_view.setCurrentText("Woche"); app.processEvents()   # baut die Klientenliste neu auf
+win.appt_date.setDate(main.QDate(start.year,start.month,start.day)); win.appt_time.setTime(main.QTime(10,0)); win.appt_minutes.setValue(45)
+win.appt_client.setCurrentIndex(win.appt_client.findData(cid)); win.appt_repeat.setCurrentText("wöchentlich"); win.appt_count.setValue(4)
+next(b for b in win.pages.currentWidget().findChildren(_PB) if "Neuen Termin" in b.text()).click(); app.processEvents()
+_con=_sq.connect(main.DBFILE); rows=_con.execute("SELECT appointment_date,series_id FROM appointments WHERE client_id=? ORDER BY appointment_date",(cid,)).fetchall(); _con.close()
+if len(rows)!=3 or len({r[1] for r in rows})!=1 or not rows[0][1]: raise SystemExit(f"Serientermine falsch angelegt (3 erwartet, Konflikt in Woche 3 übersprungen): {rows}")
+if [r[0] for r in rows]!=[(start+_td(days=d)).isoformat() for d in (0,7,21)]: raise SystemExit(f"Seriendaten falsch: {rows}")
+st=main.client_session_stats(tc)
+if st["planned"]!=3 or st["quota"]!=5: raise SystemExit(f"Sitzungszähler falsch: {st}")
+if "Kontingent" not in main.session_stats_text(tc): raise SystemExit("Kontingent fehlt im Sitzungszähler-Text")
+win.appt_view.setCurrentText("Monat"); app.processEvents()
+if "Monat" not in win.appt_day_title.text(): raise SystemExit("Monatsansicht fehlt")
+# Heute-Termin + abgesagter Termin mit passender Warteliste
+today=_date.today(); _con=_sq.connect(main.DBFILE)
+_con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,appointment_type,status,created_at) VALUES(?,?,?,?,?,?,?)",(today.isoformat(),"23:00",45,cid,"Einzeltherapie","geplant","x"))
+gap_day=today+_td(days=2); _con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,appointment_type,status,created_at) VALUES(?,?,?,?,?,?,?)",(gap_day.isoformat(),"18:00",45,cid,"Einzeltherapie","abgesagt","x")); _con.commit(); _con.close()
+main.DB["waitlist"].append({"id":"gap","created":"2026-01-01","name":"Lücken Test","status":"wartend","urgency":"hoch","availability":[["Mo","Di","Mi","Do","Fr","Sa","So"][gap_day.weekday()],"abends"]})
+gaps=win.waitlist_gaps()
+if not any(any(e.get("name")=="Lücken Test" for e in m) for _,m in gaps): raise SystemExit("Warteliste passt nicht zur frei gewordenen Lücke")
+tasks=" | ".join(t[1] for t in win.dashboard_tasks())
+for need in ("Warteliste",):
+    if need not in tasks: raise SystemExit(f"Aufgabe fehlt auf der Startseite: {need} ({tasks})")
+main.DB["todos"].append({"text":"Rückruf Testperson","created":"2026-11-01T09:00:00","done":False})
+win.nav.setCurrentRow(0); app.processEvents()
+dash=win.dash_scroll.widget()
+texts=" ".join(l.text() for l in dash.findChildren(main.QLabel))+" ".join(c.text() for c in dash.findChildren(main.QCheckBox))
+for need in ("Heute","Aufgaben","Rückruf Testperson","Frei gewordene Termine"):
+    if need not in texts: raise SystemExit(f"Startseite: '{need}' fehlt")
+print("Calendar & dashboard functional test OK")
+
 # Echte Rechnung im isolierten Windows-Test erzeugen.
 # Sie wird ausschließlich durch PraxisPro selbst erstellt, nicht extern nachgebaut.
 win.nav.setCurrentRow(7); app.processEvents()

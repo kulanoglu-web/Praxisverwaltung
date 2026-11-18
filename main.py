@@ -711,6 +711,8 @@ def init_sqlite():
     con.execute("CREATE INDEX IF NOT EXISTS idx_couple_assessments_couple_id ON couple_assessments(couple_id)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_couples_partner_a ON couples(partner_a_client_id)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_couples_partner_b ON couples(partner_b_client_id)")
+    apcols=[r[1] for r in con.execute("PRAGMA table_info(appointments)").fetchall()]
+    if "series_id" not in apcols: con.execute("ALTER TABLE appointments ADD COLUMN series_id TEXT")
     defaults={
       "practice_name":"Psychologische Privatpraxis","owner_name":"Erdoğan Kulanoğlu",
       "qualifications":"Psychologe M.Sc. | Sozialarbeiter B.A.",
@@ -807,7 +809,7 @@ def load_data():
             legacy.unlink(); return d
         except:return {}
     return {}
-DB=load_data(); DB.setdefault("clients",[]); DB.setdefault("sessions",[]); DB.setdefault("invoices",[]); DB.setdefault("waitlist",[])
+DB=load_data(); DB.setdefault("clients",[]); DB.setdefault("sessions",[]); DB.setdefault("invoices",[]); DB.setdefault("waitlist",[]); DB.setdefault("todos",[])
 init_sqlite(); sync_sqlite()
 
 def save_data():
@@ -906,7 +908,7 @@ PAYERS=["Selbstzahler","Private Krankenversicherung","Beihilfe + PKV","Heilprakt
 CLIENT_FIELDS=[
     ("Person",[("last","Nachname *","text"),("first","Vorname *","text"),("gender","Geschlecht (für die Anrede)",["","weiblich","männlich","divers"]),("dob","Geburtsdatum","text"),
                ("phone","Telefon","text"),("email","E-Mail","text"),("address","Anschrift","text")]),
-    ("Kostenträger",[("payer","Abrechnung",PAYERS),("insurer","Versicherung / Kostenträger","text"),("insurance_no","Versicherungs-/Mitgliedsnummer","text")]),
+    ("Kostenträger",[("payer","Abrechnung",PAYERS),("insurer","Versicherung / Kostenträger","text"),("insurance_no","Versicherungs-/Mitgliedsnummer","text"),("session_quota","Bewilligte Sitzungen (Kontingent, optional)","text")]),
     ("Notfallkontakt",[("emergency_name","Name","text"),("emergency_relation","Beziehung","text"),("emergency_phone","Telefon","text")]),
     ("Ärztliche Versorgung",[("physician","Hausarzt / überweisende Ärztin","multi"),("prior_treatment","Vorbehandlung / Vorbehandler","multi")]),
     ("Klinisch",[("diagnosis","Diagnose (optional)","text"),("referral_source","Wie auf die Praxis aufmerksam geworden","text")]),
@@ -921,6 +923,41 @@ def resolve_client(d):
         if c is d: return c
     key=lambda x:(str(x.get("last","")).strip().lower(),str(x.get("first","")).strip().lower(),str(x.get("dob","")).strip())
     return next((c for c in DB["clients"] if key(c)==key(d)),None)
+
+def client_key(c):
+    return hashlib.sha256((str(c.get("first","")).strip().lower()+"|"+str(c.get("last","")).strip().lower()+"|"+str(c.get("dob","")).strip()).encode("utf-8")).hexdigest()
+
+def sqlite_client_id(c):
+    """ID des Klienten in der SQLite-Tabelle (für Termine). None, wenn noch nicht synchronisiert."""
+    if not c: return None
+    con=sqlite3.connect(DBFILE); row=con.execute("SELECT id FROM clients WHERE client_key=? ORDER BY id DESC LIMIT 1",(client_key(c),)).fetchone(); con.close()
+    return row[0] if row else None
+
+def client_for_sqlite_id(cid):
+    if not cid: return None
+    con=sqlite3.connect(DBFILE); row=con.execute("SELECT client_key FROM clients WHERE id=?",(cid,)).fetchone(); con.close()
+    return next((c for c in DB["clients"] if row and client_key(c)==row[0]),None)
+
+def client_session_stats(c):
+    """Sitzungszähler: dokumentierte Sitzungen, künftig geplante Termine, Kontingent und Rest."""
+    done=len(client_sessions(c)) if c else 0; planned=0
+    cid=sqlite_client_id(c)
+    if cid:
+        con=sqlite3.connect(DBFILE); planned=con.execute("SELECT COUNT(*) FROM appointments WHERE client_id=? AND status='geplant' AND appointment_date>=?",(cid,date.today().isoformat())).fetchone()[0]; con.close()
+    try: quota=int(str((c or {}).get("session_quota","")).strip() or 0)
+    except ValueError: quota=0
+    return {"done":done,"planned":planned,"quota":quota,"left":(quota-done) if quota else None}
+
+def session_stats_text(c):
+    st=client_session_stats(c)
+    t=f"Sitzungen bisher: {st['done']}  ·  geplant: {st['planned']}"
+    if st["quota"]:
+        t+=f"  ·  Kontingent: {st['done']} von {st['quota']}"
+        if st["left"]<=0: t+="  ⚠ ausgeschöpft"
+        elif st["done"]+st["planned"]>st["quota"]: t+=f"  ⚠ geplante Termine übersteigen das Kontingent (noch {st['left']} frei)"
+        elif st["left"]<=2: t+=f"  ⚠ nur noch {st['left']} frei"
+        else: t+=f"  (noch {st['left']} frei)"
+    return t
 
 def salutation_for(c):
     g=str((c or {}).get("gender","")).lower()
@@ -1775,6 +1812,7 @@ class Main(QMainWindow):
         self.pages.setCurrentIndex(index)
         if index==12 and hasattr(self,"refresh_document_clients"): self.refresh_document_clients()
         if index==3 and hasattr(self,"refresh_clients_table"): self.refresh_clients_table()
+        if index==0 and hasattr(self,"dash_scroll"): self.refresh_dashboard()
         if index==13 and hasattr(self,"refresh_waitlist"): self.refresh_waitlist()
         if index==14 and hasattr(self,"refresh_therapy"): self.refresh_therapy()
     def require_edit(self):
@@ -1817,18 +1855,32 @@ class Main(QMainWindow):
         refresh_calendar_people()
         form.addRow("Klient",self.appt_client); form.addRow("Paarakte",self.appt_couple)
         self.appt_status=QComboBox(); self.appt_status.addItems(["geplant","erschienen","abgesagt","ausgefallen"]); form.addRow("Status",self.appt_status)
-        self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Interne Terminnotiz – verschlüsselt"); form.addRow("Notiz",self.appt_note); rv.addLayout(form)
+        self.appt_note=QLineEdit(); self.appt_note.setPlaceholderText("Interne Terminnotiz – verschlüsselt"); form.addRow("Notiz",self.appt_note)
+        # Serientermine: gleiche Uhrzeit wöchentlich / 14-tägig / 4-wöchentlich
+        rep=QHBoxLayout(); self.appt_repeat=QComboBox(); self.appt_repeat.addItems(["einmalig","wöchentlich","alle 2 Wochen","alle 4 Wochen"])
+        self.appt_count=QSpinBox(); self.appt_count.setRange(2,52); self.appt_count.setValue(10); self.appt_count.setSuffix(" Termine"); self.appt_count.setVisible(False)
+        self.appt_repeat.currentIndexChanged.connect(lambda i: self.appt_count.setVisible(i>0)); rep.addWidget(self.appt_repeat,1); rep.addWidget(self.appt_count); form.addRow("Wiederholung",rep)
+        rv.addLayout(form)
+        self.appt_stats=QLabel(""); self.appt_stats.setObjectName("pageSub"); self.appt_stats.setWordWrap(True); rv.addWidget(self.appt_stats)
+        def show_stats(*_):
+            c=client_for_sqlite_id(self.appt_client.currentData()); self.appt_stats.setText(session_stats_text(c) if c else "")
+        self.appt_client.currentIndexChanged.connect(show_stats)
         actions=FlowLayout(hspacing=8,vspacing=8); save=QPushButton("＋ Neuen Termin anlegen"); edit=QPushButton("✎ Termin ändern"); delete=QPushButton("Termin löschen"); start=QPushButton("▶ Sitzung starten"); save.setToolTip("Legt mit den Angaben oben einen neuen Termin an."); edit.setToolTip("Erst einen Termin in der Liste unten markieren, dann hier klicken. Danach Angaben ändern und erneut klicken."); actions.addWidget(save); actions.addWidget(edit); actions.addWidget(delete); actions.addWidget(start); rv.addLayout(actions)
         self.responsive_split(split,880); split.addWidget(left); split.addWidget(right); split.setStretchFactor(0,1); split.setStretchFactor(1,1); split.setChildrenCollapsible(False); left.setMinimumWidth(380); right.setMinimumWidth(430); v.addWidget(split,0)
-        viewrow=QHBoxLayout(); self.appt_view=QComboBox(); self.appt_view.addItems(["Tag","Woche"]); viewrow.addWidget(QLabel("Ansicht")); viewrow.addWidget(self.appt_view); viewrow.addStretch(); v.addLayout(viewrow)
+        viewrow=QHBoxLayout(); self.appt_view=QComboBox(); self.appt_view.addItems(["Tag","Woche","Monat"]); viewrow.addWidget(QLabel("Ansicht")); viewrow.addWidget(self.appt_view); viewrow.addStretch(); v.addLayout(viewrow)
         self.appt_day_title=QLabel(); self.appt_day_title.setProperty("class","sectionTitle"); v.addWidget(self.appt_day_title)
         self.appt_list=QTableWidget(0,6); self.appt_list.setHorizontalHeaderLabels(["Zeit","Dauer","Art","Klient / Paar","Status","Notiz"]); self.appt_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.appt_list.setSelectionBehavior(QTableWidget.SelectRows); self.appt_list.setAlternatingRowColors(True); self.appt_list.setMinimumHeight(190); v.addWidget(self.appt_list,1)
         def refresh():
             refresh_calendar_people()
             selected=self.appt_calendar.selectedDate(); d=selected.toString("yyyy-MM-dd"); self.appt_date.setDate(selected)
             con=sqlite3.connect(DBFILE)
-            if self.appt_view.currentText()=="Woche":
-                monday=selected.addDays(1-selected.dayOfWeek()); sunday=monday.addDays(6); self.appt_day_title.setText("Woche "+monday.toString("dd.MM.")+" – "+sunday.toString("dd.MM.yyyy")); rows=con.execute("SELECT a.id,a.start_time,a.minutes,a.appointment_type,c.first,c.last,a.couple_id,a.status,a.note,a.appointment_date FROM appointments a LEFT JOIN clients c ON c.id=a.client_id WHERE a.appointment_date BETWEEN ? AND ? ORDER BY a.appointment_date,a.start_time",(monday.toString("yyyy-MM-dd"),sunday.toString("yyyy-MM-dd"))).fetchall()
+            series_ids={r[0] for r in con.execute("SELECT id FROM appointments WHERE series_id IS NOT NULL AND series_id!=''").fetchall()}
+            if self.appt_view.currentText() in ("Woche","Monat"):
+                if self.appt_view.currentText()=="Woche":
+                    monday=selected.addDays(1-selected.dayOfWeek()); sunday=monday.addDays(6); self.appt_day_title.setText("Woche "+monday.toString("dd.MM.")+" – "+sunday.toString("dd.MM.yyyy"))
+                else:
+                    monday=QDate(selected.year(),selected.month(),1); sunday=monday.addMonths(1).addDays(-1); self.appt_day_title.setText("Monat "+selected.toString("MMMM yyyy"))
+                rows=con.execute("SELECT a.id,a.start_time,a.minutes,a.appointment_type,c.first,c.last,a.couple_id,a.status,a.note,a.appointment_date FROM appointments a LEFT JOIN clients c ON c.id=a.client_id WHERE a.appointment_date BETWEEN ? AND ? ORDER BY a.appointment_date,a.start_time",(monday.toString("yyyy-MM-dd"),sunday.toString("yyyy-MM-dd"))).fetchall()
             else:
                 self.appt_day_title.setText("Termine am "+selected.toString("dd.MM.yyyy")); rows=[x+(d,) for x in con.execute("SELECT a.id,a.start_time,a.minutes,a.appointment_type,c.first,c.last,a.couple_id,a.status,a.note FROM appointments a LEFT JOIN clients c ON c.id=a.client_id WHERE a.appointment_date=? ORDER BY a.start_time",(d,)).fetchall()]
             con.close()
@@ -1853,7 +1905,7 @@ class Main(QMainWindow):
             for r,(aid,t,m,typ,first,last,couple,status,note,rowdate) in enumerate(rows):
                 name=((decrypt_text(first) if first else "")+" "+(decrypt_text(last) if last else "")).strip()
                 if couple: name=(name+" · " if name else "")+"Paarakte #"+str(couple)
-                shown_time=(QDate.fromString(rowdate,"yyyy-MM-dd").toString("ddd dd.MM. ") if self.appt_view.currentText()=="Woche" else "")+t; vals=[shown_time,str(m)+" Min.",typ or "",name,status,decrypt_text(note)]
+                shown_time=(QDate.fromString(rowdate,"yyyy-MM-dd").toString("ddd dd.MM. ") if self.appt_view.currentText()!="Tag" else "")+t; vals=[shown_time,str(m)+" Min.",(typ or "")+("  ⟳" if aid in series_ids else ""),name,status,decrypt_text(note)]
                 for col,val in enumerate(vals):
                     item=QTableWidgetItem(str(val))
                     # Terminarten sofort visuell unterscheiden.
@@ -1867,14 +1919,34 @@ class Main(QMainWindow):
             d=self.appt_date.date().toString("yyyy-MM-dd"); t=self.appt_time.time().toString("HH:mm"); cid=self.appt_client.currentData(); couple=self.appt_couple.currentData()
             if cid and couple: QMessageBox.warning(self,"Termin","Bitte entweder Klient oder Paarakte zuordnen, nicht beides."); return
             con=sqlite3.connect(DBFILE)
-            requested_start=QTime.fromString(t,"HH:mm"); requested_end=requested_start.addSecs(self.appt_minutes.value()*60); conflict=None
-            for eid,estart,eminutes in con.execute("SELECT id,start_time,minutes FROM appointments WHERE appointment_date=? AND status='geplant'",(d,)).fetchall():
-                existing_start=QTime.fromString(estart,"HH:mm"); existing_end=existing_start.addSecs(int(eminutes)*60)
-                if requested_start < existing_end and requested_end > existing_start:
-                    conflict=(eid,estart,eminutes); break
-            if conflict: con.close(); QMessageBox.warning(self,"Terminkonflikt","Der Termin überschneidet sich mit einem bestehenden Termin um "+str(conflict[1])+" Uhr."); return
-            con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,couple_id,appointment_type,status,note,created_at,username) VALUES(?,?,?,?,?,?,?,?,?,?)",(d,t,self.appt_minutes.value(),cid,couple,self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),datetime.now().isoformat(timespec="seconds"),self.current_user.get("username",""))); con.commit(); con.close()
-            audit("APPOINTMENT_CREATE",d+" "+t,self.current_user.get("username","")); self.appt_note.clear(); self.appt_calendar.setSelectedDate(self.appt_date.date()); refresh()
+            requested_start=QTime.fromString(t,"HH:mm"); requested_end=requested_start.addSecs(self.appt_minutes.value()*60)
+            def conflict_on(day):
+                for eid,estart,eminutes in con.execute("SELECT id,start_time,minutes FROM appointments WHERE appointment_date=? AND status='geplant'",(day,)).fetchall():
+                    existing_start=QTime.fromString(estart,"HH:mm"); existing_end=existing_start.addSecs(int(eminutes)*60)
+                    if requested_start < existing_end and requested_end > existing_start: return estart
+                return None
+            step={"wöchentlich":7,"alle 2 Wochen":14,"alle 4 Wochen":28}.get(self.appt_repeat.currentText(),0)
+            count=self.appt_count.value() if step else 1
+            dates=[self.appt_date.date().addDays(i*step) for i in range(count)]
+            first_conflict=conflict_on(d)
+            if first_conflict and not step: con.close(); QMessageBox.warning(self,"Terminkonflikt","Der Termin überschneidet sich mit einem bestehenden Termin um "+str(first_conflict)+" Uhr."); return
+            series_id=datetime.now().strftime("S%Y%m%d%H%M%S%f") if step else None
+            created=[]; skipped=[]
+            for qd in dates:
+                day=qd.toString("yyyy-MM-dd"); c_=conflict_on(day)
+                if c_: skipped.append(qd.toString("dd.MM.yyyy")+f" ({c_} Uhr belegt)"); continue
+                con.execute("INSERT INTO appointments(appointment_date,start_time,minutes,client_id,couple_id,appointment_type,status,note,created_at,username,series_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(day,t,self.appt_minutes.value(),cid,couple,self.appt_type.currentText(),self.appt_status.currentText(),encrypt_text(self.appt_note.text().strip()),datetime.now().isoformat(timespec="seconds"),self.current_user.get("username",""),series_id))
+                created.append(qd.toString("dd.MM.yyyy"))
+            con.commit(); con.close()
+            audit("APPOINTMENT_CREATE",d+" "+t+(f" Serie {len(created)} Termine" if step else ""),self.current_user.get("username",""))
+            self.appt_note.clear(); self.appt_calendar.setSelectedDate(self.appt_date.date()); refresh(); show_stats()
+            if step:
+                msg=f"{len(created)} Serientermine angelegt ({self.appt_repeat.currentText()}, {t} Uhr), vom {created[0] if created else '–'} bis {created[-1] if created else '–'}."
+                if skipped: msg+="\n\nWegen Überschneidung NICHT angelegt:\n• "+"\n• ".join(skipped)
+                c=client_for_sqlite_id(cid)
+                if c: msg+="\n\n"+session_stats_text(c)
+                (QMessageBox.warning if skipped else QMessageBox.information)(self,"Serientermine",msg)
+                self.appt_repeat.setCurrentIndex(0)
         def selected_id():
             row=self.appt_list.currentRow()
             return self.appt_list.item(row,0).data(Qt.UserRole) if row>=0 and self.appt_list.item(row,0) else None
@@ -1909,28 +1981,41 @@ class Main(QMainWindow):
             original_edit_selected()
         def start_session():
             aid=selected_id()
-            if not aid: return
-            con=sqlite3.connect(DBFILE); row=con.execute("SELECT appointment_date,start_time,minutes,client_id,appointment_type FROM appointments WHERE id=?",(aid,)).fetchone(); con.close()
-            if not row: return
-            d,t,m,cid,typ=row
-            self.nav.setCurrentRow(1); app=QApplication.instance(); app.processEvents() if app else None
-            if hasattr(self,"s_date"): self.s_date.setDate(QDate.fromString(d,"yyyy-MM-dd")); self.s_start.setTime(QTime.fromString(t,"HH:mm")); self.s_end.setTime(QTime.fromString(t,"HH:mm").addSecs(int(m)*60)); self.s_type.setCurrentText(typ if typ in ["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"] else "Einzeltherapie")
-            if cid and hasattr(self,"client_pick"):
-                for n in range(self.client_pick.count()):
-                    data=self.client_pick.itemData(n)
-                    if isinstance(data,dict) and data.get("id")==cid: self.client_pick.setCurrentIndex(n); break
+            if aid: self.start_session_from_appointment(aid)
         def remove():
             if not self.require_edit(): return
             row=self.appt_list.currentRow()
             if row<0: return
             aid=self.appt_list.item(row,0).data(Qt.UserRole)
-            if QMessageBox.question(self,"Termin löschen","Ausgewählten Termin wirklich löschen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: return
-            con=sqlite3.connect(DBFILE); con.execute("DELETE FROM appointments WHERE id=?",(aid,)); con.commit(); con.close(); audit("APPOINTMENT_DELETE",str(aid),self.current_user.get("username","")); refresh()
+            con=sqlite3.connect(DBFILE); srow=con.execute("SELECT series_id,appointment_date FROM appointments WHERE id=?",(aid,)).fetchone()
+            sid,adate=(srow or (None,""))
+            later=con.execute("SELECT COUNT(*) FROM appointments WHERE series_id=? AND appointment_date>=?",(sid,adate)).fetchone()[0] if sid else 0
+            if sid and later>1:
+                box=QMessageBox(self); box.setWindowTitle("Serientermin löschen"); box.setText(f"Dieser Termin gehört zu einer Serie ({later} Termine ab diesem Datum).")
+                only=box.addButton("Nur diesen Termin",QMessageBox.AcceptRole); allf=box.addButton(f"Diesen und alle folgenden ({later})",QMessageBox.DestructiveRole); box.addButton("Abbrechen",QMessageBox.RejectRole); box.exec()
+                if box.clickedButton()==allf:
+                    con.execute("DELETE FROM appointments WHERE series_id=? AND appointment_date>=?",(sid,adate)); con.commit(); con.close(); audit("APPOINTMENT_DELETE",f"Serie {sid} ab {adate}: {later}",self.current_user.get("username","")); refresh(); return
+                if box.clickedButton()!=only: con.close(); return
+            elif QMessageBox.question(self,"Termin löschen","Ausgewählten Termin wirklich löschen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)!=QMessageBox.Yes: con.close(); return
+            con.execute("DELETE FROM appointments WHERE id=?",(aid,)); con.commit(); con.close(); audit("APPOINTMENT_DELETE",str(aid),self.current_user.get("username","")); refresh()
         save.clicked.connect(store); edit.clicked.connect(edit_selected); delete.clicked.connect(remove); start.clicked.connect(start_session); self.appt_calendar.selectionChanged.connect(refresh); self.appt_view.currentTextChanged.connect(lambda *_: refresh())
         today.clicked.connect(lambda: self.appt_calendar.setSelectedDate(QDate.currentDate())); prev.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(-1))); nxt.clicked.connect(lambda: self.appt_calendar.setSelectedDate(self.appt_calendar.selectedDate().addDays(1)))
         refresh()
         for _w in (self.appt_date,self.appt_time,self.appt_minutes,self.appt_type,self.appt_client,self.appt_couple,self.appt_status,self.appt_note): _w.setMinimumHeight(38)
         sa=QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QFrame.NoFrame); sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); sa.setWidget(page); return sa
+
+    def start_session_from_appointment(self,aid):
+        """Sitzungsseite mit Datum, Zeit, Art und Klient eines Termins vorbelegen."""
+        con=sqlite3.connect(DBFILE); row=con.execute("SELECT appointment_date,start_time,minutes,client_id,appointment_type FROM appointments WHERE id=?",(aid,)).fetchone(); con.close()
+        if not row: return
+        d,t,m,cid,typ=row
+        self.nav.setCurrentRow(1); QApplication.processEvents()
+        if hasattr(self,"s_date"): self.s_date.setDate(QDate.fromString(d,"yyyy-MM-dd")); self.s_start.setTime(QTime.fromString(t,"HH:mm")); self.s_end.setTime(QTime.fromString(t,"HH:mm").addSecs(int(m)*60)); self.s_type.setCurrentText(typ if typ in ["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"] else "Einzeltherapie")
+        # Früher wurde hier nach einem Feld "id" im Klientendatensatz gesucht, das es nicht gibt – der Klient blieb leer.
+        c=client_for_sqlite_id(cid)
+        if c and hasattr(self,"client_pick"):
+            for n in range(self.client_pick.count()):
+                if resolve_client(self.client_pick.itemData(n)) is c: self.client_pick.setCurrentIndex(n); break
 
     def couples_ui(self):
         page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
@@ -2047,7 +2132,8 @@ class Main(QMainWindow):
         pick.completer().setCompletionMode(QCompleter.PopupCompletion); pick.completer().setFilterMode(Qt.MatchContains); pick.completer().setCaseSensitivity(Qt.CaseInsensitive)
         top.addWidget(pick,1); self.therapy_pick=pick
         self.therapy_alert=QLabel(""); self.therapy_alert.setWordWrap(True); self.therapy_alert.setStyleSheet("background:#fbecea;color:#8a2f28;border:1px solid #e3b4ae;border-radius:8px;padding:6px 10px;font-weight:600"); self.therapy_alert.setVisible(False)
-        v.addLayout(top); v.addWidget(self.therapy_alert)
+        self.therapy_stats=QLabel(""); self.therapy_stats.setObjectName("pageSub")
+        v.addLayout(top); v.addWidget(self.therapy_stats); v.addWidget(self.therapy_alert)
         tabs=QTabWidget(); tabs.setDocumentMode(True); v.addWidget(tabs,1); self.therapy_tabs=tabs
         state={"cc":None,"loading":False}
         user=lambda: (self.current_user or {}).get("username","")
@@ -2268,6 +2354,7 @@ class Main(QMainWindow):
             state["cc"]=resolve_client(pick.currentData())   # Original, nicht die Kopie aus der Auswahlliste
             for w_ in (an_page,go_page,qu_page): w_.setEnabled(state["cc"] is not None)
             an_load(state["cc"]); g_load(None); g_refresh(); q_hist_refresh(); q_live(); update_alert()
+            self.therapy_stats.setText(session_stats_text(state["cc"]) if state["cc"] else "")
         def refresh_clients():
             old=pick.currentData(); pick.blockSignals(True); pick.clear(); pick.addItem("Klient auswählen …",None)
             for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())):
@@ -5120,36 +5207,148 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         return w
 
     def dashboard_ui(self):
-        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(28,28,28,28); v.setSpacing(18)
-        y=str(datetime.now().year); billed=sum(float(i.get("amount",0)) for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")!="storniert"); paid=sum(float(i.get("amount",0)) for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")=="bezahlt"); open_amt=billed-paid
-        title=QLabel("Herzlich willkommen!"); title.setObjectName("pageTitle"); sub=QLabel(f"Psychologische Privatpraxis · Überblick {y}"); sub.setObjectName("pageSub"); v.addWidget(title); v.addWidget(sub)
-        cards=QGridLayout(); cards.setSpacing(14)
-        def card(caption,value):
-            box=QFrame(); box.setObjectName("statCard"); box.setMinimumHeight(104); q=QVBoxLayout(box); a=QLabel(caption); a.setObjectName("cardCaption"); b=QLabel(value); b.setObjectName("cardValue"); q.addWidget(a);q.addWidget(b);return box
-        cards.addWidget(card("ABGERECHNET",f"{billed:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,0)
-        cards.addWidget(card("BEZAHLT",f"{paid:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,1)
-        cards.addWidget(card("OFFEN",f"{open_amt:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")),0,2)
-        cards.addWidget(card("KLIENTEN",str(len(DB["clients"]))),1,0); cards.addWidget(card("SITZUNGEN "+y,str(sum(1 for s in DB["sessions"] if str(s.get("date","")).startswith(y)))),1,1); cards.addWidget(card("OFFENE RECHNUNGEN",str(sum(1 for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status","offen")=="offen"))),1,2); v.addLayout(cards)
-        today=date.today(); overdue=[]
+        """Startseite. Wird bei jedem Aufruf neu aufgebaut (refresh_dashboard), damit Zahlen und Termine aktuell sind."""
+        DB.setdefault("todos",[])
+        sa=QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QFrame.NoFrame); sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.dash_scroll=sa; self.refresh_dashboard(); return sa
+
+    def dashboard_tasks(self):
+        """Automatische Aufgaben: (Symbol, Text, Seite oder None). Wird auch im Test geprüft."""
+        tasks=[]; today=date.today(); y=today.year
+        overdue=[]
         for inv in DB["invoices"]:
             if inv.get("status","offen")!="offen": continue
-            try:
-                invdate=datetime.strptime(inv.get("date",""),"%Y-%m-%d").date()
-                days=(today-invdate).days
-                if days>14: overdue.append((days,inv))
-            except Exception: pass
-        if overdue:
-            overdue.sort(key=lambda z:z[0],reverse=True)
-            alert=QFrame(); alert.setObjectName("formCard"); av=QVBoxLayout(alert); ah=QHBoxLayout()
-            al=QLabel(f"⚠ {len(overdue)} überfällige Rechnung(en)"); al.setObjectName("sectionTitle"); ah.addWidget(al); ah.addStretch()
-            showoverdue=QPushButton("Überfällige Rechnungen anzeigen"); showoverdue.setMinimumHeight(40)
-            def go_overdue():
-                self.nav.setCurrentRow(6)
-            showoverdue.clicked.connect(go_overdue); ah.addWidget(showoverdue); av.addLayout(ah)
-            preview=[]
-            for days,inv in overdue[:3]:
-                preview.append(f'Rechnung {inv.get("number","")} · {float(inv.get("amount",0) or 0):.2f} € · {days} Tage offen')
-            ap=QLabel("\n".join(preview)); ap.setObjectName("pageSub"); ap.setWordWrap(True); av.addWidget(ap); v.addWidget(alert)
+            try: days=(today-datetime.strptime(inv.get("date",""),"%Y-%m-%d").date()).days
+            except Exception: continue
+            if days>14: overdue.append(inv)
+        if overdue: tasks.append(("€",f"{len(overdue)} Rechnung(en) seit über 14 Tagen offen – Zahlungserinnerung prüfen",8))
+        unbilled=[s for s in DB["sessions"] if not s.get("billed")]
+        if unbilled: tasks.append(("▤",f"{len(unbilled)} Sitzung(en) noch nicht abgerechnet",7))
+        con=sqlite3.connect(DBFILE)
+        past=con.execute("SELECT COUNT(*) FROM appointments WHERE status='geplant' AND appointment_date<? AND appointment_date>=?",(today.isoformat(),(today-timedelta(days=30)).isoformat())).fetchone()[0]
+        con.close()
+        if past: tasks.append(("▦",f"{past} vergangene(r) Termin(e) noch auf „geplant“ – Status nachtragen (erschienen / abgesagt / ausgefallen)",6))
+        recent_cut=(today-timedelta(days=90)).isoformat()
+        active=[c for c in DB["clients"] if any(s.get("date","")>=recent_cut for s in client_sessions(c))]
+        missing=[]
+        for c in active:
+            folder=ROOT/"Klienten"/safe(f"{c.get('last','')}, {c.get('first','')}")/"Dokumente"
+            names=" ".join(p.name for p in folder.glob("*")) if folder.exists() else ""
+            need=[lab for key,lab in (("Behandlungsvertrag","Behandlungsvertrag"),("Einwilligung","Datenschutz-Einwilligung")) if key not in names]
+            if need: missing.append(f"{c.get('first','')} {c.get('last','')} ({', '.join(need)})")
+        if missing: tasks.append(("✉",f"Fehlende Unterlagen bei {len(missing)} aktiven Klient(en): "+"; ".join(missing[:3])+(" …" if len(missing)>3 else ""),12))
+        for c in DB["clients"]:
+            st=client_session_stats(c)
+            if st["quota"] and st["left"] is not None and st["left"]<=2:
+                tasks.append(("◔",f"Kontingent {c.get('first','')} {c.get('last','')}: {st['done']} von {st['quota']} Sitzungen"+(" – ausgeschöpft" if st["left"]<=0 else f" – nur noch {st['left']} frei"),14))
+        waiting=[e for e in DB.get("waitlist",[]) if e.get("status") not in ("übernommen","abgesagt")]
+        urgent=[e for e in waiting if e.get("urgency")=="dringend"]
+        if waiting: tasks.append(("⏳",f"Warteliste: {len(waiting)} offen"+(f", davon {len(urgent)} dringend" if urgent else ""),13))
+        return tasks
+
+    def waitlist_gaps(self,days_ahead=14):
+        """Abgesagte/ausgefallene Termine der nächsten Tage + passende Wartelisteneinträge (Wochentag/Tageszeit)."""
+        today=date.today(); wd=["Mo","Di","Mi","Do","Fr","Sa","So"]
+        con=sqlite3.connect(DBFILE)
+        rows=con.execute("SELECT appointment_date,start_time,minutes FROM appointments WHERE status IN ('abgesagt','ausgefallen') AND appointment_date>=? AND appointment_date<=? ORDER BY appointment_date,start_time",(today.isoformat(),(today+timedelta(days=days_ahead)).isoformat())).fetchall()
+        out=[]
+        for d,t,m in rows:
+            # Lücke nur, wenn der Platz nicht schon neu vergeben ist
+            start=QTime.fromString(t,"HH:mm"); end=start.addSecs(int(m)*60)
+            taken=any(QTime.fromString(t2,"HH:mm")<end and QTime.fromString(t2,"HH:mm").addSecs(int(m2)*60)>start for t2,m2 in con.execute("SELECT start_time,minutes FROM appointments WHERE appointment_date=? AND status='geplant'",(d,)).fetchall())
+            if taken: continue
+            day=datetime.strptime(d,"%Y-%m-%d").date(); hour=int(t[:2]); part="vormittags" if hour<12 else ("nachmittags" if hour<17 else "abends")
+            matches=[]
+            for e in DB.get("waitlist",[]):
+                if e.get("status") in ("übernommen","abgesagt"): continue
+                av=set(e.get("availability",[])); days_=av & set(wd); parts=av & {"vormittags","nachmittags","abends"}
+                if (not days_ or wd[day.weekday()] in days_) and (not parts or part in parts): matches.append(e)
+            if matches:
+                matches.sort(key=lambda e:({"dringend":0,"hoch":1}.get(e.get("urgency"),2),e.get("created","")))
+                out.append((f"{wd[day.weekday()]} {day.strftime('%d.%m.')} {t} Uhr",matches))
+        con.close()
+        return out
+
+    def refresh_dashboard(self):
+        if not hasattr(self,"dash_scroll"): return
+        w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(18,14,18,14); v.setSpacing(12)
+        now=datetime.now(); today=date.today(); y=str(now.year)
+        hello="Guten Morgen" if now.hour<11 else ("Guten Tag" if now.hour<18 else "Guten Abend")
+        weekday=["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"][today.weekday()]
+        title=QLabel(hello+"!"); title.setObjectName("pageTitle"); sub=QLabel(f"{weekday}, {today.strftime('%d.%m.%Y')}  ·  {get_setting('practice_name','Psychologische Privatpraxis')}"); sub.setObjectName("pageSub"); v.addWidget(title); v.addWidget(sub)
+        eur=lambda x: f"{x:,.2f} €".replace(",", "X").replace(".", ",").replace("X",".")
+
+        # ---------------------------------------------------------------- Heute + Aufgaben nebeneinander
+        row=QSplitter(); row.setChildrenCollapsible(False); self.responsive_split(row,900)
+        todaycard=QFrame(); todaycard.setObjectName("formCard"); tv=QVBoxLayout(todaycard); tv.setContentsMargins(14,10,14,12)
+        con=sqlite3.connect(DBFILE)
+        appts=con.execute("SELECT a.id,a.start_time,a.minutes,a.appointment_type,a.status,c.first,c.last,a.couple_id FROM appointments a LEFT JOIN clients c ON c.id=a.client_id WHERE a.appointment_date=? ORDER BY a.start_time",(today.isoformat(),)).fetchall()
+        nxt=con.execute("SELECT appointment_date,start_time FROM appointments WHERE appointment_date>? AND status='geplant' ORDER BY appointment_date,start_time LIMIT 1",(today.isoformat(),)).fetchone()
+        con.close()
+        tt=QLabel(f"Heute  ·  {len(appts)} Termin"+("" if len(appts)==1 else "e")); tt.setObjectName("sectionTitle"); tv.addWidget(tt)
+        if appts:
+            tbl=QTableWidget(len(appts),4); tbl.setHorizontalHeaderLabels(["Zeit","Klient / Paar","Art","Status"]); tbl.verticalHeader().setVisible(False)
+            for col,mode in enumerate((QHeaderView.ResizeToContents,QHeaderView.Stretch,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents)): tbl.horizontalHeader().setSectionResizeMode(col,mode)
+            tbl.setSelectionBehavior(QTableWidget.SelectRows); tbl.setSelectionMode(QTableWidget.SingleSelection); tbl.setEditTriggers(QTableWidget.NoEditTriggers)
+            nowt=now.strftime("%H:%M")
+            for r,(aid,t,m,typ,first,last,couple,status) in enumerate(appts):
+                name=((decrypt_text(first) if first else "")+" "+(decrypt_text(last) if last else "")).strip() or (f"Paarakte #{couple}" if couple else "–")
+                end=(datetime.strptime(t,"%H:%M")+timedelta(minutes=int(m))).strftime("%H:%M")
+                for j,val in enumerate((f"{t}–{end}",name,typ or "",status)):
+                    it=QTableWidgetItem(val); it.setData(Qt.UserRole,aid)
+                    if status in ("abgesagt","ausgefallen") or end<nowt: it.setForeground(QColor("#8a968f"))
+                    if t<=nowt<end and status=="geplant": f_=it.font(); f_.setBold(True); it.setFont(f_)
+                    tbl.setItem(r,j,it)
+            tbl.setMaximumHeight(46+34*min(len(appts),8)); tv.addWidget(tbl)
+            tb=QHBoxLayout(); go=QPushButton("▶ Sitzung zum gewählten Termin starten"); go.setMinimumHeight(36)
+            def start_selected():
+                r=tbl.currentRow()
+                if r<0:
+                    upcoming=[i for i,a in enumerate(appts) if a[4]=="geplant" and (datetime.strptime(a[1],"%H:%M")+timedelta(minutes=int(a[2]))).strftime("%H:%M")>=nowt]
+                    if not upcoming: return QMessageBox.information(self,"Heute","Bitte einen Termin auswählen.")
+                    r=upcoming[0]
+                self.start_session_from_appointment(tbl.item(r,0).data(Qt.UserRole))
+            go.clicked.connect(start_selected); tbl.cellDoubleClicked.connect(lambda *_: start_selected()); tb.addWidget(go); tb.addStretch(); tv.addLayout(tb)
+        else:
+            empty=QLabel("Heute sind keine Termine eingetragen."+(f"\nNächster Termin: {_de_date(nxt[0])} um {nxt[1]} Uhr." if nxt else "")); empty.setObjectName("pageSub"); tv.addWidget(empty)
+        cal=QPushButton("▦ Kalender öffnen"); cal.setMinimumHeight(34); cal.clicked.connect(lambda: self.nav.setCurrentRow(6)); tv.addWidget(cal,0,Qt.AlignLeft); tv.addStretch()
+
+        taskcard=QFrame(); taskcard.setObjectName("formCard"); kv=QVBoxLayout(taskcard); kv.setContentsMargins(14,10,14,12); kv.setSpacing(6)
+        tasks=self.dashboard_tasks(); todos=[t_ for t_ in DB["todos"] if not t_.get("done")]
+        kt=QLabel(f"Aufgaben & Erinnerungen  ·  {len(tasks)+len(todos)}"); kt.setObjectName("sectionTitle"); kv.addWidget(kt)
+        if not tasks and not todos:
+            ok=QLabel("✓ Alles erledigt – keine offenen Punkte."); ok.setObjectName("pageSub"); kv.addWidget(ok)
+        for icon,text,page in tasks:
+            line=QHBoxLayout(); lab=QLabel(f"{icon}  {text}"); lab.setWordWrap(True); line.addWidget(lab,1)
+            if page is not None:
+                b=QPushButton("Öffnen"); b.setMinimumHeight(30); b.setStyleSheet("background:white;color:#2c3b33;border:1px solid #c5d0c9"); b.clicked.connect(lambda _=False,p=page: self.nav.setCurrentRow(p)); line.addWidget(b)
+            kv.addLayout(line)
+        if todos:
+            sep=QLabel("Eigene Notizen"); sep.setStyleSheet("color:#6b7a72;font-weight:700;padding-top:6px"); kv.addWidget(sep)
+        for t_ in todos:
+            cb=QCheckBox(t_.get("text","")+(f"  (seit {_de_date(t_.get('created','')[:10])})" if t_.get("created") else ""))
+            def done(_=False,item=t_):
+                item["done"]=True; item["done_at"]=datetime.now().isoformat(timespec="seconds"); save_data(); QTimer.singleShot(0,self.refresh_dashboard)
+            cb.toggled.connect(done); kv.addWidget(cb)
+        addrow=QHBoxLayout(); newtodo=QLineEdit(); newtodo.setPlaceholderText("Neue Erinnerung, z. B. Rückruf Frau M. wegen Termin"); addbtn=QPushButton("＋"); addbtn.setFixedWidth(44); addbtn.setMinimumHeight(32)
+        def add_todo():
+            txt=newtodo.text().strip()
+            if not txt: return
+            DB["todos"].append({"text":txt,"created":datetime.now().isoformat(timespec="seconds"),"done":False}); save_data(); QTimer.singleShot(0,self.refresh_dashboard)
+        addbtn.clicked.connect(add_todo); newtodo.returnPressed.connect(add_todo); addrow.addWidget(newtodo,1); addrow.addWidget(addbtn); kv.addLayout(addrow); kv.addStretch()
+        row.addWidget(todaycard); row.addWidget(taskcard); row.setStretchFactor(0,1); row.setStretchFactor(1,1); v.addWidget(row)
+
+        # ---------------------------------------------------------------- Freie Lücken ↔ Warteliste
+        gaps=self.waitlist_gaps()
+        if gaps:
+            gc=QFrame(); gc.setObjectName("formCard"); gv=QVBoxLayout(gc); gv.setContentsMargins(14,10,14,12)
+            gt=QLabel("Frei gewordene Termine – passend aus der Warteliste"); gt.setObjectName("sectionTitle"); gv.addWidget(gt)
+            for slot,matches in gaps[:5]:
+                names=", ".join(e.get("name","")+(" (dringend)" if e.get("urgency")=="dringend" else "")+(f" · {e.get('phone')}" if e.get("phone") else "") for e in matches[:3])
+                gv.addWidget(QLabel(f"⏳  {slot}:  {names}"+(" …" if len(matches)>3 else "")))
+            wb=QPushButton("Warteliste öffnen"); wb.setMinimumHeight(32); wb.clicked.connect(lambda: self.nav.setCurrentRow(13)); gv.addWidget(wb,0,Qt.AlignLeft); v.addWidget(gc)
+
+        # ---------------------------------------------------------------- Nicht abgeschlossene Sitzung
         if any((ROOT/n).exists() for n in ("Sitzung_Autosave.json.enc","Sitzung_Autosave.json")):
             dr=QFrame(); dr.setObjectName("formCard"); dh=QHBoxLayout(dr); dl=QLabel("Es gibt eine nicht abgeschlossene Sitzung (automatisch gespeichert)."); dl.setWordWrap(True); dh.addWidget(dl,1)
             b_res=QPushButton("Wiederherstellen"); b_dis=QPushButton("Verwerfen")
@@ -5162,11 +5361,37 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
                     except Exception: pass
                 dr.hide()
             b_res.clicked.connect(do_restore); b_dis.clicked.connect(do_discard); v.addWidget(dr)
+
+        # ---------------------------------------------------------------- Finanzen
+        ft=QLabel(f"Finanzen {y}"); ft.setObjectName("sectionTitle"); v.addWidget(ft)
+        month=today.strftime("%Y-%m")
+        yearinv=[i for i in DB["invoices"] if str(i.get("number","")).startswith(y) and i.get("status")!="storniert"]
+        billed=sum(float(i.get("amount",0) or 0) for i in yearinv); paid=sum(float(i.get("amount",0) or 0) for i in yearinv if i.get("status")=="bezahlt")
+        month_billed=sum(float(i.get("amount",0) or 0) for i in DB["invoices"] if str(i.get("date","")).startswith(month) and i.get("status")!="storniert")
+        open_list=[i for i in DB["invoices"] if i.get("status","offen")=="offen"]; open_amt=sum(float(i.get("amount",0) or 0) for i in open_list)
+        cards=QGridLayout(); cards.setSpacing(12)
+        def card(caption,value,hint=""):
+            box=QFrame(); box.setObjectName("statCard"); box.setMinimumHeight(96); q=QVBoxLayout(box); a=QLabel(caption); a.setObjectName("cardCaption"); b=QLabel(value); b.setObjectName("cardValue"); q.addWidget(a); q.addWidget(b)
+            if hint: h_=QLabel(hint); h_.setObjectName("pageSub"); q.addWidget(h_)
+            return box
+        cards.addWidget(card("UMSATZ "+today.strftime("%m/%Y"),eur(month_billed),"abgerechnet in diesem Monat"),0,0)
+        cards.addWidget(card("ABGERECHNET "+y,eur(billed),f"davon bezahlt {eur(paid)}"),0,1)
+        cards.addWidget(card("OFFEN",eur(open_amt),f"{len(open_list)} Rechnung(en)"),0,2)
+        cards.addWidget(card("KLIENTEN",str(len(DB["clients"]))),1,0)
+        cards.addWidget(card("SITZUNGEN "+y,str(sum(1 for s in DB["sessions"] if str(s.get("date","")).startswith(y)))),1,1)
+        cards.addWidget(card("WARTELISTE",str(sum(1 for e in DB.get("waitlist",[]) if e.get("status") not in ("übernommen","abgesagt"))),"offene Einträge"),1,2)
+        v.addLayout(cards)
+
+        # ---------------------------------------------------------------- Schnellzugriff
         quick=QLabel("Schnellzugriff"); quick.setObjectName("sectionTitle"); v.addWidget(quick)
-        actions=QHBoxLayout(); new_session=QPushButton("＋  Neue Sitzung"); new_session.setMinimumHeight(52); new_session.clicked.connect(lambda:self.nav.setCurrentRow(1)); new_invoice=QPushButton("▤  Neue Rechnung"); new_invoice.setMinimumHeight(52); new_invoice.clicked.connect(lambda:self.nav.setCurrentRow(5)); clients=QPushButton("♙  Klienten verwalten"); clients.setMinimumHeight(52); clients.clicked.connect(lambda:self.nav.setCurrentRow(3)); actions.addWidget(new_session);actions.addWidget(new_invoice);actions.addWidget(clients);v.addLayout(actions)
-        info=QLabel(f"Datenbank: {DBFILE}\nDatenordner: {ROOT}"); info.setObjectName("infoBox"); info.setWordWrap(True); v.addWidget(info); v.addStretch()
-        # Scrollfläche: bei niedrigen Fenstern/hoher Windows-Skalierung wird nichts mehr zusammengedrückt.
-        sa=QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QFrame.NoFrame); sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); sa.setWidget(w); return sa
+        actions=QHBoxLayout()
+        for text,page in (("＋  Neue Sitzung",1),("▤  Neue Rechnung",7),("♙  Klientenakten",3),("✉  Formulare & Briefe",12)):
+            b=QPushButton(text); b.setMinimumHeight(46); b.clicked.connect(lambda _=False,p=page: self.nav.setCurrentRow(p)); actions.addWidget(b)
+        v.addLayout(actions)
+        info=QLabel(f"Datenordner: {ROOT}"); info.setObjectName("pageSub"); info.setWordWrap(True); info.setTextInteractionFlags(Qt.TextSelectableByMouse); v.addWidget(info); v.addStretch()
+        old=self.dash_scroll.takeWidget()
+        self.dash_scroll.setWidget(w)
+        if old is not None: old.deleteLater()
 if __name__ == "__main__":
     app=QApplication(sys.argv)
     _ico=bundled_asset("PraxisPro.ico")
