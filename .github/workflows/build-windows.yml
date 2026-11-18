@@ -109,6 +109,27 @@ jobs:
           if ($app.HasExited) { throw "Installed PraxisPro exited/crashed during startup. ExitCode=$($app.ExitCode)" }
           Write-Host "Installed PraxisPro startup test passed (process alive after 10 seconds)."
           Stop-Process -Id $app.Id -Force
+          Start-Sleep -Seconds 2
+
+          # Deinstallation 1: still, ohne /DELETEDATA -> Programm weg, Praxisdaten bleiben erhalten.
+          $data = Join-Path $env:USERPROFILE "Documents\Praxisverwaltung"
+          New-Item -ItemType Directory -Force -Path $data | Out-Null
+          Set-Content -Path (Join-Path $data "uninstall_test_marker.txt") -Value "test"
+          function Wait-Gone($path) { for ($i=0; $i -lt 60; $i++) { if (-not (Test-Path $path)) { return $true }; Start-Sleep -Seconds 1 }; return $false }
+          $uninst = Join-Path $target "unins000.exe"
+          if (-not (Test-Path $uninst)) { throw "Uninstaller missing: $uninst" }
+          Start-Process -FilePath $uninst -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          if (-not (Wait-Gone $exe)) { throw "Uninstall (keep data) did not remove the program" }
+          if (-not (Test-Path (Join-Path $data "uninstall_test_marker.txt"))) { throw "Uninstall (keep data) deleted the practice data!" }
+          Write-Host "Uninstall test 1 passed: program removed, practice data kept."
+
+          # Deinstallation 2: neu installieren, dann still mit /DELETEDATA=1 -> Praxisdaten werden gelöscht.
+          $p = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/DIR=$target" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Reinstall exit code $($p.ExitCode)" }
+          Start-Process -FilePath $uninst -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DELETEDATA=1" -Wait
+          if (-not (Wait-Gone $exe)) { throw "Uninstall (delete data) did not remove the program" }
+          if (-not (Wait-Gone $data)) { throw "Uninstall with /DELETEDATA=1 did not delete the practice data" }
+          Write-Host "Uninstall test 2 passed: program and practice data removed."
       - name: Sign installer
         if: ${{ env.HAS_SIGNING_CERT == 'true' }}
         shell: pwsh

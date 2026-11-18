@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.20.1"
+APP_VERSION = "0.21.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -1574,6 +1574,8 @@ class Main(QMainWindow):
             px=QPixmap(str(logo_path))
             if not px.isNull(): self.top_logo.setPixmap(px.scaled(200,40,Qt.KeepAspectRatio,Qt.SmoothTransformation))
         tb.addWidget(self.top_logo)
+        infobtn=QPushButton("ℹ Info"); infobtn.setObjectName("lockBtn"); infobtn.setMinimumHeight(34); infobtn.setToolTip("Version, Datenordner, Datenschutz und Hilfe"); infobtn.clicked.connect(self.show_info); tb.addWidget(infobtn); self.infobtn=infobtn
+        uninstbtn=QPushButton("Deinstallieren"); uninstbtn.setObjectName("lockBtn"); uninstbtn.setMinimumHeight(34); uninstbtn.setToolTip("PraxisPro von diesem PC entfernen – Sie entscheiden, ob die Praxisdaten erhalten bleiben"); uninstbtn.clicked.connect(self.start_uninstall); tb.addWidget(uninstbtn); self.uninstbtn=uninstbtn
         lockbtn=QPushButton("🔒 Sperren"); lockbtn.setObjectName("lockBtn"); lockbtn.setMinimumHeight(34); lockbtn.setToolTip("PraxisPro sofort sperren (Strg+L)"); lockbtn.clicked.connect(self.lock_clicked); tb.addWidget(lockbtn); self.lockbtn=lockbtn
         contentv.addWidget(topbar)
         self.pages=QStackedWidget(); self.pages.addWidget(self.dashboard_ui()); self.pages.addWidget(self.session_ui()); self.pages.addWidget(self.helper_ui()); self.pages.addWidget(self.clients_ui()); self.pages.addWidget(self.new_client_page()); self.pages.addWidget(self.couples_ui()); self.pages.addWidget(self.calendar_ui()); self.pages.addWidget(self.invoice_ui()); self.pages.addWidget(self.invoices_ui()); self.pages.addWidget(self.settings_ui()); self.pages.addWidget(self.glossary_ui()); self.pages.addWidget(self.manual_ui()); self.pages.addWidget(self.documents_ui()); self.pages.addWidget(self.waitlist_ui()); self.pages.addWidget(self.therapy_ui()); self.pages.addWidget(self.finance_ui()); self.wrap_pages(); contentv.addWidget(self.pages,1)
@@ -1818,6 +1820,7 @@ class Main(QMainWindow):
             self.nav.set_compact(compact)
         if getattr(self,"_tiny",None)!=tiny:
             self._tiny=tiny; self.top_logo.setVisible(not tiny); self.lockbtn.setText("🔒" if tiny else "🔒 Sperren")
+            self.infobtn.setText("ℹ" if tiny else "ℹ Info"); self.uninstbtn.setVisible(not tiny)
         if hasattr(self,"top_logo"): self.top_logo.setVisible(not tiny and w>=1100)
     def navigate(self,index):
         # Einstellungen mit Benutzer-/Sicherheitsverwaltung nur für Administratoren.
@@ -2032,6 +2035,52 @@ class Main(QMainWindow):
         if c and hasattr(self,"client_pick"):
             for n in range(self.client_pick.count()):
                 if resolve_client(self.client_pick.itemData(n)) is c: self.client_pick.setCurrentIndex(n); break
+
+    def show_info(self):
+        """Info-Fenster: Version, Praxis, Datenordner, Schutzstatus, Hilfe."""
+        dlg=QDialog(self); dlg.setWindowTitle("Info – PraxisPro"); dlg.setMinimumWidth(560); v=QVBoxLayout(dlg); v.setSpacing(10)
+        t=QLabel(f"PraxisPro  ·  Version {APP_VERSION}"); t.setObjectName("pageTitle"); v.addWidget(t)
+        s=invoice_settings(); u=self.current_user or {}
+        rows=[("Praxis",get_setting("practice_name","")),("Inhaber",s.get("owner_name","")),("Angemeldet",f"{u.get('display_name',u.get('username',''))} · {u.get('role','')}"),
+              ("Datenordner",str(ROOT)),("Datenschlüssel","an Windows-Konto gebunden (DPAPI)" if key_is_protected() else "Schlüsseldatei im Datenordner – Schutz unter Praxiseinstellungen möglich"),
+              ("Datensicherung",get_setting("backup_dir","") or str(ROOT/"Backups")+"  (im Datenordner – besser USB-Stick wählen)"),
+              ("Klienten / Sitzungen / Rechnungen",f"{len(DB['clients'])} / {len(DB['sessions'])} / {len(DB['invoices'])}"),
+              ("Programmdatei",str(Path(sys.executable).resolve()) if getattr(sys,"frozen",False) else "Entwicklungsversion (Python)")]
+        g=QGridLayout(); g.setHorizontalSpacing(16); g.setVerticalSpacing(6)
+        for r,(k,val) in enumerate(rows):
+            a=QLabel(k); a.setStyleSheet("color:#6b7a72"); b=QLabel(val); b.setWordWrap(True); b.setTextInteractionFlags(Qt.TextSelectableByMouse); g.addWidget(a,r,0,Qt.AlignTop); g.addWidget(b,r,1)
+        g.setColumnStretch(1,1); v.addLayout(g)
+        note=QLabel("Alle Praxisdaten bleiben lokal auf diesem PC und werden verschlüsselt gespeichert. "+get_setting("copyright","© 2026 Erdoğan Kulanoğlu")); note.setWordWrap(True); note.setObjectName("pageSub"); v.addWidget(note)
+        row=QHBoxLayout()
+        b1=QPushButton("📂 Datenordner öffnen"); b1.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(ROOT))))
+        b2=QPushButton("? Hilfe · FAQ"); b2.clicked.connect(lambda: (dlg.accept(),self.nav.setCurrentRow(11)))
+        b3=QPushButton("Schließen"); b3.clicked.connect(dlg.accept)
+        for b in (b1,b2): row.addWidget(b)
+        row.addStretch(); row.addWidget(b3); v.addLayout(row); dlg.exec()
+
+    def find_uninstaller(self):
+        candidates=[Path(sys.executable).resolve().parent/"unins000.exe",Path(os.environ.get("LOCALAPPDATA",""))/"Programs"/"PraxisPro"/"unins000.exe",Path(os.environ.get("ProgramFiles","C:/Program Files"))/"PraxisPro"/"unins000.exe"]
+        return next((p for p in candidates if p.exists()),None)
+
+    def start_uninstall(self):
+        """Deinstallation vorbereiten. Die Frage „Daten behalten oder alles löschen“ stellt der Windows-Deinstaller
+        (so erscheint sie auch bei Deinstallation über die Windows-Einstellungen)."""
+        if not self.is_admin(): return QMessageBox.warning(self,"Keine Berechtigung","Deinstallieren ist Administratoren vorbehalten.")
+        backup_in_root=not get_setting("backup_dir","")
+        box=QMessageBox(self); box.setWindowTitle("PraxisPro deinstallieren"); box.setIcon(QMessageBox.Question)
+        box.setText("PraxisPro von diesem PC entfernen?")
+        box.setInformativeText("Im nächsten Schritt fragt der Windows-Deinstaller, ob Ihre Praxisdaten erhalten bleiben (empfohlen) oder vollständig gelöscht werden sollen.\n\n"
+            f"Datenordner: {ROOT}\n\n"+("Achtung: Ihre Datensicherungen liegen im Datenordner (Unterordner „Backups“). Wenn Sie alles löschen, sind auch diese weg – erstellen Sie vorher eine Sicherung auf einem USB-Stick." if backup_in_root else "Vor dem Deinstallieren wird eine aktuelle Datensicherung empfohlen."))
+        go=box.addButton("Deinstallation starten",QMessageBox.DestructiveRole); bk=box.addButton("Zuerst Datensicherung",QMessageBox.ActionRole); box.addButton("Abbrechen",QMessageBox.RejectRole); box.setDefaultButton(bk); box.exec()
+        if box.clickedButton()==bk:
+            self.nav.setCurrentRow(9); QMessageBox.information(self,"Datensicherung","Unter „Abrechnung & Bank“ finden Sie „Datensicherung erstellen“. Wählen Sie als Ziel am besten einen USB-Stick.\n\nDanach erneut oben auf „Deinstallieren“ klicken."); return
+        if box.clickedButton()!=go: return
+        exe=self.find_uninstaller()
+        if not exe: return QMessageBox.information(self,"Deinstallation","Der Windows-Deinstaller wurde nicht gefunden (Entwicklungsversion?). Bitte PraxisPro über Windows-Einstellungen → Apps → Installierte Apps deinstallieren.")
+        try:
+            audit("UNINSTALL_STARTED","Deinstallation über PraxisPro gestartet",(self.current_user or {}).get("username",""))
+            subprocess.Popen([str(exe)]); QApplication.quit()
+        except Exception as e: QMessageBox.warning(self,"Deinstallation","Deinstaller konnte nicht gestartet werden:\n"+str(e))
 
     def bill_cancellation_fee(self,aid):
         """Rechnung mit Ausfallhonorar für einen abgesagten / nicht wahrgenommenen Termin vorbereiten."""
@@ -5224,13 +5273,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         f.addRow("Programm",QLabel("PraxisPro")); f.addRow("Version",QLabel(APP_VERSION)); f.addRow("Hersteller",QLabel(get_setting("manufacturer","Erdoğan Kulanoğlu"))); f.addRow("Praxis",QLabel(get_setting("practice_name","Psychologische Privatpraxis"))); f.addRow("Copyright",QLabel(get_setting("copyright","© 2026 Erdoğan Kulanoğlu. Alle Rechte vorbehalten."))); iv.addWidget(card)
         warn=QLabel("Vor einer Deinstallation bitte eine aktuelle Datensicherung erstellen. Die Deinstallation entfernt das Programm; Praxisdaten werden nicht automatisch gelöscht."); warn.setWordWrap(True); warn.setObjectName("infoBox"); iv.addWidget(warn)
         uninstall=QPushButton("PraxisPro deinstallieren …"); uninstall.setMinimumHeight(48)
-        def run_uninstall():
-            if QMessageBox.question(self,"PraxisPro deinstallieren","Windows-Deinstallation starten?\n\nBitte vorher eine Datensicherung erstellen. Praxisdaten werden nicht automatisch gelöscht.",QMessageBox.Yes|QMessageBox.No)!=QMessageBox.Yes:return
-            candidates=[Path(os.environ.get("LOCALAPPDATA",""))/"Programs"/"PraxisPro"/"unins000.exe",Path(os.environ.get("ProgramFiles","C:/Program Files"))/"PraxisPro"/"unins000.exe",Path(sys.executable).resolve().parent/"unins000.exe"]
-            exe=next((p for p in candidates if p.exists()),None)
-            if not exe:return QMessageBox.information(self,"Deinstallation","Der Windows-Deinstaller wurde nicht gefunden. Bitte PraxisPro über Windows Einstellungen → Apps → Installierte Apps deinstallieren.")
-            try: subprocess.Popen([str(exe)]); QApplication.quit()
-            except Exception as e: QMessageBox.warning(self,"Deinstallation","Deinstaller konnte nicht gestartet werden:\n"+str(e))
+        run_uninstall=self.start_uninstall
         uninstall.clicked.connect(run_uninstall); iv.addWidget(uninstall); iv.addStretch(); tabs.addTab(info,"Info & Programmverwaltung")
         return w
 

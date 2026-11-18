@@ -68,6 +68,14 @@ Menü **Klienten → Formulare & Briefe** (`document_pdf.py`, Vorlagen in `docum
 
 Die mitgelieferten Texte sind Muster und ersetzen keine Rechtsberatung.
 
+## Info & Deinstallation
+- Oben in der Kopfleiste: **ℹ Info** (Version, Datenordner, Schlüsselschutz, Sicherungsziel) und **Deinstallieren** (nur Administratoren)
+- Der Windows-Deinstaller fragt – auch bei Deinstallation über die Windows-Einstellungen –, ob die Praxisdaten
+  **erhalten bleiben** (empfohlen) oder **alles gelöscht** wird (mit zweiter Sicherheitsabfrage). Datenordner:
+  `%USERPROFILE%\Documents\Praxisverwaltung`. Achtung: Sicherungen im Unterordner `Backups` werden beim Löschen mit entfernt.
+- Stille Deinstallation: `unins000.exe /VERYSILENT` behält die Daten, `/DELETEDATA=1` löscht sie.
+  Beide Varianten werden im Build automatisch getestet.
+
 ## Datenschutz
 - Therapienotizen, Datenbankinhalte und Handschriftnotizen werden verschlüsselt gespeichert.
 - Der Datenschlüssel kann an das Windows-Benutzerkonto gebunden werden (Angebot beim Start bzw.

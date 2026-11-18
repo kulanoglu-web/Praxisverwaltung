@@ -401,3 +401,13 @@ if main.appointment_conflict("2030-01-07","12:00",45) is not None: raise SystemE
 if main.appointment_conflict("2030-01-07","10:00",45,exclude_id=_a) is not None: raise SystemExit("Eigener Termin blockiert sich beim Ändern selbst")
 if any("Unterlagen" in t_[1] for t_ in win.dashboard_tasks()): raise SystemExit("Formulare sind freiwillig – keine Aufgabe 'Fehlende Unterlagen'")
 print("Overlap & optional forms test OK")
+
+# Kopfleiste: Info und Deinstallieren vorhanden; Dialoge bauen ohne Fehler auf (Anzeige im Test unterdrückt).
+if not (win.infobtn.isVisible() and win.uninstbtn.isVisible()): raise SystemExit("Info/Deinstallieren fehlen in der Kopfleiste")
+_orig_dexec=main.QDialog.exec; _orig_mexec=main.QMessageBox.exec
+main.QDialog.exec=lambda self: 0; main.QMessageBox.exec=lambda self: 0
+try:
+    win.show_info(); win.start_uninstall()   # Abbrechen -> kein Deinstaller-Start
+finally:
+    main.QDialog.exec=_orig_dexec; main.QMessageBox.exec=_orig_mexec
+print("Info & uninstall UI test OK")
