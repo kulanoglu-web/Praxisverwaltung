@@ -11,7 +11,7 @@ SETTINGS = {"owner_name": "Erdoğan Kulanoğlu", "practice_name": "Psychologisch
             "landline": "030 12127420", "fax": "030 43205928", "email": "info@psychologe-spandau.de", "website": "www.psychologe-spandau.de",
             "tax_number": "19/405/00254", "iban": "DE13 5001 0517 5404 0811 30", "bic": "INGDDEFFXXX", "paypal": "erdogankulanoglu@hotmail.com", "paypal_me": "erdogankulanoglu"}
 DATA = {"number": "TEST-001", "date": "28.09.2026", "period": "28.09.2026", "first": "Anna", "last": "Mustermann", "address": "Musterstraße 12\n13597 Berlin",
-        "salutation": "Sehr geehrte Frau", "amount": 70.0, "items": [{"date": "28.09.2026", "type": "Einzeltherapie", "minutes": 45, "amount": 70.0}],
+        "salutation": "Sehr geehrte Frau", "amount": 70.99, "personal": True, "items": [{"date": "28.09.2026", "type": "Einzeltherapie", "minutes": 45, "amount": 70.99}],
         "paid_date": "13.10.2026", "reminder_level": 1}
 
 def text_of(pdf):
@@ -29,7 +29,7 @@ def text_of(pdf):
 def main():
     problems = []
     logo, paypal = ROOT / "assets" / "logo.png", ROOT / "assets" / "paypal.png"
-    expect = {"invoice": ["Rechnung", "SEPA", "PayPal", "70,00"], "paid": ["BEGLICHEN", "Vielen Dank für Ihre Zahlung", "Offener Betrag", "13.10.2026"],
+    expect = {"invoice": ["Rechnung", "SEPA", "PayPal", "70 €", "PERSÖNLICH – NUR VOM EMPFÄNGER ZU ÖFFNEN"], "paid": ["BEGLICHEN", "Vielen Dank für Ihre Zahlung", "Offener Betrag"],
               "reminder": ["Zahlungserinnerung", "keinen Zahlungseingang", "SEPA"]}
     with tempfile.TemporaryDirectory() as tmp:
         for mode, words in expect.items():
@@ -43,6 +43,8 @@ def main():
             for w in words:
                 if w not in text: problems.append(f"{mode}: Text '{w}' fehlt")
             if mode == "paid" and "Zahlungsziel" in text: problems.append("paid: enthält noch 'Zahlungsziel'")
+            if mode == "paid" and ("13.10.2026" in text or "Bezahlt am" in text): problems.append("paid: enthält noch ein Zahlungsdatum")
+            if __import__("re").search(r"\d,\d\d\s*€", text): problems.append(f"{mode}: Cent-Beträge im PDF")
             if mode == "invoice":
                 try:
                     import cv2, numpy as np

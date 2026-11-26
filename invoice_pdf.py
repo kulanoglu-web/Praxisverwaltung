@@ -4,6 +4,7 @@ Reines ReportLab, ohne Qt: dadurch einzeln testbar. Alle Praxisdaten kommen übe
 Dictionary ``s`` (Einstellungen), alle Rechnungsdaten über ``d``.
 """
 from pathlib import Path
+import math
 import os
 
 from reportlab.lib.pagesizes import A4
@@ -23,10 +24,19 @@ WHITE = HexColor("#FFFFFF")
 GREEN = HexColor("#2E7D4F")    # nur für den Status "beglichen"
 
 MODES = ("invoice", "paid", "reminder")
+PERSONAL_NOTE = "PERSÖNLICH – NUR VOM EMPFÄNGER ZU ÖFFNEN"
+
+
+def whole_euro(value):
+    """Rechnungsbeträge ohne Cent: immer auf volle Euro abrunden (69,99 → 69)."""
+    try:
+        return int(math.floor(float(value) + 1e-9))
+    except (TypeError, ValueError):
+        return 0
 
 
 def eur(value):
-    return f"{float(value):,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{whole_euro(value):,} €".replace(",", ".")
 
 
 def _fonts():
@@ -100,7 +110,7 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
     address = s.get("address", ""); phone = s.get("phone", ""); landline = s.get("landline", ""); fax = s.get("fax", "")
     email = s.get("email", ""); website = s.get("website", "")
     tax = s.get("tax_number", ""); iban = s.get("iban", ""); bic = s.get("bic", ""); paypal = s.get("paypal", "")
-    amt = float(d["amount"]); no = d["number"]
+    amt = whole_euro(d["amount"]); no = d["number"]
 
     draw_letterhead(can, s, logo_path, log)
 
@@ -109,10 +119,11 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
     can.drawString(L, y, f"{d['first']} {d['last']}"); y -= 5 * mm
     for line in (d.get("address", "").splitlines() or [""]):
         can.drawString(L, y, line); y -= 5 * mm
+    if d.get("personal"):
+        # Vermerk unter der Anschrift
+        y -= 1 * mm; can.setFont(bold, 8.6); can.drawString(L, y, PERSONAL_NOTE); can.setFont(regular, 10)
 
     meta = [("Rechnungs-Nr.:", no), ("Rechnungsdatum:", d["date"]), ("Leistungsdatum:", d["period"])]
-    if mode == "paid":
-        meta.append(("Bezahlt am:", d.get("paid_date", "")))
     my = H - 64 * mm
     for lab, val in meta:
         can.setFont(bold, 9.5); can.drawRightString(152 * mm, my, lab)
@@ -149,7 +160,7 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
     cy = top - rh
     can.setFillColor(NAVY); can.setFont(regular, 8.4)
     for it in d["items"]:
-        unit = float(it["amount"])
+        unit = whole_euro(it["amount"])
         vals = [it["date"], it["type"], f'{int(it["minutes"])} Min.', eur(unit), eur(unit)]
         for j, val in enumerate(vals):
             if j >= 3:
@@ -243,7 +254,7 @@ def render_invoice_pdf(pdf_path, d, s, logo_path=None, paypal_logo_path=None, lo
         can.roundRect(L, by, R - L, bh, 2.5 * mm, stroke=1, fill=1)
         can.setFillColor(GREEN); can.setFont(bold, 13); can.drawString(L + 6 * mm, by + bh - 9 * mm, "Vielen Dank für Ihre Zahlung!")
         can.setFillColor(NAVY); can.setFont(regular, 9.2)
-        msg = (f"Der Rechnungsbetrag von {eur(amt)} ist am {d.get('paid_date', '')} bei mir eingegangen. "
+        msg = (f"Der Rechnungsbetrag von {eur(amt)} ist bei mir eingegangen. "
                "Die Rechnung ist damit vollständig beglichen, es besteht kein offener Betrag mehr.")
         ty2 = by + bh - 16 * mm
         for line in _wrap(can, msg, regular, 9.2, R - L - 12 * mm):

@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 from cryptography.fernet import Fernet, InvalidToken
 
-APP_VERSION = "0.21.0"
+APP_VERSION = "0.22.0"
 ROOT=Path.home()/"Documents"/"Praxisverwaltung"
 DBDIR=ROOT/"Datenbank"; DBFILE=DBDIR/"Praxisverwaltung.db"
 KEYFILE=DBDIR/"praxis.key"
@@ -726,7 +726,7 @@ def init_sqlite():
     # Schon installierte Standardwerte behutsam auf den freigegebenen Rechnungsstand migrieren.
     con.execute("UPDATE settings SET value=? WHERE key=? AND (value IS NULL OR value='')",("030 12127420","landline"))
     con.execute("UPDATE settings SET value=? WHERE key=? AND value=?",("7","logo_y_mm","10"))
-    for name,mins,amount,reduced,mode in [("Einzeltherapie",45,70,60,"proportional"),("Paargespräch",45,70,60,"proportional"),("Onlinegespräch",45,70,60,"proportional"),("Notfalltelefonat",30,45,45,"started_unit"),("Hausbesuch",45,70,60,"proportional_plus_travel"),("Ausfallhonorar",45,70,70,"fixed")]:
+    for name,mins,amount,reduced,mode in [("Einzeltherapie",45,70,60,"proportional"),("Paargespräch",45,70,60,"proportional"),("Onlinegespräch",45,70,60,"proportional"),("Notfalltelefonat",30,45,45,"started_unit"),("Hausbesuch",45,70,60,"proportional_plus_travel"),("Ausfallhonorar",45,70,70,"fixed"),("Erstgespräch",45,70,60,"proportional"),("Testung",45,70,60,"proportional"),("Befunderstellung",45,70,60,"proportional")]:
         con.execute("INSERT OR IGNORE INTO fee_rates(name,minutes,amount,reduced_amount,billing_mode) VALUES(?,?,?,?,?)",(name,mins,amount,reduced,mode))
     con.commit(); con.close()
 
@@ -798,6 +798,17 @@ def get_fee_rates():
     con=sqlite3.connect(DBFILE); rows=con.execute("SELECT name,minutes,amount,reduced_amount,billing_mode FROM fee_rates WHERE active=1 ORDER BY id").fetchall(); con.close()
     return rows
 
+BASE_SERVICE_TYPES=["Einzeltherapie","Paargespräch","Onlinegespräch","Erstgespräch","Testung","Befunderstellung","Notfalltelefonat","Hausbesuch"]
+def service_types(with_cancellation=False):
+    """Leistungsarten für Auswahllisten: Standardleistungen plus eigene Honorarsätze (Praxiseinstellungen → Honorare)."""
+    names=list(BASE_SERVICE_TYPES)
+    try:
+        for r in get_fee_rates():
+            if r[0] not in names and r[0]!="Ausfallhonorar": names.append(r[0])
+    except Exception: pass
+    if with_cancellation: names.append("Ausfallhonorar")
+    return names
+
 def load_data():
     legacy=ROOT/"praxisdaten.json"
     if DATA.exists():
@@ -838,16 +849,28 @@ def write_invoice_pdf(inv,mode,out_path,reminder_level=1,paid_date="",due_text="
     client=next((x for x in DB["clients"] if x.get("last","").lower()==last.lower() and x.get("first","").lower()==first.lower()),{})
     items=[]
     for it in inv.get("items") or []:
-        items.append({"date":_de_date(it.get("date","")),"iso":str(it.get("date","")),"type":it.get("type","") or "Leistung","minutes":int(it.get("minutes",0)),"amount":float(it.get("amount",0))})
+        items.append({"date":_de_date(it.get("date","")),"iso":str(it.get("date","")),"type":it.get("type","") or "Leistung","minutes":int(it.get("minutes",0)),"amount":invoice_pdf.whole_euro(it.get("amount",0))})
     if not items: items=[{"date":_de_date(inv.get("date","")),"iso":str(inv.get("date","")),"type":"Leistung","minutes":0,"amount":float(inv.get("amount",0))}]
     isos=sorted(x["iso"] for x in items if x["iso"])
     period=(_de_date(isos[0]) if len(set(isos))<=1 and isos else (_de_date(isos[0])+" - "+_de_date(isos[-1]) if isos else _de_date(inv.get("date",""))))
     d={"number":inv.get("number",""),"date":_de_date(inv.get("date","")),"period":period,"first":first,"last":last,"address":inv.get("address",""),
        "salutation":salutation_for(client),
-       "amount":float(inv.get("amount",0)),"items":items,"mode":mode,"reminder_level":reminder_level,"paid_date":paid_date,"due_text":due_text}
+       "amount":invoice_pdf.whole_euro(inv.get("amount",0)),"items":items,"mode":mode,"reminder_level":reminder_level,"paid_date":paid_date,"due_text":due_text,
+       "personal":bool(inv.get("personal"))}
     return invoice_pdf.render_invoice_pdf(out_path,d,invoice_settings(),practice_logo_path(),bundled_asset("paypal.png"),lambda code,text: audit(code,text,user))
 
 import document_pdf, document_templates
+import mailer
+
+def mail_config():
+    """SMTP-Zugangsdaten aus den Einstellungen; das Passwort liegt verschlüsselt in der Datenbank."""
+    return {"host":get_setting("smtp_host",""),"port":get_setting("smtp_port","465"),"security":get_setting("smtp_security","SSL/TLS"),
+            "user":get_setting("smtp_user",""),"password":decrypt_text(get_setting("smtp_password","")),
+            "sender":get_setting("smtp_sender","") or get_setting("email",""),"sender_name":get_setting("smtp_sender_name","") or get_setting("owner_name","")}
+
+def mail_tested():
+    """True, wenn mit genau diesen Zugangsdaten schon eine Testmail erfolgreich verschickt wurde."""
+    return bool(get_setting("smtp_tested_key","")) and get_setting("smtp_tested_key","")==mailer.config_key(mail_config())
 
 def practice_city():
     m=re.search(r"\b\d{5}\s+([^,\n]+)",get_setting("address",""))
@@ -1224,6 +1247,15 @@ def next_no():
     return y+f"{(max(nums,default=0)+1):04d}"
 
 def amount_for(minutes,typ,reduced):
+    """Honorar für eine Leistung – immer volle Euro, abgerundet (keine Cent-Beträge)."""
+    return invoice_pdf.whole_euro(_amount_raw(minutes,typ,reduced))
+
+def item_amount(s):
+    """Betrag einer Rechnungsposition/Sitzung in vollen Euro (gespeicherter Betrag hat Vorrang)."""
+    if s.get("amount") not in (None,""): return invoice_pdf.whole_euro(s.get("amount"))
+    return amount_for(int(s.get("minutes",0) or 0),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))
+
+def _amount_raw(minutes,typ,reduced):
     rates={r[0]:r for r in get_fee_rates()}
     row=rates.get(typ)
     if row:
@@ -1852,7 +1884,7 @@ class Main(QMainWindow):
         self.appt_date=FlexDateEdit(QDate.currentDate()); self.appt_date.setCalendarPopup(True); self.appt_date.setDisplayFormat("dd.MM.yyyy")
         self.appt_time=FlexTimeEdit(QTime.currentTime()); self.appt_time.setDisplayFormat("HH:mm")
         self.appt_minutes=QSpinBox(); self.appt_minutes.setRange(5,300); self.appt_minutes.setValue(45); self.appt_minutes.setSuffix(" Min.")
-        self.appt_type=QComboBox(); self.appt_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Sonstiger Termin"])
+        self.appt_type=QComboBox(); self.appt_type.addItems(service_types()+["Sonstiger Termin"])
         rv.addWidget(QLabel("<b style='font-size:17px'>Termin anlegen / ändern</b>")); form=QFormLayout(); form.setVerticalSpacing(10); form.addRow("Datum",self.appt_date); form.addRow("Beginn",self.appt_time); form.addRow("Dauer",self.appt_minutes); form.addRow("Terminart",self.appt_type)
         self.appt_client=QComboBox(); self.appt_client.setEditable(True); self.appt_client.setInsertPolicy(QComboBox.NoInsert); self.appt_client.setMaxVisibleItems(18)
         self.appt_client.lineEdit().setPlaceholderText("Klient suchen – Name eingeben …")
@@ -2029,7 +2061,7 @@ class Main(QMainWindow):
         if not row: return
         d,t,m,cid,typ=row
         self.nav.setCurrentRow(1); QApplication.processEvents()
-        if hasattr(self,"s_date"): self.s_date.setDate(QDate.fromString(d,"yyyy-MM-dd")); self.s_start.setTime(QTime.fromString(t,"HH:mm")); self.s_end.setTime(QTime.fromString(t,"HH:mm").addSecs(int(m)*60)); self.s_type.setCurrentText(typ if typ in ["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"] else "Einzeltherapie")
+        if hasattr(self,"s_date"): self.s_date.setDate(QDate.fromString(d,"yyyy-MM-dd")); self.s_start.setTime(QTime.fromString(t,"HH:mm")); self.s_end.setTime(QTime.fromString(t,"HH:mm").addSecs(int(m)*60)); self.s_type.setCurrentText(typ if typ in service_types() else "Einzeltherapie")
         # Früher wurde hier nach einem Feld "id" im Klientendatensatz gesucht, das es nicht gibt – der Klient blieb leer.
         c=client_for_sqlite_id(cid)
         if c and hasattr(self,"client_pick"):
@@ -2100,7 +2132,7 @@ class Main(QMainWindow):
         self.pending_sessions=None; self.manual_items=[{"date":d,"start":t,"end":end,"minutes":int(m),"type":"Ausfallhonorar","reduced":False,"amount":amount}]
         if hasattr(self,"refresh_invoice_items"): self.refresh_invoice_items()
         audit("CANCELLATION_FEE_PREPARED",f"Termin {d} {t}: {amount:.2f}",(self.current_user or {}).get("username",""))
-        QMessageBox.information(self,"Ausfallhonorar",f"Die Rechnung ist vorbereitet: Ausfallhonorar für den Termin am {_de_date(d)} um {t} Uhr über {amount:.2f} €.\n\nBitte prüfen und dann wie gewohnt „Rechnung erstellen“. Den Betrag des Ausfallhonorars ändern Sie unter Praxiseinstellungen → Honorare.")
+        QMessageBox.information(self,"Ausfallhonorar",f"Die Rechnung ist vorbereitet: Ausfallhonorar für den Termin am {_de_date(d)} um {t} Uhr über {invoice_pdf.eur(amount)}.\n\nBitte prüfen und dann wie gewohnt „Rechnung erstellen“. Den Betrag des Ausfallhonorars ändern Sie unter Praxiseinstellungen → Honorare.")
         return True
 
     def couples_ui(self):
@@ -2465,7 +2497,8 @@ class Main(QMainWindow):
     def finance_ui(self):
         """Ausgaben mit Belegen, Kassenbuch (bar) und EÜR-Auswertung mit Export für den Steuerberater."""
         import finance as F
-        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(18,14,18,14); v.setSpacing(10)
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(24,18,24,24); v.setSpacing(14)
+        page.setMinimumHeight(860)   # lieber scrollen als Felder zusammenquetschen
         title=QLabel("Ausgaben & EÜR"); title.setObjectName("pageTitle"); v.addWidget(title)
         top=QHBoxLayout(); top.addWidget(QLabel("Jahr")); year=QComboBox(); this=date.today().year
         years=sorted({this}|{int(str(x.get("date",""))[:4]) for x in DB["expenses"]+DB["cash"] if str(x.get("date",""))[:4].isdigit()}|{int(str(i.get("paid_date",""))[:4]) for i in DB["invoices"] if str(i.get("paid_date",""))[:4].isdigit()},reverse=True)
@@ -2483,23 +2516,25 @@ class Main(QMainWindow):
         etable=QTableWidget(0,6); etable.setHorizontalHeaderLabels(["Datum","Kategorie","Beschreibung","Zahlart","Beleg","Betrag"]); etable.verticalHeader().setVisible(False)
         for col,mode in enumerate((QHeaderView.ResizeToContents,QHeaderView.ResizeToContents,QHeaderView.Stretch,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents)): etable.horizontalHeader().setSectionResizeMode(col,mode)
         etable.setSelectionBehavior(QTableWidget.SelectRows); etable.setSelectionMode(QTableWidget.SingleSelection); etable.setEditTriggers(QTableWidget.NoEditTriggers)
-        eleft=QWidget(); elv=QVBoxLayout(eleft); elv.setContentsMargins(0,0,0,0); elv.addWidget(etable,1); esum=QLabel(""); esum.setStyleSheet("font-weight:700"); elv.addWidget(esum)
-        ecard=QFrame(); ecard.setObjectName("formCard"); ecv=QVBoxLayout(ecard); ecv.setContentsMargins(14,10,14,12)
+        eleft=QWidget(); elv=QVBoxLayout(eleft); elv.setContentsMargins(0,0,0,0); esum=QLabel(""); esum.setStyleSheet("font-weight:700;padding:2px 2px 8px 2px"); elv.addWidget(esum); etable.setMinimumHeight(360); elv.addWidget(etable,1)
+        ecard=QFrame(); ecard.setObjectName("formCard"); ecv=QVBoxLayout(ecard); ecv.setContentsMargins(22,18,22,20); ecv.setSpacing(12); ecard.setMinimumWidth(420)
         etitle=QLabel("Neue Ausgabe"); etitle.setObjectName("sectionTitle"); ecv.addWidget(etitle)
-        ef=QFormLayout(); ef.setVerticalSpacing(8)
+        ef=QFormLayout(); ef.setVerticalSpacing(14); ef.setHorizontalSpacing(18); ef.setLabelAlignment(Qt.AlignLeft|Qt.AlignVCenter); ef.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         e_date=FlexDateEdit(QDate.currentDate()); e_date.setCalendarPopup(True); e_date.setDisplayFormat("dd.MM.yyyy")
         e_cat=QComboBox(); e_cat.addItems(F.EXPENSE_CATEGORIES); e_desc=QLineEdit(); e_desc.setPlaceholderText("z. B. Miete Praxisraum November")
         e_amt=QDoubleSpinBox(); e_amt.setRange(0,1000000); e_amt.setDecimals(2); e_amt.setSuffix(" €"); e_amt.setGroupSeparatorShown(True)
         e_pay=QComboBox(); e_pay.addItems(F.PAYMENT_METHODS); e_rec=QLabel("kein Beleg"); e_rec.setObjectName("pageSub")
+        for w_ in (e_date,e_cat,e_desc,e_amt,e_pay): w_.setMinimumHeight(44)
+        e_rec.setWordWrap(True)
         for lab,w_ in (("Datum",e_date),("Kategorie",e_cat),("Beschreibung",e_desc),("Betrag (brutto)",e_amt),("Zahlart",e_pay),("Beleg",e_rec)): ef.addRow(lab,w_)
         ecv.addLayout(ef)
-        eb=QWidget(); ebl=FlowLayout(eb,hspacing=8,vspacing=8); ebl.setContentsMargins(0,4,0,0)
+        eb=QWidget(); ebl=FlowLayout(eb,hspacing=12,vspacing=12); ebl.setContentsMargins(0,10,0,6)
         b_enew=QPushButton("＋ Neue Ausgabe"); b_esave=QPushButton("💾 Speichern"); b_erec=QPushButton("📎 Beleg anhängen"); b_eopen=QPushButton("Beleg öffnen"); b_edel=QPushButton("Löschen")
         b_edel.setStyleSheet("background:white;color:#b5534b;border:1px solid #d9a9a4")
-        for b in (b_enew,b_esave,b_erec,b_eopen,b_edel): b.setMinimumHeight(34); ebl.addWidget(b)
+        for b in (b_enew,b_esave,b_erec,b_eopen,b_edel): b.setMinimumHeight(44); ebl.addWidget(b)
         ecv.addWidget(eb)
         hint=QLabel("Beträge brutto erfassen – die Praxis ist nach § 4 Nr. 14 UStG umsatzsteuerfrei, ein Vorsteuerabzug entfällt. Barzahlungen erscheinen automatisch im Kassenbuch. Belege werden verschlüsselt gespeichert."); hint.setWordWrap(True); hint.setObjectName("pageSub"); ecv.addWidget(hint); ecv.addStretch()
-        esplit.addWidget(eleft); esplit.addWidget(ecard); esplit.setStretchFactor(0,3); esplit.setStretchFactor(1,2); ev.addWidget(esplit,1)
+        esplit.addWidget(eleft); esplit.addWidget(ecard); esplit.setHandleWidth(16); esplit.setStretchFactor(0,3); esplit.setStretchFactor(1,2); ev.addWidget(esplit,1)
         tabs.addTab(ex_page,"Ausgaben")
         est={"id":None,"pending_receipt":None}
         def e_current(): return next((e for e in DB["expenses"] if e.get("id")==est["id"]),None)
@@ -2558,12 +2593,15 @@ class Main(QMainWindow):
         ctable=QTableWidget(0,5); ctable.setHorizontalHeaderLabels(["Datum","Text","Einnahme","Ausgabe","Bestand"]); ctable.verticalHeader().setVisible(False)
         for col,mode in enumerate((QHeaderView.ResizeToContents,QHeaderView.Stretch,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents,QHeaderView.ResizeToContents)): ctable.horizontalHeader().setSectionResizeMode(col,mode)
         ctable.setSelectionBehavior(QTableWidget.SelectRows); ctable.setEditTriggers(QTableWidget.NoEditTriggers); cv.addWidget(ctable,1)
-        cform=QFrame(); cform.setObjectName("formCard"); cfl=QHBoxLayout(cform); cfl.setContentsMargins(12,8,12,8)
+        ctable.setMinimumHeight(340)
+        cform=QFrame(); cform.setObjectName("formCard"); cfl=QGridLayout(cform); cfl.setContentsMargins(18,14,18,14); cfl.setHorizontalSpacing(14); cfl.setVerticalSpacing(12)
         c_kind=QComboBox(); c_kind.addItems(["Einnahme","Entnahme / Einzahlung Bank"]); c_date=FlexDateEdit(QDate.currentDate()); c_date.setCalendarPopup(True); c_date.setDisplayFormat("dd.MM.yyyy")
         c_text=QLineEdit(); c_text.setPlaceholderText("Text, z. B. Barzahlung Sitzung"); c_inv=QComboBox(); c_inv.setEditable(True); c_inv.setMinimumContentsLength(10); c_inv.lineEdit().setPlaceholderText("Rechnungs-Nr. (optional)")
         c_amt=QDoubleSpinBox(); c_amt.setRange(0,100000); c_amt.setDecimals(2); c_amt.setSuffix(" €")
         c_add=QPushButton("＋ Buchen"); c_del=QPushButton("Ausgewählte Buchung löschen"); c_del.setStyleSheet("background:white;color:#b5534b;border:1px solid #d9a9a4")
-        for w_ in (c_kind,c_date,c_text,c_inv,c_amt,c_add): cfl.addWidget(w_,1 if w_ is c_text else 0)
+        for w_ in (c_kind,c_date,c_text,c_inv,c_amt,c_add): w_.setMinimumHeight(44)
+        cfl.addWidget(c_kind,0,0); cfl.addWidget(c_date,0,1); cfl.addWidget(c_amt,0,2); cfl.addWidget(c_text,1,0,1,2); cfl.addWidget(c_inv,1,2); cfl.addWidget(c_add,0,3,2,1)
+        cfl.setColumnStretch(0,2); cfl.setColumnStretch(1,1); cfl.setColumnStretch(2,1)
         cv.addWidget(cform); cdel_row=QHBoxLayout(); cdel_row.addStretch(); cdel_row.addWidget(c_del); cv.addLayout(cdel_row)
         chint=QLabel("Barausgaben werden im Reiter „Ausgaben“ mit Zahlart „Bar“ erfasst und erscheinen hier automatisch. Eine Bareinnahme mit Rechnungsnummer markiert die Rechnung als bezahlt."); chint.setWordWrap(True); chint.setObjectName("pageSub"); cv.addWidget(chint)
         tabs.addTab(ca_page,"Kassenbuch (bar)")
@@ -2811,7 +2849,7 @@ class Main(QMainWindow):
         newclient=QPushButton("＋ Neu"); newclient.setMinimumHeight(28); newclient.setMaximumWidth(72); newclient.clicked.connect(lambda: self.open_new_client_dialog())
         self.s_date=FlexDateEdit(QDate.currentDate()); self.s_date.setCalendarPopup(True); self.s_date.setDisplayFormat("dd.MM.yyyy")
         self.s_start=FlexTimeEdit(QTime.currentTime()); self.s_end=FlexTimeEdit(QTime.currentTime().addSecs(45*60)); self.s_start.setDisplayFormat("HH:mm"); self.s_end.setDisplayFormat("HH:mm")
-        self.s_type=QComboBox(); self.s_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); self.s_red=QCheckBox("Ermäßigter Satz")
+        self.s_type=QComboBox(); self.s_type.addItems(service_types()); self.s_red=QCheckBox("Ermäßigter Satz")
         self.partner_pick=QComboBox(); self.partner_pick.setEditable(True); self.partner_pick.setInsertPolicy(QComboBox.NoInsert); self.partner_pick.addItem("Zweiten Partner auswählen …",None)
         for cc in sorted(DB["clients"],key=lambda z:(z.get("last","").lower(),z.get("first","").lower())): self.partner_pick.addItem(f"{cc.get('last','')}, {cc.get('first','')}",cc)
         self.partner_label=QLabel("2. Partner *"); self.partner_label.setVisible(False); self.partner_pick.setVisible(False)
@@ -4063,7 +4101,7 @@ Write-Output ($lines -join "`n")
             self.i_last.setText(last); self.i_first.setText(first); self.fill_invoice_client()
             self.pending_sessions=[rec]; self.manual_items=[]
             self.i_date.setDate(QDate.fromString(rec["date"],"yyyy-MM-dd")); self.i_start.setTime(QTime.fromString(rec["start"],"HH:mm")); self.i_end.setTime(QTime.fromString(rec["end"],"HH:mm")); self.i_min.setValue(rec["minutes"]); self.i_type.setCurrentText(rec["type"]); self.i_red.setChecked(bool(rec["reduced"]))
-            if hasattr(self,"iteminfo"): self.iteminfo.setText(f'1 Sitzung ausgewählt · {amount_for(rec["minutes"],rec["type"],rec["reduced"]):.2f} €')
+            if hasattr(self,"iteminfo"): self.iteminfo.setText(f'1 Sitzung ausgewählt · {invoice_pdf.eur(amount_for(rec["minutes"],rec["type"],rec["reduced"]))}')
         appt=QMessageBox.question(self,"Folgetermin", "Möchten Sie direkt einen neuen Termin für diesen Klienten eintragen?",QMessageBox.Yes|QMessageBox.No,QMessageBox.Yes)
         if appt==QMessageBox.Yes:
             self.nav.setCurrentRow(0); QApplication.processEvents()
@@ -4101,28 +4139,30 @@ Write-Output ($lines -join "`n")
         self.i_client.activated.connect(pick_invoice_client)
         self.i_client.lineEdit().editingFinished.connect(pick_invoice_client)
         for ed in (self.i_no,self.i_last,self.i_first,self.i_addr,self.i_diag): ed.setMinimumHeight(40)
-        self.i_date=FlexDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_date.setDisplayFormat("dd.MM.yyyy"); self.i_type=QComboBox(); self.i_type.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch","Ausfallhonorar","Sonstige"])
+        self.i_date=FlexDateEdit(QDate.currentDate()); self.i_date.setCalendarPopup(True); self.i_date.setDisplayFormat("dd.MM.yyyy"); self.i_type=QComboBox(); self.i_type.addItems(service_types(with_cancellation=True)+["Sonstige"])
+        self.i_inv_date=FlexDateEdit(QDate.currentDate()); self.i_inv_date.setCalendarPopup(True); self.i_inv_date.setDisplayFormat("dd.MM.yyyy")
+        self.i_personal=QCheckBox("„PERSÖNLICH – NUR VOM EMPFÄNGER ZU ÖFFNEN“ unter die Anschrift setzen")
         self.i_min=QSpinBox(); self.i_min.setRange(1,1000); self.i_min.setValue(45); self.i_red=QCheckBox("Ermäßigter Satz")
         self.i_start=FlexTimeEdit(QTime.currentTime()); self.i_start.setDisplayFormat("HH:mm"); self.i_end=FlexTimeEdit(QTime.currentTime().addSecs(45*60)); self.i_end.setDisplayFormat("HH:mm")
-        for ed in (self.i_date,self.i_type,self.i_min,self.i_start,self.i_end): ed.setMinimumHeight(40)
+        for ed in (self.i_date,self.i_inv_date,self.i_type,self.i_min,self.i_start,self.i_end): ed.setMinimumHeight(40)
         f.addRow("Klient auswählen / suchen",self.i_client)
-        for a,b in [("Rechnungsnummer",self.i_no),("Nachname",self.i_last),("Vorname",self.i_first),("Adresse",self.i_addr),("Diagnose (optional)",self.i_diag),("Leistungsdatum",self.i_date),("Beginn",self.i_start),("Ende",self.i_end),("Leistung",self.i_type),("Dauer Minuten",self.i_min)]: f.addRow(a,b)
+        for a,b in [("Rechnungsnummer",self.i_no),("Rechnungsdatum",self.i_inv_date),("Nachname",self.i_last),("Vorname",self.i_first),("Adresse",self.i_addr),("",self.i_personal),("Diagnose (optional)",self.i_diag),("Sitzungs-/Leistungsdatum",self.i_date),("Beginn",self.i_start),("Ende",self.i_end),("Leistung",self.i_type),("Dauer Minuten",self.i_min)]: f.addRow(a,b)
         def invoice_times():
             secs=self.i_start.time().secsTo(self.i_end.time())
             if secs>0:self.i_min.setValue(max(1,secs//60))
         self.i_start.timeChanged.connect(invoice_times); self.i_end.timeChanged.connect(invoice_times)
         self.i_last.editingFinished.connect(self.fill_invoice_client); self.i_first.editingFinished.connect(self.fill_invoice_client)
         f.addRow("",self.i_red)
-        self.i_paid=QCheckBox("Rechnung ist bereits beglichen – zusätzlich PDF mit Dankeschön erstellen"); f.addRow("",self.i_paid); v.addWidget(card)
+        self.i_paid=QCheckBox("Bezahlt – zusätzlich PDF mit Dankeschön erstellen"); f.addRow("",self.i_paid); v.addWidget(card)
         itemrow=QHBoxLayout(); additem=QPushButton("＋ Leistung zur Rechnung hinzufügen"); additem.setMinimumHeight(46)
         self.iteminfo=QLabel("Noch keine zusätzlichen Leistungen"); self.iteminfo.setObjectName("pageSub")
         def add_manual_item():
             typ=self.i_type.currentText(); mins=self.i_min.value()
             if typ=="Sonstige":
-                val,ok=QInputDialog.getDouble(self,"Sonstige Leistung","Betrag in €",0,0,100000,2)
+                val,ok=QInputDialog.getInt(self,"Sonstige Leistung","Betrag in € (volle Euro)",0,0,100000,1)
                 if not ok:return
-                amount=round(val,2)
-            else: amount=round(amount_for(mins,typ,self.i_red.isChecked()),2)
+                amount=int(val)
+            else: amount=amount_for(mins,typ,self.i_red.isChecked())
             self.manual_items.append({"date":self.i_date.date().toString("yyyy-MM-dd"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amount})
             self.pending_sessions=None; refresh_items()
         itemrow.addWidget(additem); itemrow.addWidget(self.iteminfo,1); v.addLayout(itemrow)
@@ -4131,9 +4171,9 @@ Write-Output ($lines -join "`n")
             self.itemtable.setRowCount(0)
             for it in self.manual_items:
                 r=self.itemtable.rowCount(); self.itemtable.insertRow(r)
-                vals=[it.get("date",""),f'{it.get("start","")}–{it.get("end","")}',str(it.get("minutes",0)),it.get("type",""),"ermäßigt" if it.get("reduced") else "regulär",f'{float(it.get("amount",0)):.2f} €']
+                vals=[it.get("date",""),f'{it.get("start","")}–{it.get("end","")}',str(it.get("minutes",0)),it.get("type",""),"ermäßigt" if it.get("reduced") else "regulär",invoice_pdf.eur(it.get("amount",0))]
                 for j,val in enumerate(vals): self.itemtable.setItem(r,j,QTableWidgetItem(str(val)))
-            self.iteminfo.setText("Noch keine zusätzlichen Leistungen" if not self.manual_items else f"{len(self.manual_items)} Leistungen · {sum(float(x.get('amount',0)) for x in self.manual_items):.2f} €")
+            self.iteminfo.setText("Noch keine zusätzlichen Leistungen" if not self.manual_items else f"{len(self.manual_items)} Leistungen · {invoice_pdf.eur(sum(invoice_pdf.whole_euro(x.get('amount',0)) for x in self.manual_items))}")
         additem.clicked.connect(add_manual_item); self.refresh_invoice_items=refresh_items
         itembuttons=QHBoxLayout(); removeitem=QPushButton("Ausgewählte Leistung entfernen"); clearitems=QPushButton("Leistungen leeren")
         def remove_manual_item():
@@ -4148,11 +4188,12 @@ Write-Output ($lines -join "`n")
         def preview_invoice():
             no=self.i_no.text().strip(); last=self.i_last.text().strip(); first=self.i_first.text().strip(); rows=self.pending_sessions or self.manual_items
             if rows:
-                lines="\n".join(f'{s.get("date","")}  {s.get("start","")}–{s.get("end","")}  {s.get("minutes",0)} Min.  {s.get("type","")}  {float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))):.2f} €' for s in rows)
-                total=sum(float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))) for s in rows)
+                lines="\n".join(f'{s.get("date","")}  {s.get("start","")}–{s.get("end","")}  {s.get("minutes",0)} Min.  {s.get("type","")}  {invoice_pdf.eur(item_amount(s))}' for s in rows)
+                total=sum(item_amount(s) for s in rows)
             else:
-                total=amount_for(self.i_min.value(),self.i_type.currentText(),self.i_red.isChecked()); lines=f'{self.i_date.date().toString("dd.MM.yyyy")}  {self.i_min.value()} Min.  {self.i_type.currentText()}  {total:.2f} €'
-            QMessageBox.information(self,"Rechnung prüfen",f"Rechnung {no}\n{first} {last}\n\n{lines}\n\nGesamt: {total:.2f} €")
+                total=amount_for(self.i_min.value(),self.i_type.currentText(),self.i_red.isChecked()); lines=f'{self.i_date.date().toString("dd.MM.yyyy")}  {self.i_min.value()} Min.  {self.i_type.currentText()}  {invoice_pdf.eur(total)}'
+            extra=("\n„PERSÖNLICH – NUR VOM EMPFÄNGER ZU ÖFFNEN“" if self.i_personal.isChecked() else "")+("\nStatus: bezahlt" if self.i_paid.isChecked() else "")
+            QMessageBox.information(self,"Rechnung prüfen",f"Rechnung {no} vom {self.i_inv_date.date().toString('dd.MM.yyyy')}\n{first} {last}{extra}\n\n{lines}\n\nGesamt: {invoice_pdf.eur(total)}")
         preview.clicked.connect(preview_invoice); v.addWidget(preview)
         b=QPushButton("PDF-Rechnung erstellen"); b.setMinimumHeight(60); b.clicked.connect(self.make_invoice); v.addWidget(b); v.addSpacing(20); scroll.setWidget(page); outer.addWidget(scroll); return w
 
@@ -4188,7 +4229,7 @@ Write-Output ($lines -join "`n")
         for s in rows:
             rr=table.rowCount(); table.insertRow(rr); chk=QTableWidgetItem(); chk.setFlags(Qt.ItemIsUserCheckable|Qt.ItemIsEnabled); chk.setCheckState(Qt.Checked); table.setItem(rr,0,chk)
             amount=amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))
-            vals=[s.get("date",""),f'{s.get("start","")}–{s.get("end","")}',str(s.get("minutes",0)),s.get("type",""),f"{amount:.2f} €"]
+            vals=[s.get("date",""),f'{s.get("start","")}–{s.get("end","")}',str(s.get("minutes",0)),s.get("type",""),invoice_pdf.eur(amount)]
             for j,val in enumerate(vals,1): table.setItem(rr,j,QTableWidgetItem(str(val)))
         lay.addWidget(table)
         buttons=QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel); lay.addWidget(buttons); buttons.accepted.connect(dlg.accept); buttons.rejected.connect(dlg.reject)
@@ -4200,13 +4241,13 @@ Write-Output ($lines -join "`n")
             self.itemtable.setRowCount(0)
             for s in selected:
                 rr=self.itemtable.rowCount(); self.itemtable.insertRow(rr); amount=amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False)))
-                vals=[s.get("date",""),f'{s.get("start","")}–{s.get("end","")}',str(s.get("minutes",0)),s.get("type",""),"ermäßigt" if s.get("reduced") else "regulär",f"{amount:.2f} €"]
+                vals=[s.get("date",""),f'{s.get("start","")}–{s.get("end","")}',str(s.get("minutes",0)),s.get("type",""),"ermäßigt" if s.get("reduced") else "regulär",invoice_pdf.eur(amount)]
                 for j,val in enumerate(vals):self.itemtable.setItem(rr,j,QTableWidgetItem(str(val)))
         self.iteminfo.setText(f"{len(selected)} Sitzungen für Sammelrechnung ausgewählt")
         rows=selected
         details="\n".join(f'{s.get("date","")} | {s.get("start","")}–{s.get("end","")} | {s.get("minutes",0)} Min. | {s.get("type","")}' for s in rows)
         total=sum(amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))) for s in rows)
-        QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\n\n{details}\n\nGesamt: {total:.2f} €\n\nBitte vor PDF-Erstellung kontrollieren.")
+        QMessageBox.information(self,"Quartals-/Sammelrechnung",f"{len(rows)} unberechnete Sitzungen gefunden.\n\n{details}\n\nGesamt: {invoice_pdf.eur(total)}\n\nBitte vor PDF-Erstellung kontrollieren.")
     def make_invoice_html(self):
         if not self.require_edit(): return
         audit("INVOICE_ENGINE", "html", self.current_user.get("username","") if self.current_user else "")
@@ -4304,7 +4345,7 @@ Write-Output ($lines -join "`n")
                 audit("INVOICE_HTML_LOGO_ERROR", str(e)[:200])
 
         def fmt_eur(value):
-            return f"{float(value):.2f} €".replace(".", ",")
+            return invoice_pdf.eur(value)
 
         item_rows = []
         for x in items:
@@ -4343,7 +4384,7 @@ Write-Output ($lines -join "`n")
             "SENDER": f"{escape(owner)} · {escape(address)}",
             "RECIPIENT": f"{escape(first)} {escape(last)}<br>{escape(self.i_addr.text().strip()).replace(chr(10), '<br>')}",
             "INVOICE_NO": escape(no),
-            "DATE": datetime.now().strftime("%d.%m.%Y"),
+            "DATE": self.i_inv_date.date().toString("dd.MM.yyyy"),
             "PERIOD": period,
             "DIAGNOSIS": escape(self.i_diag.text().strip()),
             "ITEMS": "".join(item_rows),
@@ -4369,7 +4410,7 @@ Write-Output ($lines -join "`n")
                     del self._invoice_engine_override
 
         DB["invoices"].append({
-            "number": no, "date": datetime.now().strftime("%Y-%m-%d"), "client": f"{last}, {first}",
+            "number": no, "date": self.i_inv_date.date().toString("yyyy-MM-dd"), "client": f"{last}, {first}", "personal": self.i_personal.isChecked(),
             "address": self.i_addr.text().strip(), "diagnosis": self.i_diag.text().strip(),
             "amount": amt, "status": "bezahlt" if (hasattr(self,"i_paid") and self.i_paid.isChecked()) else "offen", "paid_date": datetime.now().strftime("%Y-%m-%d") if (hasattr(self,"i_paid") and self.i_paid.isChecked()) else "", "pdf": str(pdf), "items": items
         })
@@ -4417,9 +4458,13 @@ Write-Output ($lines -join "`n")
         if not last or not first:return QMessageBox.warning(self,"Fehlt","Vorname und Nachname sind erforderlich.")
         rows=getattr(self,"pending_sessions",None) or self.manual_items
         if rows:
-            mins=sum(int(s.get("minutes",0)) for s in rows); typ="Sammelrechnung"; amt=round(sum(float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))) for s in rows),2)
+            mins=sum(int(s.get("minutes",0)) for s in rows); typ="Sammelrechnung"; amt=sum(item_amount(s) for s in rows)
         else:
-            mins=self.i_min.value(); typ=self.i_type.currentText(); amt=round(amount_for(mins,typ,self.i_red.isChecked()),2)
+            mins=self.i_min.value(); typ=self.i_type.currentText(); amt=amount_for(mins,typ,self.i_red.isChecked())
+            if typ=="Sonstige":
+                val,ok=QInputDialog.getInt(self,"Sonstige Leistung","Betrag in € (volle Euro)",0,0,100000,1)
+                if not ok: return
+                amt=int(val)
         c=next((x for x in DB["clients"] if x.get("last","").lower()==last.lower() and x.get("first","").lower()==first.lower()),None)
         if not c:
             c={"last":last,"first":first,"dob":"","address":self.i_addr.text().strip(),"diagnosis":self.i_diag.text().strip()}; DB["clients"].append(c)
@@ -4433,15 +4478,17 @@ Write-Output ($lines -join "`n")
         invoice_items=[]
         if rows:
             for s in rows:
-                invoice_items.append({"id":s.get("id"),"date":s.get("date",""),"start":s.get("start",""),"end":s.get("end",""),"minutes":int(s.get("minutes",0)),"type":s.get("type",""),"reduced":bool(s.get("reduced",False)),"amount":round(float(s.get("amount",amount_for(int(s.get("minutes",0)),s.get("type","Einzeltherapie"),bool(s.get("reduced",False))))),2)})
+                invoice_items.append({"id":s.get("id"),"date":s.get("date",""),"start":s.get("start",""),"end":s.get("end",""),"minutes":int(s.get("minutes",0)),"type":s.get("type",""),"reduced":bool(s.get("reduced",False)),"amount":item_amount(s)})
         else:
             invoice_items=[{"id":None,"date":self.i_date.date().toString("yyyy-MM-dd"),"start":self.i_start.time().toString("HH:mm"),"end":self.i_end.time().toString("HH:mm"),"minutes":mins,"type":typ,"reduced":self.i_red.isChecked(),"amount":amt}]
         paid_now=hasattr(self,"i_paid") and self.i_paid.isChecked()
-        rec={"number":no,"date":datetime.now().strftime("%Y-%m-%d"),"client":f"{last}, {first}","address":self.i_addr.text().strip(),"diagnosis":self.i_diag.text().strip(),"amount":amt,"status":"offen","paid_date":"","pdf":str(pdf),"items":invoice_items}
+        inv_date=self.i_inv_date.date().toString("yyyy-MM-dd")
+        rec={"number":no,"date":inv_date,"client":f"{last}, {first}","address":self.i_addr.text().strip(),"diagnosis":self.i_diag.text().strip(),"amount":amt,"status":"offen","paid_date":"","pdf":str(pdf),"items":invoice_items,"personal":self.i_personal.isChecked()}
         try:
             write_invoice_pdf(rec,"invoice",pdf,user=user)
             if paid_now:
-                rec["status"]="bezahlt"; rec["paid_date"]=datetime.now().strftime("%Y-%m-%d"); rec["reminder_closed"]=True
+                # Kein Zahlungsdatum abfragen: für die EÜR gilt das Rechnungsdatum als Zahlungseingang.
+                rec["status"]="bezahlt"; rec["paid_date"]=inv_date; rec["reminder_closed"]=True
                 paid_pdf=d/f"Rechnung_{no}_beglichen.pdf"; write_invoice_pdf(rec,"paid",paid_pdf,paid_date=_de_date(rec["paid_date"]),user=user); rec["pdf_paid"]=str(paid_pdf)
         except Exception as e:
             audit("INVOICE_PDF_ERROR",str(e)[:500],user); return QMessageBox.warning(self,"Rechnung","Die PDF konnte nicht erstellt werden:\n\n"+str(e)[:500])
@@ -4456,16 +4503,144 @@ Write-Output ($lines -join "`n")
         if hasattr(self,"itemtable"): self.itemtable.setRowCount(0)
         save_data(); update_excel(); self.i_no.setText(next_no())
         if hasattr(self,"i_paid"): self.i_paid.setChecked(False)
+        self.i_personal.setChecked(False); self.i_inv_date.setDate(QDate.currentDate())
         done=QMessageBox(self); done.setIcon(QMessageBox.Information); done.setWindowTitle("Rechnung erstellt")
         done.setText("Die PDF-Rechnung wurde erfolgreich erstellt.")
         done.setInformativeText(str(pdf))
         open_folder=done.addButton("Ordner öffnen",QMessageBox.ActionRole)
         open_pdf=done.addButton("PDF öffnen",QMessageBox.ActionRole)
+        send_mail_btn=done.addButton("✉ Per E-Mail senden",QMessageBox.ActionRole)
         done.addButton("Schließen",QMessageBox.RejectRole); done.exec()
-        if done.clickedButton()==open_folder:
+        if done.clickedButton()==send_mail_btn:
+            self.send_invoice_mail(rec)
+        elif done.clickedButton()==open_folder:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(pdf).parent)))
         elif done.clickedButton()==open_pdf:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(pdf)))
+    def send_invoice_mail(self,inv):
+        """Rechnung (bzw. beglichene Rechnung / letzte Zahlungserinnerung) per E-Mail an den Klienten senden."""
+        if not inv: return
+        if not mail_tested():
+            QMessageBox.information(self,"E-Mail-Versand","Der E-Mail-Versand ist noch nicht eingerichtet oder die Zugangsdaten wurden geändert.\n\n"
+                "Bitte unter Praxiseinstellungen → E-Mail-Versand die Zugangsdaten eintragen und zuerst eine Testmail senden.")
+            if self.is_admin(): self.nav.setCurrentRow(9); getattr(self,"settings_tabs",None) and self.settings_tabs.setCurrentIndex(getattr(self,"mail_tab_index",0))
+            return
+        last,_,first=str(inv.get("client","")).partition(", ")
+        c=next((x for x in DB["clients"] if x.get("last","").lower()==last.lower() and x.get("first","").lower()==first.lower()),{})
+        files=[]
+        for pth,label in ((inv.get("pdf"),"Rechnung"),(inv.get("pdf_paid"),"Rechnung (beglichen, mit Dank)"),((inv.get("reminder_pdfs") or [None])[-1],"Letzte Zahlungserinnerung")):
+            if pth and Path(pth).is_file(): files.append((label,pth))
+        if not files: return QMessageBox.warning(self,"E-Mail-Versand","Zu dieser Rechnung wurde kein PDF gefunden. Bitte zuerst das PDF erzeugen.")
+        cfg=mail_config(); s_=invoice_settings()
+        values={"anrede":salutation_for(c),"nachname":last,"vorname":first,"nummer":inv.get("number",""),"datum":_de_date(inv.get("date","")),
+                "betrag":invoice_pdf.eur(inv.get("amount",0)),"praxisinhaber":s_.get("owner_name",""),"praxisname":s_.get("practice_name","")}
+        dlg=QDialog(self); dlg.setWindowTitle(f'Rechnung {inv.get("number","")} per E-Mail senden'); dlg.resize(760,640)
+        lay=QVBoxLayout(dlg); lay.setContentsMargins(22,18,22,18); lay.setSpacing(12)
+        fl=QFormLayout(); fl.setVerticalSpacing(12); fl.setHorizontalSpacing(16)
+        to=QLineEdit(c.get("email","")); to.setPlaceholderText("E-Mail-Adresse des Klienten"); to.setMinimumHeight(42)
+        subj=QLineEdit(mailer.fill(get_setting("mail_subject",mailer.DEFAULT_SUBJECT),values)); subj.setMinimumHeight(42)
+        att=QComboBox(); att.setMinimumHeight(42)
+        for label,pth in files: att.addItem(f"{label} – {Path(pth).name}",pth)
+        if inv.get("status")=="bezahlt" and inv.get("pdf_paid"): att.setCurrentIndex(next((i for i,(l,p_) in enumerate(files) if p_==inv.get("pdf_paid")),0))
+        body=QTextEdit(); body.setPlainText(mailer.fill(get_setting("mail_body",mailer.DEFAULT_BODY),values)); body.setMinimumHeight(240)
+        bcc=QCheckBox("Kopie an mich selbst ("+cfg.get("sender","")+")"); bcc.setChecked(get_setting("mail_bcc_self","1")=="1")
+        save_mail=QCheckBox("Adresse in der Klientenakte speichern"); save_mail.setChecked(not c.get("email")); save_mail.setVisible(bool(c))
+        fl.addRow("An",to); fl.addRow("",save_mail); fl.addRow("Betreff",subj); fl.addRow("Anhang",att); lay.addLayout(fl); lay.addWidget(QLabel("Nachricht")); lay.addWidget(body,1); lay.addWidget(bcc)
+        note=QLabel("Hinweis: E-Mails werden zwar verschlüsselt zum Mailserver übertragen, liegen dort aber unverschlüsselt. Rechnungen nur mit Einverständnis des Klienten per E-Mail senden.")
+        note.setWordWrap(True); note.setObjectName("pageSub"); lay.addWidget(note)
+        bb=QDialogButtonBox(); sendb=bb.addButton("✉ Jetzt senden",QDialogButtonBox.AcceptRole); bb.addButton("Abbrechen",QDialogButtonBox.RejectRole); sendb.setMinimumHeight(44)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
+        if dlg.exec()!=QDialog.Accepted: return
+        user=(self.current_user or {}).get("username","")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            mailer.send(cfg,to.text().strip(),subj.text().strip(),body.toPlainText(),[att.currentData()],bcc_self=bcc.isChecked())
+        except mailer.MailError as e:
+            QApplication.restoreOverrideCursor(); audit("INVOICE_MAIL_ERROR",f'Rechnung {inv.get("number","")}: {str(e)[:300]}',user)
+            return QMessageBox.warning(self,"E-Mail nicht gesendet",str(e))
+        QApplication.restoreOverrideCursor()
+        inv.setdefault("mails",[]).append({"date":datetime.now().isoformat(timespec="seconds"),"to":to.text().strip(),"file":Path(att.currentData()).name})
+        if save_mail.isChecked() and c and to.text().strip(): c["email"]=to.text().strip()
+        save_data(); audit("INVOICE_MAILED",f'Rechnung {inv.get("number","")} per E-Mail versendet',user)
+        QMessageBox.information(self,"E-Mail gesendet",f'Die Rechnung {inv.get("number","")} wurde an {to.text().strip()} gesendet.')
+
+    def mail_settings_tab(self):
+        """Praxiseinstellungen → E-Mail-Versand: SMTP-Zugang, Vorlage, Testmail."""
+        page=QWidget(); v=QVBoxLayout(page); v.setContentsMargins(20,16,20,20); v.setSpacing(14)
+        t=QLabel("E-Mail-Versand"); t.setObjectName("sectionTitle"); v.addWidget(t)
+        intro=QLabel("Rechnungen können direkt aus PraxisPro per E-Mail verschickt werden. Tragen Sie die Zugangsdaten Ihres Postfachs ein "
+                     "(stehen beim Mailanbieter unter „SMTP“ bzw. „Postausgangsserver“) und senden Sie zuerst eine Testmail. "
+                     "Erst nach erfolgreicher Testmail ist der Versand freigeschaltet.")
+        intro.setWordWrap(True); intro.setObjectName("pageSub"); v.addWidget(intro)
+        card=QFrame(); card.setObjectName("formCard"); f=QFormLayout(card); f.setContentsMargins(20,18,20,18); f.setVerticalSpacing(14); f.setHorizontalSpacing(18)
+        f.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        preset=QComboBox(); preset.addItem("Anbieter wählen (füllt Server und Port) …"); preset.addItems(list(mailer.PRESETS))
+        host=QLineEdit(get_setting("smtp_host","")); host.setPlaceholderText("z. B. smtp.ionos.de")
+        port=QSpinBox(); port.setRange(1,65535); port.setValue(int(get_setting("smtp_port","465") or 465))
+        sec=QComboBox(); sec.addItems(list(mailer.SECURITY)); sec.setCurrentText(get_setting("smtp_security","SSL/TLS"))
+        user=QLineEdit(get_setting("smtp_user","")); user.setPlaceholderText("meist die vollständige E-Mail-Adresse")
+        pw=QLineEdit(decrypt_text(get_setting("smtp_password",""))); pw.setEchoMode(QLineEdit.Password); pw.setPlaceholderText("Passwort bzw. App-Passwort")
+        showpw=QCheckBox("Passwort anzeigen"); showpw.toggled.connect(lambda on: pw.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password))
+        sender=QLineEdit(get_setting("smtp_sender","") or get_setting("email","")); sender.setPlaceholderText("Absenderadresse")
+        sname=QLineEdit(get_setting("smtp_sender_name","") or get_setting("owner_name","")); sname.setPlaceholderText("Name, der beim Empfänger erscheint")
+        for w_ in (preset,host,port,sec,user,pw,sender,sname): w_.setMinimumHeight(42)
+        def use_preset(i):
+            if i<=0: return
+            h_,p_,s_=mailer.PRESETS[preset.currentText()]
+            if h_: host.setText(h_)
+            port.setValue(p_); sec.setCurrentText(s_)
+            if not user.text().strip(): user.setText(sender.text().strip())
+        preset.currentIndexChanged.connect(use_preset)
+        def sec_changed(txt):
+            if txt=="SSL/TLS" and port.value()==587: port.setValue(465)
+            if txt=="STARTTLS" and port.value()==465: port.setValue(587)
+        sec.currentTextChanged.connect(sec_changed)
+        for lab,w_ in (("Anbieter",preset),("Postausgangsserver (SMTP)",host),("Port",port),("Verschlüsselung",sec),("Benutzername",user),("Passwort",pw),("",showpw),("Absender-Adresse",sender),("Absender-Name",sname)): f.addRow(lab,w_)
+        v.addWidget(card)
+        tcard=QFrame(); tcard.setObjectName("formCard"); tf=QVBoxLayout(tcard); tf.setContentsMargins(20,18,20,18); tf.setSpacing(10)
+        tt=QLabel("Vorlage für Rechnungs-E-Mails"); tt.setObjectName("sectionTitle"); tf.addWidget(tt)
+        subj=QLineEdit(get_setting("mail_subject",mailer.DEFAULT_SUBJECT)); subj.setMinimumHeight(42)
+        body=QTextEdit(); body.setPlainText(get_setting("mail_body",mailer.DEFAULT_BODY)); body.setMinimumHeight(200)
+        bcc=QCheckBox("Standardmäßig eine Kopie an mich selbst senden"); bcc.setChecked(get_setting("mail_bcc_self","1")=="1")
+        tf.addWidget(QLabel("Betreff")); tf.addWidget(subj); tf.addWidget(QLabel("Text")); tf.addWidget(body); tf.addWidget(bcc)
+        ph=QLabel("Platzhalter: {anrede} {nachname} {vorname} {nummer} {datum} {betrag} {praxisinhaber} {praxisname}"); ph.setWordWrap(True); ph.setObjectName("pageSub"); tf.addWidget(ph)
+        v.addWidget(tcard)
+        status=QLabel(); status.setWordWrap(True)
+        def show_status():
+            ok=mail_tested()
+            status.setText("✓ Testmail erfolgreich – der E-Mail-Versand ist freigeschaltet." if ok else "⚠ Noch keine erfolgreiche Testmail mit diesen Zugangsdaten – der Versand ist gesperrt.")
+            status.setStyleSheet("font-weight:700;padding:10px;border-radius:8px;"+("color:#2E7D4F;background:#eef7f1" if ok else "color:#9a6200;background:#fdf5e6"))
+        def store():
+            set_setting("smtp_host",host.text().strip()); set_setting("smtp_port",port.value()); set_setting("smtp_security",sec.currentText())
+            set_setting("smtp_user",user.text().strip()); set_setting("smtp_password",encrypt_text(pw.text()) if pw.text() else "")
+            set_setting("smtp_sender",sender.text().strip()); set_setting("smtp_sender_name",sname.text().strip())
+            set_setting("mail_subject",subj.text().strip() or mailer.DEFAULT_SUBJECT); set_setting("mail_body",body.toPlainText().strip() or mailer.DEFAULT_BODY); set_setting("mail_bcc_self","1" if bcc.isChecked() else "0")
+        def save():
+            if not self.require_edit(): return
+            store(); show_status(); audit("MAIL_SETTINGS_SAVED","E-Mail-Einstellungen gespeichert",(self.current_user or {}).get("username",""))
+            QMessageBox.information(self,"E-Mail-Versand","Einstellungen gespeichert."+("" if mail_tested() else "\n\nBitte jetzt eine Testmail senden, um den Versand freizuschalten."))
+        def test():
+            if not self.require_edit(): return
+            store(); target,ok=QInputDialog.getText(self,"Testmail","Testmail senden an:",text=sender.text().strip())
+            if not ok or not target.strip(): return
+            cfg=mail_config(); QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                mailer.send(cfg,target.strip(),"PraxisPro – Testmail",
+                    "Diese Testmail wurde von PraxisPro gesendet.\n\nWenn Sie diese Nachricht lesen, ist der E-Mail-Versand richtig eingerichtet. "
+                    "Rechnungen können jetzt unter Rechnungen → „Per E-Mail senden“ verschickt werden.\n\n"+datetime.now().strftime("%d.%m.%Y %H:%M"))
+            except mailer.MailError as e:
+                QApplication.restoreOverrideCursor(); set_setting("smtp_tested_key",""); show_status()
+                audit("MAIL_TEST_FAILED",str(e)[:300],(self.current_user or {}).get("username",""))
+                return QMessageBox.warning(self,"Testmail fehlgeschlagen",str(e))
+            QApplication.restoreOverrideCursor(); set_setting("smtp_tested_key",mailer.config_key(cfg)); show_status()
+            audit("MAIL_TEST_OK","Testmail gesendet",(self.current_user or {}).get("username",""))
+            QMessageBox.information(self,"Testmail gesendet",f"Die Testmail wurde an {target.strip()} gesendet.\nBitte im Postfach prüfen, ob sie angekommen ist (ggf. auch im Spam-Ordner).\n\nDer E-Mail-Versand ist jetzt freigeschaltet.")
+        row=QHBoxLayout(); row.setSpacing(12); sb=QPushButton("💾 Speichern"); tb=QPushButton("✉ Testmail senden")
+        for b_ in (sb,tb): b_.setMinimumHeight(46); b_.setMinimumWidth(200)
+        sb.clicked.connect(save); tb.clicked.connect(test); row.addWidget(sb); row.addWidget(tb); row.addStretch()
+        v.addLayout(row); v.addWidget(status); v.addStretch(); show_status()
+        return page
+
     def new_client_page(self):
         w=QWidget(); v=QVBoxLayout(w); v.setContentsMargins(18,14,18,14); v.setSpacing(12)
         title=QLabel("Neuen Klienten anlegen"); title.setObjectName("pageTitle"); v.addWidget(title)
@@ -4525,7 +4700,7 @@ Write-Output ($lines -join "`n")
             client_invoices=[i for i in DB["invoices"] if str(i.get("client","")).strip() in client_invoice_keys]
             open_invoices=[i for i in client_invoices if i.get("status","offen")=="offen"]
             open_amount=sum(float(i.get("amount",0) or 0) for i in open_invoices)
-            for txt in (f"Gesamt: {len(rows)} Sitzungen",f"Therapiezeit: {total_minutes} Min.",f"Nicht abgerechnet: {unbilled}",f"Offene Rechnungen: {len(open_invoices)} · {open_amount:.2f} €"):
+            for txt in (f"Gesamt: {len(rows)} Sitzungen",f"Therapiezeit: {total_minutes} Min.",f"Nicht abgerechnet: {unbilled}",f"Offene Rechnungen: {len(open_invoices)} · {invoice_pdf.eur(open_amount)}"):
                 badge=QLabel(txt); badge.setObjectName("clientBadge"); badge.setAlignment(Qt.AlignCenter); badge.setMinimumHeight(38); stats.addWidget(badge)
             lay.addLayout(stats)
             # Akte in Reitern: Verlauf & Rechnungen · Stammdaten · Dokumente
@@ -4541,7 +4716,7 @@ Write-Output ($lines -join "`n")
             invsection=QLabel("Rechnungen des Klienten"); invsection.setObjectName("sectionTitle"); lay.addWidget(invsection)
             it=QTableWidget(0,5); it.setHorizontalHeaderLabels(["Nr.","Datum","Status","Betrag","Zahlungsdatum"]); it.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); it.setSelectionBehavior(QTableWidget.SelectRows); it.setEditTriggers(QTableWidget.NoEditTriggers); it.setMaximumHeight(180)
             for inv in reversed(client_invoices):
-                ir=it.rowCount(); it.insertRow(ir); vals=[inv.get("number",""),inv.get("date",""),inv.get("status","offen"),f'{float(inv.get("amount",0) or 0):.2f} €',inv.get("paid_date","")]
+                ir=it.rowCount(); it.insertRow(ir); vals=[inv.get("number",""),inv.get("date",""),inv.get("status","offen"),f'{invoice_pdf.eur(float(inv.get("amount",0) or 0))}',inv.get("paid_date","")]
                 for j,val in enumerate(vals): it.setItem(ir,j,QTableWidgetItem(str(val)))
             lay.addWidget(it)
             def selected_session():
@@ -4561,7 +4736,7 @@ Write-Output ($lines -join "`n")
                     duration=start_time.time().secsTo(end_time.time())//60
                     mins.setValue(max(0,duration))
                 start_time.timeChanged.connect(calculate_minutes); end_time.timeChanged.connect(calculate_minutes); calculate_minutes()
-                typ=QComboBox(); typ.addItems(["Einzeltherapie","Paargespräch","Onlinegespräch","Notfalltelefonat","Hausbesuch"]); typ.setCurrentText(s.get("type","Einzeltherapie"))
+                typ=QComboBox(); typ.addItems(service_types()+([s.get("type")] if s.get("type") and s.get("type") not in service_types() else [])); typ.setCurrentText(s.get("type","Einzeltherapie"))
                 note=QTextEdit(); note.setPlainText(s.get("notes",""))
                 homework=QTextEdit(); homework.setPlainText(s.get("homework",""))
                 invoice_option=QCheckBox("Nach dem Speichern Rechnung aus dieser Sitzung vorbereiten")
@@ -4780,7 +4955,7 @@ Write-Output ($lines -join "`n")
         filters.addWidget(search,1); filters.addWidget(statusfilter); v.addLayout(filters)
         t=QTableWidget(0,8); t.setHorizontalHeaderLabels(["Nr.","Datum","Klient","Status","Zahlungsdatum","Mahnstufe","Letzte Erinnerung","Betrag"]); hh=t.horizontalHeader(); hh.setSectionResizeMode(QHeaderView.ResizeToContents); hh.setSectionResizeMode(2,QHeaderView.Stretch); hh.setMinimumHeight(38); t.verticalHeader().setVisible(False); t.setWordWrap(False); t.setMinimumHeight(240); t.setSelectionMode(QTableWidget.ExtendedSelection); t.setSelectionBehavior(QTableWidget.SelectRows); t.setEditTriggers(QTableWidget.NoEditTriggers); t.setAlternatingRowColors(True); t.setToolTip("Doppelklick öffnet die Rechnungsdetails")
         for i in reversed(DB["invoices"]):
-            r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),str(i.get("reminder_count",0)),i.get("reminder_date",""),f'{float(i.get("amount",0)):.2f} €']
+            r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),str(i.get("reminder_count",0)),i.get("reminder_date",""),f'{invoice_pdf.eur(float(i.get("amount",0)))}']
             for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
         def filt(_=None):
             q=search.text().lower().strip(); sf=statusfilter.currentText()
@@ -4812,7 +4987,7 @@ Write-Output ($lines -join "`n")
         open_total=sum(float(x.get("amount",0)) for x in DB["invoices"] if x.get("status","offen")=="offen")
         paid_total=sum(float(x.get("amount",0)) for x in DB["invoices"] if x.get("status")=="bezahlt")
         summary_buttons=[]
-        for txt,status_value in ((f"Offen: {open_total:.2f} €","offen"),(f"Bezahlt: {paid_total:.2f} €","bezahlt"),(f"Überfällig >14 Tage: {overdue_count}","überfällig"),(f"Rechnungen: {len(DB['invoices'])}","Alle Status")):
+        for txt,status_value in ((f"Offen: {invoice_pdf.eur(open_total)}","offen"),(f"Bezahlt: {invoice_pdf.eur(paid_total)}","bezahlt"),(f"Überfällig >14 Tage: {overdue_count}","überfällig"),(f"Rechnungen: {len(DB['invoices'])}","Alle Status")):
             lab=QPushButton(txt); lab.setObjectName("clientBadge"); lab.setCursor(Qt.PointingHandCursor); lab.setMinimumHeight(40); lab.setToolTip("Klicken, um diese Rechnungen in der Liste anzuzeigen.")
             lab.clicked.connect(lambda _=False,s=status_value: statusfilter.setCurrentText(s))
             summary.addWidget(lab); summary_buttons.append(lab)
@@ -4906,7 +5081,7 @@ Write-Output ($lines -join "`n")
         def fill_rows():
             t.setRowCount(0)
             for i in reversed(DB["invoices"]):
-                r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),str(i.get("reminder_count",0)),i.get("reminder_date",""),f'{float(i.get("amount",0)):.2f} €']
+                r=t.rowCount(); t.insertRow(r); vals=[i.get("number",""),i.get("date",""),i.get("client",""),i.get("status","offen"),i.get("paid_date",""),str(i.get("reminder_count",0)),i.get("reminder_date",""),f'{invoice_pdf.eur(float(i.get("amount",0)))}']
                 for j,x in enumerate(vals): t.setItem(r,j,QTableWidgetItem(str(x)))
             filt()
         def invoice_form(inv=None):
@@ -4917,7 +5092,7 @@ Write-Output ($lines -join "`n")
             form=QFormLayout(); form.setVerticalSpacing(10)
             e_no=QLineEdit(inv.get("number","") if inv else next_no()); e_date=FlexDateEdit(QDate.fromString(inv.get("date",""),"yyyy-MM-dd") if inv and QDate.fromString(inv.get("date",""),"yyyy-MM-dd").isValid() else QDate.currentDate())
             e_client=QLineEdit(inv.get("client","") if inv else ""); e_client.setPlaceholderText("Nachname, Vorname")
-            e_amt=QDoubleSpinBox(); e_amt.setRange(0,1000000); e_amt.setDecimals(2); e_amt.setSuffix(" €"); e_amt.setValue(float(inv.get("amount",0)) if inv else 0)
+            e_amt=QDoubleSpinBox(); e_amt.setRange(0,1000000); e_amt.setDecimals(0); e_amt.setSuffix(" €"); e_amt.setValue(invoice_pdf.whole_euro(inv.get("amount",0)) if inv else 0)
             e_status=QComboBox(); e_status.addItems(["offen","bezahlt","storniert"]); e_status.setCurrentText(inv.get("status","offen") if inv else "offen")
             pd=QDate.fromString(inv.get("paid_date",""),"yyyy-MM-dd") if inv else QDate()
             e_paid=FlexDateEdit(pd if pd.isValid() else QDate.currentDate())
@@ -4952,10 +5127,10 @@ Write-Output ($lines -join "`n")
                     if old!=no:
                         for sess in DB["sessions"]:
                             if sess.get("invoice_number")==old: sess["invoice_number"]=no
-                    inv.update({"number":no,"date":e_date.date().toString("yyyy-MM-dd"),"client":client,"amount":e_amt.value(),"status":status,"paid_date":paid,"pdf":pdf})
+                    inv.update({"number":no,"date":e_date.date().toString("yyyy-MM-dd"),"client":client,"amount":int(e_amt.value()),"status":status,"paid_date":paid,"pdf":pdf})
                     audit("INVOICE_EDITED",f"{old} -> {no}",self.current_user.get("username","") if self.current_user else "")
                 else:
-                    DB["invoices"].append({"number":no,"date":e_date.date().toString("yyyy-MM-dd"),"client":client,"address":"","diagnosis":"","amount":e_amt.value(),"status":status,"paid_date":paid,"pdf":pdf,"items":[],"imported":True})
+                    DB["invoices"].append({"number":no,"date":e_date.date().toString("yyyy-MM-dd"),"client":client,"address":"","diagnosis":"","amount":int(e_amt.value()),"status":status,"paid_date":paid,"pdf":pdf,"items":[],"imported":True})
                     audit("INVOICE_IMPORTED",f"Frühere Rechnung {no} erfasst",self.current_user.get("username","") if self.current_user else "")
                 save_data(); update_excel(); dlg.accept(); fill_rows()
                 if hasattr(self,"i_no") and not inv: self.i_no.setText(next_no())
@@ -4979,6 +5154,11 @@ Write-Output ($lines -join "`n")
                 if guess.exists(): inv["pdf"]=str(guess); save_data(); QDesktopServices.openUrl(QUrl.fromLocalFile(str(guess))); return
             QMessageBox.information(self,"PDF","Das PDF konnte nicht gefunden werden.")
         openpdf.clicked.connect(open_pdf); h.addWidget(openpdf)
+        mailbtn=QPushButton("✉ Per E-Mail senden"); mailbtn.setMinimumHeight(42); mailbtn.setToolTip("Rechnung als PDF-Anhang an die E-Mail-Adresse des Klienten senden.")
+        def mail_selected():
+            _r,inv=selected_invoice()
+            if inv: self.send_invoice_mail(inv)
+        mailbtn.clicked.connect(mail_selected); h.addWidget(mailbtn)
         remind=QPushButton("Zahlungserinnerung"); remind.setMinimumHeight(42)
         def payment_reminder():
             _,inv=selected_invoice()
@@ -4995,7 +5175,7 @@ Write-Output ($lines -join "`n")
                 out=invoice_folder(inv)/f'Zahlungserinnerung_{inv.get("number","")}_{inv["reminder_count"]}.pdf'
                 write_invoice_pdf(inv,"reminder",out,reminder_level=lvl,due_text=f"Bitte begleichen Sie den Betrag bis zum {due}.",user=self.current_user.get("username","") if self.current_user else "")
                 inv.setdefault("reminder_pdfs",[]).append(str(out)); save_data()
-                offer_pdf("Zahlungserinnerung",f'Zahlungserinnerung für Rechnung {inv.get("number","")} wurde erstellt und dokumentiert.\n\nOffener Betrag: {float(inv.get("amount",0)):.2f} €\nZahlungsziel: {due}\n\nDie ursprüngliche Rechnung wurde nicht verändert.',out)
+                offer_pdf("Zahlungserinnerung",f'Zahlungserinnerung für Rechnung {inv.get("number","")} wurde erstellt und dokumentiert.\n\nOffener Betrag: {invoice_pdf.eur(float(inv.get("amount",0)))}\nZahlungsziel: {due}\n\nDie ursprüngliche Rechnung wurde nicht verändert.',out)
             except Exception as e:
                 QMessageBox.warning(self,"Zahlungserinnerung","Die Erinnerung wurde dokumentiert, die PDF konnte aber nicht erstellt werden:\n\n"+str(e)[:500])
         remind.clicked.connect(payment_reminder); h.addWidget(remind)
@@ -5004,8 +5184,8 @@ Write-Output ($lines -join "`n")
             _,inv=selected_invoice()
             if not inv:return
             items=inv.get("items",[])
-            lines="\n".join(f'{x.get("date","")}  {x.get("start","")}–{x.get("end","")}  {x.get("minutes",0)} Min.  {x.get("type","")}  {float(x.get("amount",0)):.2f} €' for x in items) or "Keine Einzelpositionen gespeichert."
-            QMessageBox.information(self,"Rechnungsdetails",f'Rechnung: {inv.get("number","")}\nKlient: {inv.get("client","")}\nStatus: {inv.get("status","offen")}\nZahlungsdatum: {inv.get("paid_date","") or "–"}\nLetzte Zahlungserinnerung: {inv.get("reminder_date","") or "–"}\nMahnstufe: {inv.get("reminder_count",0)}\nBetrag: {float(inv.get("amount",0)):.2f} €\n\n{lines}')
+            lines="\n".join(f'{x.get("date","")}  {x.get("start","")}–{x.get("end","")}  {x.get("minutes",0)} Min.  {x.get("type","")}  {invoice_pdf.eur(float(x.get("amount",0)))}' for x in items) or "Keine Einzelpositionen gespeichert."
+            QMessageBox.information(self,"Rechnungsdetails",f'Rechnung: {inv.get("number","")}\nKlient: {inv.get("client","")}\nStatus: {inv.get("status","offen")}\nZahlungsdatum: {inv.get("paid_date","") or "–"}\nLetzte Zahlungserinnerung: {inv.get("reminder_date","") or "–"}\nMahnstufe: {inv.get("reminder_count",0)}\nBetrag: {invoice_pdf.eur(float(inv.get("amount",0)))}\n\n{lines}')
         details.clicked.connect(invoice_details); t.cellDoubleClicked.connect(lambda *_: invoice_details()); h.addWidget(details); v.addLayout(h)
         return w
     def offer_key_protection(self,force=False):
@@ -5388,6 +5568,7 @@ Unter Info & Programmverwaltung kann die Windows-Deinstallation gestartet werden
         lockrow=QHBoxLayout(); lock=QSpinBox(); lock.setRange(0,120); lock.setSpecialValueText("Aus"); lock.setValue(int(get_setting("auto_lock_minutes","0") or 0)); lock.setSuffix(" Minuten"); lock.setToolTip("0 = aus. Während einer laufenden Sitzung wird nie automatisch gesperrt."); lockrow.addWidget(lock); pinbtn=QPushButton("PIN ändern … (Standard: 0000)"); pinbtn.setMinimumHeight(34); pinbtn.clicked.connect(self.set_pin_flow); lockrow.addWidget(pinbtn); lockrow.addStretch(); bf.addRow("Sperre (automatisch / PIN)",lockrow)
         travel=QDoubleSpinBox(); travel.setRange(0,500); travel.setDecimals(2); travel.setValue(float(get_setting("travel_surcharge","25"))); travel.setSuffix(" €"); bf.addRow("Hausbesuch Anfahrt",travel)
         bv.addLayout(bf); bv.addWidget(self.backup_box()); save2=QPushButton("Abrechnung & Sicherheit speichern"); save2.setMinimumHeight(38); save2.clicked.connect(save_settings); bv.addWidget(save2); bv.addStretch(); tabs.addTab(billing,"Abrechnung & Bank")
+        self.mail_tab_index=tabs.addTab(self.mail_settings_tab(),"E-Mail-Versand"); self.settings_tabs=tabs
         ratespage=QWidget(); rv=QVBoxLayout(ratespage); rv.setContentsMargins(12,10,12,12); rv.setSpacing(7)
         rates=QLabel("Honorarsätze"); rates.setObjectName("sectionTitle"); rv.addWidget(rates)
         rt=QTableWidget(0,5); rt.setMinimumHeight(300); rt.setHorizontalHeaderLabels(["Leistung","Min.","Regulär €","Ermäßigt €","Abrechnung"]); rt.verticalHeader().setDefaultSectionSize(28); rt.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)

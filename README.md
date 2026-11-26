@@ -20,6 +20,15 @@ Drei PDF-Varianten aus demselben Modul (`invoice_pdf.py`):
 
 Die ursprüngliche Rechnung wird nie überschrieben; Dankes- und Erinnerungs-PDFs liegen als eigene Dateien daneben.
 
+- **Rechnungsdatum** und **Sitzungs-/Leistungsdatum** sind frei eintragbar; „Bezahlt“ ohne Datumsangabe
+  (für die EÜR gilt das Rechnungsdatum als Zahlungseingang)
+- Optionaler Vermerk **„PERSÖNLICH – NUR VOM EMPFÄNGER ZU ÖFFNEN“** unter der Anschrift
+- **Keine Cent-Beträge**: alle Honorare werden auf volle Euro abgerundet
+- Leistungen u. a. **Erstgespräch, Testung, Befunderstellung** (Sätze unter Praxiseinstellungen → Honorare)
+- **E-Mail-Versand** (`mailer.py`): Zugangsdaten unter Praxiseinstellungen → *E-Mail-Versand*; der Versand ist erst
+  nach einer erfolgreichen **Testmail** freigeschaltet (bei geänderten Zugangsdaten erneut). Senden über
+  **Rechnungen → Per E-Mail senden** oder direkt nach dem Erstellen. Das Passwort wird verschlüsselt gespeichert.
+
 ## Ausgaben & EÜR (Menü Abrechnung)
 - **Ausgaben** mit Kategorie, Zahlart und **verschlüsseltem Beleg** (Scan/PDF), Ablage unter `Ausgaben/Belege/<Jahr>`
 - **Kassenbuch (bar)** mit Anfangsbestand und laufendem Bestand; Bareinnahme mit Rechnungsnummer markiert die Rechnung als bezahlt
