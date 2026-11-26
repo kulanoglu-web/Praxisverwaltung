@@ -15,6 +15,7 @@ SECURITY = ("SSL/TLS", "STARTTLS", "keine")
 # Häufige Anbieter: Server, Port, Verschlüsselung. Alles bleibt in den Einstellungen änderbar.
 PRESETS = {
     "Eigener Server": ("", 465, "SSL/TLS"),
+    "webgo": ("", 465, "SSL/TLS"),   # Server je Vertrag: sXX.goserver.host bzw. serverXX.webgo24.de (Kundenportal)
     "IONOS (1&1)": ("smtp.ionos.de", 465, "SSL/TLS"),
     "Strato": ("smtp.strato.de", 465, "SSL/TLS"),
     "GMX": ("mail.gmx.net", 587, "STARTTLS"),

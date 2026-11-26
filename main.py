@@ -4588,6 +4588,8 @@ Write-Output ($lines -join "`n")
             if i<=0: return
             h_,p_,s_=mailer.PRESETS[preset.currentText()]
             if h_: host.setText(h_)
+            elif preset.currentText()=="webgo":
+                host.clear(); host.setPlaceholderText("sXX.goserver.host – Servernummer aus dem webgo-Kundenportal (Vertrag → E-Mails)"); host.setFocus()
             port.setValue(p_); sec.setCurrentText(s_)
             if not user.text().strip(): user.setText(sender.text().strip())
         preset.currentIndexChanged.connect(use_preset)
